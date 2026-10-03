@@ -185,6 +185,8 @@
     <!-- 降级回答模板（AI 不可用时，功能补充 1.7） -->
     <string name="fallback_gap">今天已摄入 %1$d kcal，目标 %2$d kcal，还差 %3$d kcal。建议晚餐补一份主食加蛋白质，睡前再加一勺蛋白粉。\n（当前是简化模式，AI 未接入或不可用）</string>
     <string name="fallback_reached">今天已摄入 %1$d kcal，达到目标 %2$d kcal。可以安排一次力量训练。\n（当前是简化模式，AI 未接入或不可用）</string>
+    <!-- 隐藏热量数字时的降级回答：不许出现任何 kcal / 体重数字（PRD 14.3） -->
+    <string name="fallback_kcal_hidden">今天的记录已经存好了。可以按计划安排一次力量训练。\n（当前是简化模式，AI 未接入或不可用）</string>
 
     <!-- ConfirmSheet -->
     <string name="sheet_title_confirm">确认记录</string>
@@ -197,4 +199,173 @@
     <string name="field_weight">体重 kg</string>
     <string name="field_sleep">睡眠 小时</string>
     <string name="field_symptom">症状</string>
+
+    <!--
+        ══════════════════════════════════════════════════════════════════════
+        v4 扩展功能（Healix设计规范系统.md 第九章 / 功能扩展设计方案.md P0+P1）
+        ══════════════════════════════════════════════════════════════════════
+        文案硬约束（规范 9.8，实现时逐条比对）：
+        · 禁止疾病名、概率数字、恐吓式表达、"建议咨询医生"套话（就医阈值文案除外）
+        · 禁止宣称因果：两指标同时出现时只写"同时出现"，不写"因为 A 所以 B"（PRD R6）
+        · `_short` 超过 24 汉字即为不达标，必须重写而不是靠省略号截断
+        · 不出现单位缩写歧义（写「150 分钟」不写「150min」）
+    -->
+
+    <!-- ── 记录级状态（PRD 15.5：失败 ≠ 错误，用中性色不用 negative） ── -->
+    <string name="state_unrecognized">未识别 · 点此补充</string>
+    <string name="state_save_failed">未能保存，请重试</string>
+
+    <!-- ── 首页多维状态行（规范 9.2：两态互斥，恒定 48dp） ── -->
+    <string name="status_none">还没有状态数据</string>
+    <string name="status_sep"> · </string>
+    <string name="status_dim_training">运动 %1$d/%2$d</string>
+    <string name="status_dim_sleep">睡眠 %1$sh</string>
+    <string name="status_dim_weight">体重 %1$skg</string>
+    <string name="status_cd_summary">今天的状态：%1$s。点击查看详情</string>
+
+    <!-- ── 预警双套文案（规范 9.8）：_short 用于首页状态行（≤24 汉字） ── -->
+    <string name="signal_short_h1">连续 3 天睡眠不足 · 今晚提前 1 小时熄灯</string>
+    <string name="signal_short_h2">这周还没动过 · 20 分钟快走也算</string>
+    <string name="signal_short_h3">今天还没记录 · 记一笔只要几秒</string>
+    <string name="signal_short_h4">这三天有两餐没记 · 今天先把三餐补上</string>
+    <string name="signal_short_h5">连续 3 天没吃够 · 明天早餐加一份主食</string>
+    <string name="signal_short_h6">两周体重没动 · 每日摄入上调 200 kcal 试试</string>
+    <string name="signal_short_h7">这周运动不到 150 分钟 · 快走骑行都算</string>
+    <string name="signal_short_h8">体重偏低且没涨 · 建议做一次常规检查</string>
+    <string name="signal_short_t1">这周体重掉了 %1$s kg · 建议做一次常规体检</string>
+    <string name="signal_short_t2">这周睡眠比上周少 %1$s 小时 · 作息在往后滑</string>
+    <string name="signal_short_t3">一个月记了 %1$d 次不适 · 可以做一次常规体检</string>
+
+    <!-- ── 预警完整文案：严格按「事实。影响，动作。」三段式，≤2 行 ── -->
+    <string name="signal_full_h1">连续 3 天睡不到 6 小时。睡眠直接决定恢复和免疫，今晚提前 1 小时熄灯。</string>
+    <string name="signal_full_h2">这周还没动过。20 分钟快走也算，今天补一次。</string>
+    <string name="signal_full_h3">今天还没记录。记一笔只要几秒。</string>
+    <string name="signal_full_h4">这三天有两餐没记。增重靠总量，少一餐很难补回来。</string>
+    <string name="signal_full_h5">连续 3 天没吃够。明天早餐加一份主食，再配一个鸡蛋。</string>
+    <string name="signal_full_h6">两周体重没动。增重靠的是每日总量，不是单次吃多少。把每日摄入上调 200 kcal，试一周看趋势。</string>
+    <string name="signal_full_h7">这周运动不足 150 分钟，低于指南推荐量。快走、骑行、球类都算。</string>
+    <string name="signal_full_h8">你的体重偏低且近期没涨。指南对体重过轻者的第一条建议是先排除疾病原因，建议做一次常规检查。</string>
+    <string name="signal_full_t1">这周体重掉了 %1$s kg，不在你的目标里。若持续下降，建议做一次常规体检。</string>
+    <string name="signal_full_t2">这周平均睡眠比上周少了 %1$s 小时。作息往后滑通常连着第二天的摄入一起乱。先把入睡时间往前提 30 分钟，观察三天。</string>
+    <string name="signal_full_t3">最近一个月记了 %1$d 次不适，频次偏高。可以考虑做一次常规体检。</string>
+
+    <!-- ── 状态详情页（规范 9.4） ── -->
+    <string name="status_title">状态</string>
+    <string name="tab_exercise">运动</string>
+    <string name="tab_sleep">睡眠</string>
+    <string name="tab_weight">体重</string>
+    <string name="tab_body">身体</string>
+    <string name="status_train_week">本周 %1$d 练 · 已完成 %2$d</string>
+    <string name="status_train_progress">%1$d / %2$d 次 · %3$d / %4$d 分钟</string>
+    <string name="status_recent_training">最近训练</string>
+    <string name="status_no_training_week">本周还没有训练记录</string>
+    <string name="status_view_week_plan">查看本周训练计划 ›</string>
+    <string name="status_sleep_avg">日均 %1$s 小时 · 目标 %2$s</string>
+    <string name="status_sleep_less">比上周少 %1$s 小时</string>
+    <string name="status_sleep_more">比上周多 %1$s 小时</string>
+    <string name="status_sleep_flat">与上周持平</string>
+    <string name="status_weight_current">当前 %1$s kg · 目标 %2$s</string>
+    <string name="status_weight_up">近 14 日 ↑%1$s kg</string>
+    <string name="status_weight_down">近 14 日 ↓%1$s kg</string>
+    <string name="status_weight_flat">近 14 日持平</string>
+    <string name="status_bmi">BMI %1$s · %2$s</string>
+    <string name="bmi_low">偏低</string>
+    <string name="bmi_normal">正常</string>
+    <string name="bmi_over">超重</string>
+    <string name="bmi_obese">肥胖</string>
+    <string name="status_bmi_guide">你的体重偏低且近期没涨。指南对体重过轻者的第一条建议是先排除疾病原因，建议做一次常规检查。</string>
+    <string name="status_need_attention">需要留意</string>
+    <string name="status_illness_day">本次不适 · 第 %1$d 天</string>
+    <string name="status_illness_visit_yes">已就医</string>
+    <string name="status_illness_visit_no">未就医</string>
+    <!-- 规范 9.4 / 828 行：病程 >3 天时在时间线**下方**给一句就医阈值引导。
+         PRD 388 行约束 —— 给行动、不给诊断：无疾病名、无概率数字、无恐吓式表达、
+         不做"给严重度打分"。13sp text_1。 -->
+    <string name="status_illness_guide">不适持续超过 3 天。若一直没有好转，建议去医院做一次常规检查。</string>
+    <string name="status_reminders">提醒</string>
+    <string name="status_no_attention">暂时没有需要留意的事</string>
+    <string name="status_weight_need_first">先记录一次体重，才能看趋势</string>
+    <string name="status_go_record">去记录</string>
+    <string name="status_reminder_next">下次 %1$s</string>
+
+    <!-- ── 趋势折线（规范 9.3：无网格、无坐标轴、无图例、无动画） ── -->
+    <string name="chart_nodata">记录不足 3 天，暂不画趋势</string>
+    <string name="chart_range">%1$s – %2$s %3$s</string>
+    <string name="chart_window_7">近 7 日</string>
+    <string name="chart_window_30">近 30 日</string>
+    <string name="chart_desc">近 %1$d 日%2$s，%3$s 到 %4$s %5$s，%6$s</string>
+    <string name="chart_desc_nodata">记录不足 3 天</string>
+    <!-- 规范 9.7 ④ / 964 行 + PRD 14.3：HIDE_* 开关开启时，折线的无障碍描述
+         也必须去掉数值 —— 否则读屏会把「58 到 62 公斤」念出来，隐私开关被绕过。
+         ⚠️ 措辞里不得出现「已隐藏」字样（PRD 14.3 明令不做「已隐藏」提示）。 -->
+    <string name="chart_desc_hidden">近 %1$d 日%2$s趋势</string>
+    <string name="chart_trend_up">上升 %1$s</string>
+    <string name="chart_trend_down">下降 %1$s</string>
+    <string name="chart_trend_flat">持平</string>
+    <string name="unit_kg_plain">公斤</string>
+    <string name="unit_hour_plain">小时</string>
+
+    <!-- ── 计划页「训练」Tab（规范 9.5） ── -->
+    <string name="tab_training">训练</string>
+    <string name="training_rest">休息</string>
+    <string name="training_generate">生成本周计划</string>
+    <string name="training_generate_intro">结合你的目标（%1$s）和本周已练肌群，一次生成 7 天安排。</string>
+    <string name="training_generating">生成中</string>
+    <string name="training_generating_hint">正在排这周的训练…</string>
+    <string name="training_goal_footer">本周目标 %1$d 次 · 休息日也会排出来</string>
+    <string name="training_focus">本周重点：%1$s</string>
+    <string name="training_failed">生成失败（已限流）</string>
+    <string name="mode_simplified_local">简化模式 · 本地生成</string>
+    <string name="recorded">已记录</string>
+    <string name="training_log_cd">记录今天的训练：%1$s</string>
+    <string name="training_empty">还没有训练安排</string>
+
+    <!-- ── 内联撤销条（规范 9.6） ── -->
+    <string name="undo_recorded">已记录 %1$s · %2$s</string>
+    <string name="undo_recorded_extra">已记录 %1$d 条 · %2$s</string>
+    <string name="undo_announce">已记录%1$s，5 秒内可撤销</string>
+
+    <!-- ── 设置页新增三组（规范 9.7） ── -->
+    <string name="group_goal">目标</string>
+    <string name="group_reminder">提醒</string>
+    <string name="group_privacy">隐私</string>
+    <string name="setting_primary_goal">主目标</string>
+    <string name="setting_weight_goal">体重目标</string>
+    <string name="setting_train_goal">每周训练</string>
+    <string name="setting_sleep_goal">睡眠目标</string>
+    <string name="setting_water_goal">饮水目标</string>
+    <string name="setting_hide_kcal">隐藏热量数字</string>
+    <string name="setting_hide_weight">隐藏体重数字</string>
+    <!-- 规范 9.7 / 921 行：目标组每项值下方 8dp 处 13sp text_3 的「依据提示」，
+         仅在用户首次打开该组时显示一次（标记见 SettingsKeys.GOAL_SOURCE_SEEN）。
+         措辞指的是 `ensureGoalDefaultsIfEmpty()` 里训练/睡眠/饮水的默认值来源 ——
+         《中国居民膳食指南(2022)》，不是拍脑袋。 -->
+    <string name="setting_goal_source_dietary">来自膳食指南推荐量</string>
+    <string name="goal_gain">增重</string>
+    <string name="goal_loss">减重</string>
+    <string name="goal_keep">保持</string>
+    <string name="value_shown">显示</string>
+    <string name="value_hidden">已隐藏</string>
+    <string name="unit_train_goal">%1$d 次 / %2$d 分钟</string>
+    <string name="unit_hours">%1$s 小时</string>
+    <string name="unit_ml">%1$d ml</string>
+    <!-- 目标未设置时的占位（规范 9.7）。⚠️ 不得在 Kotlin 里硬编码「未设置」，
+         一律走这条资源 —— 否则改文案要翻代码。 -->
+    <string name="value_not_set">未设置</string>
+    <!-- 训练目标编辑弹窗的字段标签（复用 ConfirmSheet 字段行样式）。
+         不用通用的 `field_amount`(数量) / `field_time`(时间) —— 训练目标要的是
+         「3 次 / 150 分钟」，标签必须明确是「次数」「分钟」，否则用户不知道填什么。 -->
+    <string name="goal_train_sessions_label">次数</string>
+    <string name="goal_train_minutes_label">分钟</string>
+    <!-- 提醒行的操作（复用 ConfirmSheet 的 setItems 动作表） -->
+    <string name="reminder_done">标记已完成</string>
+    <string name="reminder_checkup">体检</string>
+    <string name="reminder_dental">洗牙</string>
+    <string name="reminder_glasses">配镜</string>
+    <string name="reminder_vaccine">疫苗</string>
+    <string name="reminder_add">添加提醒</string>
+    <string name="reminder_field_name">名称</string>
+    <string name="reminder_field_days">周期天数</string>
+    <string name="reminder_field_last">上次日期</string>
+    <string name="reminder_pick_days">周期</string>
 </resources>

@@ -76,8 +76,17 @@ object EventText {
     /**
      * 列表项的第二行摘要。按类型口径给不同内容，避免"体重 · 约 0 kcal"这类荒谬文案。
      * 无可用信息时返回 null（UI 隐藏该行，不留空占位）。
+     *
+     * @param hideKcal 隐私开关「隐藏热量数字」（规范 §9.7 ④ / PRD §14.3）。
+     *   为 true 时 meal / exercise **不显示 kcal**，退回到用户自己填的数量文本；
+     *   没有数量文本就整行隐藏。★注意：开关若只作用于首页而不作用于这里，
+     *   用户一低头就能在列表里看到被"隐藏"的数字 —— 那等于开关是假的。
      */
-    fun summary(context: android.content.Context, event: com.healix.app.db.EventEntity): String? {
+    fun summary(
+        context: android.content.Context,
+        event: com.healix.app.db.EventEntity,
+        hideKcal: Boolean = false,
+    ): String? {
         // ⚠️ 千万不要在这里写 `val R = com.healix.app.R`：
         //    局部名字 R 会**遮蔽**掉生成的 R 类，于是 `R.string.xxx`
         //    变成「在一个 Class 引用上取 string」——编译报
@@ -87,19 +96,24 @@ object EventText {
         //    （实测 CI 就是被这个坑挂住的。）
         return when (event.type) {
             "meal", "exercise" -> {
-                val base = if (event.kcal > 0) {
-                    context.getString(com.healix.app.R.string.summary_kcal, event.kcal)
+                if (hideKcal) {
+                    // 隐藏热量：只保留用户填的数量/项目文本，不显示任何 kcal
+                    event.amount.ifBlank { null }
                 } else {
-                    null
-                }
-                when {
-                    base != null && event.amount.isNotBlank() ->
-                        context.getString(
-                            com.healix.app.R.string.summary_kcal_amount, event.kcal, event.amount,
-                        )
-                    base != null -> base
-                    event.amount.isNotBlank() -> event.amount
-                    else -> null
+                    val base = if (event.kcal > 0) {
+                        context.getString(com.healix.app.R.string.summary_kcal, event.kcal)
+                    } else {
+                        null
+                    }
+                    when {
+                        base != null && event.amount.isNotBlank() ->
+                            context.getString(
+                                com.healix.app.R.string.summary_kcal_amount, event.kcal, event.amount,
+                            )
+                        base != null -> base
+                        event.amount.isNotBlank() -> event.amount
+                        else -> null
+                    }
                 }
             }
             "body" -> if (event.weightKg > 0) {

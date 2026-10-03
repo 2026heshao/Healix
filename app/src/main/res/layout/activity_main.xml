@@ -73,6 +73,7 @@
 
     <!-- 汇总区：无卡片，大数字本身是视觉中心 -->
     <LinearLayout
+        android:id="@+id/summaryBlock"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
@@ -130,6 +131,45 @@
             tools:text="摄入 2180 · 消耗 1860 · 目标 2500" />
     </LinearLayout>
 
+    <!--
+        多维状态行（设计规范系统 §9.2）。
+        恒定 48dp，**两态互斥**：摘要态 `运动 2/3 · 睡眠 7.2h · 体重 58.2kg`，
+        有未读信号时原地切换为信号态（accent 文字），**不新增行、高度不变**。
+        与汇总区之间 28dp 留白（汇总区自身 20dp bottom padding + 这里 8dp），不用分隔线。
+        整行进入状态详情页；右侧 chevron 是"这一整块能进去"的暗示。
+    -->
+    <LinearLayout
+        android:id="@+id/statusRow"
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/touch_min"
+        android:layout_marginTop="8dp"
+        android:background="?attr/selectableItemBackground"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="@dimen/screen_margin"
+        android:paddingEnd="@dimen/screen_margin">
+
+        <TextView
+            android:id="@+id/statusText"
+            style="@style/Text.Secondary"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:maxLines="1"
+            tools:text="运动 2/3 · 睡眠 7.2h · 体重 58.2kg" />
+
+        <ImageView
+            android:id="@+id/statusChevron"
+            android:layout_width="16dp"
+            android:layout_height="16dp"
+            android:layout_marginStart="4dp"
+            android:contentDescription="@null"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_chevron"
+            tools:ignore="ContentDescription" />
+    </LinearLayout>
+
     <!-- 监督提示条：仅今日无记录时出现，无底色无线 -->
     <TextView
         android:id="@+id/nudgeBar"
@@ -177,6 +217,43 @@
         android:text="@string/state_offline"
         android:visibility="gone"
         tools:visibility="visible" />
+
+    <!--
+        内联撤销条（规范 §9.6）：写入成功后出现，5 秒后自动消失。
+        与监督提示条同构 —— **无底色无边框**，靠文字区分，不做成"横幅"。
+        同时最多 1 条，新条直接顶掉旧条（由 UndoBar 工具保证）。
+    -->
+    <LinearLayout
+        android:id="@+id/undoBar"
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/touch_min"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="@dimen/screen_margin"
+        android:paddingEnd="@dimen/screen_margin"
+        android:visibility="gone"
+        tools:visibility="visible">
+
+        <TextView
+            android:id="@+id/undoLeft"
+            style="@style/Text.Secondary"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:maxLines="1"
+            tools:text="已记录 饮食 · 约 600 kcal" />
+
+        <TextView
+            android:id="@+id/undoAction"
+            style="@style/Text.Link"
+            android:layout_width="wrap_content"
+            android:layout_height="@dimen/touch_min"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:gravity="center"
+            android:minWidth="@dimen/touch_min"
+            android:text="@string/undo" />
+    </LinearLayout>
 
     <!-- 列表：无卡片，1dp 线分隔 -->
     <FrameLayout

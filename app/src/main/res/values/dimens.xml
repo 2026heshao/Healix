@@ -25,4 +25,15 @@
     <dimen name="handle_width">36dp</dimen>
     <dimen name="handle_height">3dp</dimen>
     <dimen name="icon_size">20dp</dimen>
+
+    <!--
+        v4 扩展功能 UI（Healix设计规范系统.md 9.11）新增 5 项。
+        ⚠️ 状态行 48dp / 训练日行 76dp / 提醒行 56dp 复用 touch_min / item_height /
+        setting_row_height，**不新增** —— 新增 dimen 越多，圆角与间距越容易失控。
+    -->
+    <dimen name="chart_height">80dp</dimen>
+    <dimen name="chart_stroke">1.6dp</dimen>
+    <dimen name="marker_width">2dp</dimen>
+    <dimen name="marker_height">16dp</dimen>
+    <dimen name="tab_indicator">2dp</dimen>
 </resources>

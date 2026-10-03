@@ -5,7 +5,11 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.healix.app.HealixApp
 import com.healix.app.R
+import com.healix.app.db.GoalEntity
+import com.healix.app.db.GoalMetrics
+import com.healix.app.db.ReminderEntity
 import com.healix.app.db.SettingEntity
+import com.healix.app.db.SettingsKeys
 import com.healix.app.net.ChatMessage
 import com.healix.app.net.ChatRequest
 import com.healix.app.net.ChatResult
@@ -14,8 +18,10 @@ import com.healix.app.net.ProviderConfig
 import com.healix.app.net.ProviderPresets
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -38,6 +44,10 @@ data class SettingsValues(
     /** 用户背景（自由文本）。空 = 未填写，走原 prompt 路径。 */
     val background: String = "",
     val debugSummary: String = "",
+    /** 隐私：隐藏热量数字（settings 键 HIDE_KCAL）。 */
+    val hideKcal: Boolean = false,
+    /** 隐私：隐藏体重数字（settings 键 HIDE_WEIGHT）。 */
+    val hideWeight: Boolean = false,
 )
 
 data class TestResult(val ok: Boolean, val text: String)
@@ -76,8 +86,124 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
     private val _applied = MutableStateFlow(false)
     val applied: StateFlow<Boolean> = _applied.asStateFlow()
 
+    // ── 目标（goals 表）─────────────────────────────────────────────
+    // 直接订阅 DAO 的 Flow，而不是并进 SettingsValues：
+    // 目标是**多行结构**（主目标 / 体重 / 训练 / 睡眠 / 饮水各一行），
+    // 压成一个 data class 的字段会在增删维度时处处改签名。
+    /** 当前 active 目标，按 is_primary DESC 排序。 */
+    val goals: StateFlow<List<GoalEntity>> = db.goalDao().observeActive()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    // ── 提醒（reminders 表）─────────────────────────────────────────
+    /** 启用中的提醒，按到期日升序。 */
+    val reminders: StateFlow<List<ReminderEntity>> = db.reminderDao().observeEnabled()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     init {
-        viewModelScope.launch { reload() }
+        viewModelScope.launch {
+            // 首次进入时补齐默认目标 / 预设提醒，再读设置值。
+            ensureGoalDefaultsIfEmpty()
+            ensureReminderDefaultsIfEmpty()
+            reload()
+        }
+    }
+
+    /**
+     * 首次启动补齐默认目标（仅当 goals 表一条 active 都没有时）。
+     *
+     * 默认值**全部来自《中国居民膳食指南(2022)》**，不是拍脑袋：
+     * - 每周训练 `3 次 / 150 分钟`：准则二 —— 中等强度有氧每周累计 150–300 分钟、
+     *   抗阻每周 2–3 天（隔天）。取推荐区间下限。
+     * - 睡眠 `7.5 小时`：指南成人 7–8 小时，取中值。
+     * - 饮水 `1700 ml`：指南成年男性 1700 ml（女性 1500 ml）；默认按男。
+     * - 体重目标：取 settings 里已有的 `WEIGHT`（BMR/TDEE 的起点值）；为空则 0（UI 显示「未设置」）。
+     * - 主目标：默认「增重」（用户当前主诉求）。
+     *
+     * ⚠️ 主目标用**一行 GoalEntity** 表示：`metric = GoalMetrics.PRIMARY`，
+     *    `type = "goal_mode"`，`target_value` ∈ {0=增重 / 1=减重 / 2=保持}。
+     *    这是本任务唯一一处"用数值编码枚举"。理由：「主目标」必须只有一个存放位置，
+     *    否则会像 2026-10-03 的键名分裂事故一样，在 settings 表与 goals 表各存一份而互相打架。
+     *    `HealthAggregator` 读 `getByMetric(PRIMARY).targetValue.toInt()` 判 `isWeightLossGoal`。
+     */
+    private suspend fun ensureGoalDefaultsIfEmpty() = withContext(Dispatchers.IO) {
+        if (db.goalDao().countActive() > 0) return@withContext
+        val now = System.currentTimeMillis()
+        val weightTarget = settings.get(SettingsKeys.WEIGHT)?.toDoubleOrNull() ?: 0.0
+        val defaults = listOf(
+            GoalEntity(
+                type = TYPE_GOAL_MODE,
+                metric = GoalMetrics.PRIMARY,
+                targetValue = GOAL_MODE_GAIN.toDouble(),
+                isPrimary = 1,
+                createdAt = now,
+                updatedAt = now,
+            ),
+            GoalEntity(
+                type = "weight",
+                metric = GoalMetrics.WEIGHT_KG,
+                targetValue = weightTarget,
+                createdAt = now,
+                updatedAt = now,
+            ),
+            GoalEntity(
+                type = "training",
+                metric = GoalMetrics.SESSIONS_PER_WEEK,
+                targetValue = DEFAULT_TRAIN_SESSIONS.toDouble(),
+                createdAt = now,
+                updatedAt = now,
+            ),
+            GoalEntity(
+                type = "training",
+                metric = GoalMetrics.TRAIN_MINUTES_PER_WEEK,
+                targetValue = DEFAULT_TRAIN_MINUTES.toDouble(),
+                createdAt = now,
+                updatedAt = now,
+            ),
+            GoalEntity(
+                type = "sleep",
+                metric = GoalMetrics.SLEEP_H,
+                targetValue = DEFAULT_SLEEP_H,
+                createdAt = now,
+                updatedAt = now,
+            ),
+            GoalEntity(
+                type = "habit",
+                metric = GoalMetrics.WATER_ML,
+                targetValue = DEFAULT_WATER_ML.toDouble(),
+                createdAt = now,
+                updatedAt = now,
+            ),
+        )
+        defaults.forEach { db.goalDao().upsert(it) }
+    }
+
+    /**
+     * 首次启动补齐预设提醒（仅当 reminders 表为空时）。
+     *
+     * 预设来自 PRD §5.4：体检 365 天 / 洗牙 180 天 / 配镜 365 天（疫苗由用户自填，不预置）。
+     * 名称走 `strings.xml`（`reminder_*`），周期天数即名称对应的常见复查间隔。
+     * 首次到期日 = 今天 + 周期天数（无历史"上次日期"）。
+     */
+    private suspend fun ensureReminderDefaultsIfEmpty() = withContext(Dispatchers.IO) {
+        if (db.reminderDao().count() > 0) return@withContext
+        val app = getApplication<Application>()
+        val now = System.currentTimeMillis()
+        val presets = listOf(
+            app.getString(R.string.reminder_checkup) to 365,
+            app.getString(R.string.reminder_dental) to 180,
+            app.getString(R.string.reminder_glasses) to 365,
+        )
+        presets.forEach { (name, days) ->
+            db.reminderDao().upsert(
+                ReminderEntity(
+                    name = name,
+                    intervalDays = days,
+                    lastDoneAt = null,
+                    nextDueAt = now + days.toLong() * DAY_MS,
+                    createdAt = now,
+                )
+            )
+        }
     }
 
     private suspend fun reload() {
@@ -101,6 +227,8 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
             dayStart = all[SettingsActivity.KEY_DAY_START]?.toIntOrNull() ?: 4,
             background = all[SettingsActivity.KEY_BACKGROUND].orEmpty(),
             debugSummary = "今日 ${quotas.usedToday()} 次 · 失败 ${quotas.failedToday()}",
+            hideKcal = all[SettingsActivity.KEY_HIDE_KCAL] == "true",
+            hideWeight = all[SettingsActivity.KEY_HIDE_WEIGHT] == "true",
         )
 
         // 接入状态：三要素齐备即视为已接入（纯本地判断，不发请求）
@@ -132,6 +260,89 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
             container.secretStore?.saveApiKey(key)
             reload()
         }
+    }
+
+    // ── 目标（goals 表）─────────────────────────────────────────────
+
+    /**
+     * 设置主目标。`modeIndex` ∈ {0=增重 / 1=减重 / 2=保持}。
+     *
+     * `metric = GoalMetrics.PRIMARY` 这一行同时承载"主目标是哪个模式"，
+     * `setPrimary` 把 is_primary=1 落到它、其余清 0。两步都要做：
+     * setPrimary 管排序，setTarget 管取值，缺一会让首页大数字与训练处方不一致。
+     */
+    fun setPrimaryGoal(modeIndex: Int) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val now = System.currentTimeMillis()
+            db.goalDao().setPrimary(GoalMetrics.PRIMARY, now)
+            db.goalDao().setTarget(GoalMetrics.PRIMARY, modeIndex.toDouble(), now)
+        }
+    }
+
+    /** 改某个目标值（体重 / 训练次数 / 训练分钟 / 睡眠 / 饮水）。 */
+    fun setGoalTarget(metric: String, value: Double) {
+        viewModelScope.launch(Dispatchers.IO) {
+            db.goalDao().setTarget(metric, value, System.currentTimeMillis())
+        }
+    }
+
+    // ── 隐私（settings 表：HIDE_KCAL / HIDE_WEIGHT）─────────────────
+
+    /**
+     * 切换一个布尔隐私开关。`key` 只允许传 `SettingsKeys.HIDE_*`（键名纪律）。
+     * 状态存 `"true"` / `"false"`，默认（键不存在）视为 `false`。
+     */
+    fun toggleHide(key: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val hidden = settings.get(key) == "true"
+            settings.put(SettingEntity(key = key, value = if (hidden) "false" else "true"))
+            reload()
+        }
+    }
+
+    // ── 提醒（reminders 表）─────────────────────────────────────────
+
+    /**
+     * 新增 / 编辑一条提醒。
+     *
+     * `nextDueAt = (lastDoneAt ?: 今天) + intervalDays` —— "上次日期"一旦填了，
+     * 到期日就由它推；没填则从今天起算（新提醒的自然语义）。
+     * `existing == null` 表示新增（id=0 由 Room autoGenerate）。
+     */
+    fun saveReminder(
+        existing: ReminderEntity?,
+        name: String,
+        intervalDays: Int,
+        lastDoneAt: Long?,
+    ) {
+        if (name.isBlank() || intervalDays <= 0) return
+        viewModelScope.launch(Dispatchers.IO) {
+            val now = System.currentTimeMillis()
+            val base = lastDoneAt ?: now
+            db.reminderDao().upsert(
+                ReminderEntity(
+                    id = existing?.id ?: 0,
+                    name = name,
+                    intervalDays = intervalDays,
+                    lastDoneAt = lastDoneAt,
+                    nextDueAt = base + intervalDays.toLong() * DAY_MS,
+                    enabled = 1,
+                    createdAt = existing?.createdAt ?: now,
+                )
+            )
+        }
+    }
+
+    /** 标记已完成：按周期从今天顺延（PRD §5.4「点已完成 → 顺延」）。 */
+    fun markReminderDone(reminder: ReminderEntity) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val now = System.currentTimeMillis()
+            db.reminderDao().markDone(reminder.id, now, now + reminder.intervalDays.toLong() * DAY_MS)
+        }
+    }
+
+    fun deleteReminder(id: Long) {
+        viewModelScope.launch(Dispatchers.IO) { db.reminderDao().delete(id) }
     }
 
     fun providerNames(): List<String> =
@@ -325,5 +536,27 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
                 ExportWriter.launchCreateDocument(activity, json)
             }
         }
+    }
+
+    companion object {
+        /** 一天的毫秒数，用于提醒周期顺延。 */
+        private const val DAY_MS = 24L * 60 * 60 * 1000
+
+        /** 主目标行（`metric = PRIMARY`）的 `type`。 */
+        private const val TYPE_GOAL_MODE = "goal_mode"
+
+        /**
+         * 主目标编码：0=增重 / 1=减重 / 2=保持。
+         * 与 `HealthAggregator` 的 `PRIMARY_GOAL_LOSS = 1` 必须一致。
+         */
+        const val GOAL_MODE_GAIN = 0
+        const val GOAL_MODE_LOSS = 1
+        const val GOAL_MODE_KEEP = 2
+
+        // 默认目标值，来源见 ensureGoalDefaultsIfEmpty() 的注释（膳食指南）。
+        private const val DEFAULT_TRAIN_SESSIONS = 3
+        private const val DEFAULT_TRAIN_MINUTES = 150
+        private const val DEFAULT_SLEEP_H = 7.5
+        private const val DEFAULT_WATER_ML = 1700
     }
 }

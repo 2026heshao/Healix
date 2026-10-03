@@ -60,6 +60,14 @@
             android:exported="false" />
 
         <!--
+            状态详情页（设计规范系统 9.4）：从首页状态行进入的二级页。
+            承载 运动 / 睡眠 / 体重 / 身体 四段，含趋势折线、信号列表、提醒清单。
+        -->
+        <activity
+            android:name=".ui.StatusDetailActivity"
+            android:exported="false" />
+
+        <!--
             常驻通知录入服务。
             Android 14 必须匹配 foregroundServiceType，否则 startForeground() 抛异常。
             ⚠️ specialUse 在部分国产 ROM 上可能被忽略 —— 真机需验证（见 docs/待核实清单）。

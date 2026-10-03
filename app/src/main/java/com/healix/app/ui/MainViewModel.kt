@@ -4,24 +4,37 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.healix.app.HealixApp
+import com.healix.app.R
+import com.healix.app.db.BodySignalEntity
 import com.healix.app.db.EventEntity
+import com.healix.app.db.GoalMetrics
 import com.healix.app.db.PresetEntity
+import com.healix.app.notify.EventText
 import com.healix.app.notify.QuickInputService
 import com.healix.app.net.NetworkStatus
+import com.healix.app.parse.ParsedEvent
 import com.healix.app.repo.EventRepository
 import com.healix.app.repo.SOURCE_PRESET
 import com.healix.app.repo.SubmitResult
+import com.healix.app.rules.HealthAggregator
+import com.healix.app.rules.HealthRules
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.time.DayOfWeek
 import java.time.LocalDate
+import java.time.temporal.TemporalAdjusters
 
 /**
  * 主界面交互状态。
@@ -50,6 +63,39 @@ data class MainSummary(
     val kcalOut: Int = 0,
     val target: Int = 2500,
     val gap: Int = 2500,
+)
+
+/**
+ * 首页多维状态行（设计规范系统 §9.2）。
+ *
+ * **两态互斥，恒定 48dp** —— 有信号时不是新增一行，而是原地升级。
+ * 这样高度恒定、记录列表不被挤压，也不会出现"提示越积越多"的告警墙。
+ */
+sealed interface HomeStatus {
+
+    /** 摘要态（默认）：`运动 2/3 · 睡眠 7.2h · 体重 58.2kg` */
+    data class Summary(val text: String) : HomeStatus
+
+    /** 信号态（有未读 `body_signals`）：`连续 3 天睡眠不足 · 今晚提前 1 小时熄灯` */
+    data class Signal(val ruleId: String, val text: String) : HomeStatus
+
+    /** 全部维度无数据。仍可点，进入状态页看空状态（规范 §9.2）。 */
+    data object Empty : HomeStatus
+}
+
+/**
+ * 撤销条的载荷（规范 §9.6，PRD §15.7 的「撤得回」）。
+ *
+ * 只在本条记录**真的落库成功**后才发 —— 通知栏路径也是这个口径。
+ * 失败（未识别）不发撤销条：那条记录已经在列表里以「未识别 · 点此补充」呈现，
+ * 并且带着重试入口，再叠一个"撤销"会让用户以为它写进去了。
+ */
+data class UndoPayload(
+    val clientEventId: String,
+    val typeName: String,
+    val valueText: String,
+    /** 一句话拆出多条时的总条数（含首条）。1 = 单条。 */
+    val totalCount: Int,
 )
 
 class MainViewModel(app: Application) : AndroidViewModel(app) {
@@ -90,6 +136,171 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             .map { it?.toIntOrNull() ?: DEFAULT_TARGET_KCAL }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DEFAULT_TARGET_KCAL)
 
+    // ==================================================================
+    // 多维状态行（设计规范系统 §9.2）
+    // ==================================================================
+
+    /** 目标值。`metric -> targetValue`，一处取全，避免每个维度各开一个 Flow。 */
+    private val goalsData: StateFlow<Map<String, Double>> = db.goalDao()
+        .observeActive()
+        .map { list -> list.associate { it.metric to it.targetValue } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    /** 隐私开关：隐藏体重数字。隐藏时该维度**整块不显示**（PRD §14.3）。 */
+    private val hideWeight: StateFlow<Boolean> = db.settingsDao()
+        .observe(KEY_HIDE_WEIGHT)
+        .map { it == "true" }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    /** 隐私开关：隐藏热量数字。汇总区整块不显示。 */
+    val hideKcal: StateFlow<Boolean> = db.settingsDao()
+        .observe(KEY_HIDE_KCAL)
+        .map { it == "true" }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    /** 今日未读信号（`body_signals`，由 [scanSignals] 落库、UNIQUE 去重）。 */
+    private val signalsToday: StateFlow<List<BodySignalEntity>> = todayKey
+        .flatMapLatest { day -> db.bodySignalDao().observeByDay(day) }
+        .map { list -> list.filter { it.acknowledged == 0 } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * 状态行内容。**两态互斥**：有未读信号就整体切成信号态，不是加一行。
+     *
+     * 依赖 [events]（今日记录）而不是只在跨零点时重算 —— 记一笔、AI 回填、
+     * 点预设都会改变今日记录，状态行必须跟着变。
+     */
+    val homeStatus: StateFlow<HomeStatus> = combine(
+        events,
+        todayKey,
+        signalsToday,
+        goalsData,
+        hideWeight,
+    ) { todayEvents, day, signals, goals, hideW ->
+        val top = signals.minByOrNull { HealthRules.priorityOf(it.ruleId) }
+        if (top != null) {
+            // 信号态。文案直接用落库时格式化好的 _short（规范 §9.8：≤24 汉字）。
+            HomeStatus.Signal(ruleId = top.ruleId, text = top.title)
+        } else {
+            val text = buildSummaryLine(todayEvents, day, goals, hideW)
+            if (text.isEmpty()) HomeStatus.Empty else HomeStatus.Summary(text)
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HomeStatus.Empty)
+
+    /**
+     * 拼摘要态文案：固定顺序 `运动 → 睡眠 → 体重`，用 ` · ` 连接。
+     *
+     * - **无数据的维度不参与拼接**（规范 §9.2），所以可能只有 1–2 项
+     * - **不按数值排序**：顺序稳定比"智能排序"重要 —— 用户扫一眼就知道哪个位置是什么
+     * - **200% 字号时只保留第 1 项**（规范 §9.10）：首页预算只剩 9dp，
+     *   折行会把记录列表挤到 2 行以下，减少项数是"信息密度换可读性"的合理让步
+     */
+    private suspend fun buildSummaryLine(
+        todayEvents: List<EventEntity>,
+        day: String,
+        goals: Map<String, Double>,
+        hideW: Boolean,
+    ): String {
+        val app = getApplication<Application>()
+        val items = mutableListOf<String>()
+
+        // ① 运动 N/M —— 本周已完成次数 ÷ 每周目标次数
+        val done = runCatching {
+            val monday = LocalDate.parse(day)
+                .with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)).toString()
+            db.eventDao().countByTypeInRange("exercise", monday, day)
+        }.getOrDefault(0)
+        val goalSessions = goals[GoalMetrics.SESSIONS_PER_WEEK]?.toInt()
+            ?: DEFAULT_TRAIN_SESSIONS
+        items += app.getString(R.string.status_dim_training, done, goalSessions)
+
+        // ② 睡眠 N.Nh —— 只取今日已记录的睡眠
+        val sleep = todayEvents.firstOrNull { it.type == "sleep" && it.sleepH > 0 }?.sleepH
+        if (sleep != null) {
+            items += app.getString(R.string.status_dim_sleep, trimNumber(sleep))
+        }
+
+        // ③ 体重 N.Nkg —— 隐私开关打开时整块不显示，不是显示 ***
+        val weight = todayEvents.firstOrNull { it.type == "body" && it.weightKg > 0 }?.weightKg
+        if (weight != null && !hideW) {
+            items += app.getString(R.string.status_dim_weight, trimNumber(weight))
+        }
+
+        if (items.isEmpty()) return ""
+        val fontScale = app.resources.configuration.fontScale
+        val kept = if (fontScale >= 1.5f) items.take(1) else items
+        return kept.joinToString(app.getString(R.string.status_sep))
+    }
+
+    /** 去掉无意义的小数尾巴：58.0 → "58"，58.2 → "58.2"。 */
+    private fun trimNumber(v: Double): String =
+        if (v == v.toLong().toDouble()) v.toLong().toString() else v.toString()
+
+    // ==================================================================
+    // 内联撤销条（规范 §9.6 / PRD §15.7）
+    // ==================================================================
+
+    private val _undo = MutableSharedFlow<UndoPayload>(extraBufferCapacity = 4)
+    val undo: SharedFlow<UndoPayload> = _undo.asSharedFlow()
+
+    /**
+     * 撤销一笔：`repo.undo` 走软删除（30 天后由清理任务物理清除），
+     * 与通知栏路径的 `UndoReceiver` 同一套语义。
+     */
+    fun undo(clientEventId: String) {
+        viewModelScope.launch { repo.undo(clientEventId) }
+    }
+
+    /** 由 [SubmitResult] 组装撤销条载荷；失败或没有首条事件时返回 null。 */
+    private fun undoPayloadOf(result: SubmitResult): UndoPayload? {
+        if (!result.ok) return null
+        val first = result.firstEvent ?: return null
+        return UndoPayload(
+            clientEventId = result.clientEventId,
+            typeName = EventText.typeName(getApplication(), first.type),
+            valueText = summaryValueText(first),
+            totalCount = result.extraCount + 1,
+        )
+    }
+
+    /** 把 [EventText.summarySuffix] 的口径渲染成文字，避免各页面各写一遍。 */
+    private fun summaryValueText(event: ParsedEvent): String {
+        val app = getApplication<Application>()
+        return when (val v = EventText.summarySuffix(event)) {
+            is EventText.SummaryValue.Kcal -> app.getString(R.string.summary_kcal, v.value)
+            is EventText.SummaryValue.Weight ->
+                app.getString(R.string.summary_weight, trimNumber(v.kg))
+            is EventText.SummaryValue.Sleep ->
+                app.getString(R.string.summary_sleep, trimNumber(v.hours))
+            EventText.SummaryValue.None -> ""
+        }
+    }
+
+    /**
+     * 打开 App / 回到前台时跑一次规则扫描（PRD §7.4：不依赖后台定时器 ——
+     * 国行 ROM 杀后台是既有结论）。
+     *
+     * 整个流程 **0 次 AI 调用**，纯本地规则。
+     */
+    fun scanSignals() {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { HealthAggregator.scanAndPersist(getApplication()) }
+        }
+    }
+
+    /**
+     * 标记今日信号为已读（用户进了状态详情页就算看过了）。
+     *
+     * 已读之后状态行**必须切回摘要态** —— 不是永久停留在信号态，也不是
+     * 把提示删掉（规范 §9.2「切回条件」）。`body_signals` 行本身保留，
+     * 只是在状态页「身体」段仍能看到完整文案。
+     */
+    fun acknowledgeSignals() {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { HealthAggregator.acknowledgeAll(getApplication()) }
+        }
+    }
+
     /**
      * 提交一条口语记录。立即 pending 入库（0ms 可见），后台补 AI 结果。
      *
@@ -105,6 +316,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             // 因此这里即使在断网情况下调用也是安全的 —— 原文一定入库
             val result = repo.submit(rawText)
             _uiState.value = stateOf(result)
+            undoPayloadOf(result)?.let { _undo.tryEmit(it) }
         }
     }
 
@@ -218,10 +430,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             val now = System.currentTimeMillis()
             val dayStart = db.settingsDao().get(KEY_DAY_START)?.toIntOrNull()
                 ?: com.healix.app.parse.DEFAULT_DAY_START_HOUR
+            val clientEventId = java.util.UUID.randomUUID().toString()
 
             db.eventDao().insertIgnore(
                 EventEntity(
-                    clientEventId = java.util.UUID.randomUUID().toString(),
+                    clientEventId = clientEventId,
                     ts = now,
                     dayKey = com.healix.app.parse.dayKeyOf(now, dayStart),
                     rawText = preset.name,
@@ -242,6 +455,21 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 ),
             )
             db.presetDao().bumpUsage(preset.id, now)
+
+            // 预设是"全 App 摩擦最低的路径"，同样给 5 秒撤销
+            // —— 与速记框、通知栏录入形成统一心智（规范 §9.6）。
+            _undo.tryEmit(
+                UndoPayload(
+                    clientEventId = clientEventId,
+                    typeName = EventText.typeName(getApplication(), "meal"),
+                    valueText = if (preset.kcal > 0) {
+                        getApplication<Application>().getString(R.string.summary_kcal, preset.kcal)
+                    } else {
+                        ""
+                    },
+                    totalCount = 1,
+                ),
+            )
         }
     }
 
@@ -262,6 +490,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     companion object {
         const val KEY_TARGET_KCAL = com.healix.app.db.SettingsKeys.TARGET_KCAL
         const val KEY_DAY_START = com.healix.app.db.SettingsKeys.DAY_START
+        const val KEY_HIDE_KCAL = com.healix.app.db.SettingsKeys.HIDE_KCAL
+        const val KEY_HIDE_WEIGHT = com.healix.app.db.SettingsKeys.HIDE_WEIGHT
         const val DEFAULT_TARGET_KCAL = 2500
+
+        /**
+         * 每周训练次数的兜底目标：3 次。
+         * 依据《中国居民膳食指南(2022)》准则二「抗阻每周 2–3 天」，取上限
+         * —— 与设置页默认值一致。用户可在设置页覆盖（PRD §3.1 明确要求默认值不写死）。
+         */
+        const val DEFAULT_TRAIN_SESSIONS = 3
     }
 }

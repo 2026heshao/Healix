@@ -201,11 +201,12 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content" />
 
-            <include
-                android:id="@+id/rowWeight"
-                layout="@layout/row_setting_value"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
+            <!--
+                体重行已从「个人」移出（规范 9.7 ②）：
+                体重不是"用户填一次的基础信息"，而是由 events(type=body) 累计产生的
+                **记录数据**；它的目标值在「目标」组的「体重目标」里。SettingsKeys.WEIGHT
+                仍是 BMR/TDEE 的起点值来源，只是不在这个分组里露出。
+            -->
 
             <include
                 android:id="@+id/rowAge"
@@ -279,6 +280,136 @@
                     android:gravity="end"
                     tools:text="0 / 2000" />
             </LinearLayout>
+
+            <!-- ══ 目标 ★v4（规范 9.7 ①）══
+                 读写落在 goals 表（不是 settings 表）：目标有"起始值 / 目标值 / 主目标"
+                 三个维度，且首页状态行、训练处方都要读它，塞进 settings 会再次分裂语义。 -->
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="@dimen/divider"
+                android:layout_marginTop="@dimen/block_gap"
+                android:background="@color/line" />
+
+            <TextView
+                style="@style/Text.Caption"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingStart="@dimen/screen_margin"
+                android:paddingEnd="@dimen/screen_margin"
+                android:paddingTop="12dp"
+                android:paddingBottom="8dp"
+                android:text="@string/group_goal" />
+
+            <!--
+                目标组「依据提示」（规范 9.7）：13sp text_3，仅首次打开该组时显示一次。
+                形式裁决 = 放**组标题下方一行**，而非规范字面的「每项值下方」：
+                体重/训练/睡眠/饮水的默认值同出一个来源（《中国居民膳食指南(2022)》），
+                逐项重复 5 遍只是噪声。可见性由 SettingsActivity.setupGoalSourceHint() 控制。
+            -->
+            <TextView
+                android:id="@+id/goalSourceHint"
+                style="@style/Text.Tertiary"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingStart="@dimen/screen_margin"
+                android:paddingEnd="@dimen/screen_margin"
+                android:paddingBottom="8dp"
+                android:visibility="gone"
+                tools:text="来自膳食指南推荐量"
+                tools:visibility="visible" />
+
+            <include
+                android:id="@+id/rowGoalPrimary"
+                layout="@layout/row_setting_value"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+
+            <include
+                android:id="@+id/rowGoalWeight"
+                layout="@layout/row_setting_value"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+
+            <include
+                android:id="@+id/rowGoalTrain"
+                layout="@layout/row_setting_value"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+
+            <include
+                android:id="@+id/rowGoalSleep"
+                layout="@layout/row_setting_value"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+
+            <include
+                android:id="@+id/rowGoalWater"
+                layout="@layout/row_setting_value"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+
+            <!-- ══ 提醒 ★v4（规范 9.7 ③）══
+                 读写落在 reminders 表。行是**动态渲染**的（可增删），
+                 所以容器用 LinearLayout，行由代码 inflate row_setting_value 后加入。 -->
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="@dimen/divider"
+                android:layout_marginTop="@dimen/block_gap"
+                android:background="@color/line" />
+
+            <TextView
+                style="@style/Text.Caption"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingStart="@dimen/screen_margin"
+                android:paddingEnd="@dimen/screen_margin"
+                android:paddingTop="12dp"
+                android:paddingBottom="8dp"
+                android:text="@string/group_reminder" />
+
+            <LinearLayout
+                android:id="@+id/reminderContainer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
+
+            <include
+                android:id="@+id/rowReminderAdd"
+                layout="@layout/row_setting_value"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+
+            <!-- ══ 隐私 ★v4（规范 9.7 ④）══
+                 读写落在 settings 表（HIDE_KCAL / HIDE_WEIGHT 两个布尔键）。
+                 **不引入 Switch**：全 App 无底色容器，Switch 的彩色轨道会成为
+                 唯一的"彩色面"，破坏"全 App 只有 1 个强调色"。状态由右侧值文字承载。 -->
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="@dimen/divider"
+                android:layout_marginTop="@dimen/block_gap"
+                android:background="@color/line" />
+
+            <TextView
+                style="@style/Text.Caption"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingStart="@dimen/screen_margin"
+                android:paddingEnd="@dimen/screen_margin"
+                android:paddingTop="12dp"
+                android:paddingBottom="8dp"
+                android:text="@string/group_privacy" />
+
+            <include
+                android:id="@+id/rowHideKcal"
+                layout="@layout/row_setting_value"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+
+            <include
+                android:id="@+id/rowHideWeight"
+                layout="@layout/row_setting_value"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
 
             <View
                 android:layout_width="match_parent"

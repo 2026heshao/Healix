@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    病程时间线单行（设计规范 §9.4）。
+    01    10-01  嗓子疼
+    02    10-02  嗓子疼 · 未就医
+    ⚠️ 时间线只记录事实：`未就医` / `已就医` / `已服药` 都是用户填写的原文，
+    App 不生成、不评价、不打分。
+    序号列 13sp text_3 等宽，日期列 13sp text_2，正文 15sp text_1；每行 44dp。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:minHeight="44dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="@dimen/screen_margin"
+        android:paddingEnd="@dimen/screen_margin"
+        android:paddingTop="6dp"
+        android:paddingBottom="6dp">
+
+        <!-- 序号：等宽数字，13sp text_3 -->
+        <TextView
+            android:id="@+id/illnessIndex"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:minWidth="24dp"
+            android:fontFamily="monospace"
+            android:textColor="@color/text_3"
+            android:textSize="13sp"
+            tools:text="01" />
+
+        <!-- 日期：13sp text_2 -->
+        <TextView
+            android:id="@+id/illnessDate"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:minWidth="48dp"
+            android:layout_marginStart="8dp"
+            android:textColor="@color/text_2"
+            android:textSize="13sp"
+            tools:text="10-01" />
+
+        <!-- 正文：15sp text_1（用户填写的原文） -->
+        <TextView
+            android:id="@+id/illnessText"
+            style="@style/Text.Body"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="8dp"
+            tools:text="低烧 37.8 · 已就医" />
+    </LinearLayout>
+
+    <View
+        android:id="@+id/illnessDivider"
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/divider"
+        android:layout_marginStart="@dimen/screen_margin"
+        android:background="@color/line" />
+
+</LinearLayout>

@@ -5,6 +5,7 @@ import android.view.View
 import android.view.inputmethod.InputMethodManager
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
@@ -73,6 +74,18 @@ class MainActivity : AppCompatActivity() {
         }
         binding.nudgeBar.setOnClickListener { focusInput() }
 
+        // 状态行：整行进入状态详情页（规范 §9.2）。有信号时默认落在「身体」段，
+        // 否则落在「运动」段 —— 入口决定默认段，用户不用再猜。
+        binding.statusRow.setOnClickListener {
+            val tab = if (binding.statusRow.tag == TAB_BODY) TAB_BODY else TAB_EXERCISE
+            startActivity(
+                Intent(this, StatusDetailActivity::class.java)
+                    .putExtra(StatusDetailActivity.EXTRA_DEFAULT_TAB, tab),
+            )
+            // 进了状态页就算看过了 → 已读后必须切回摘要态（规范 §9.2）
+            vm.acknowledgeSignals()
+        }
+
         // 状态提示条点击：按当前语义分流（离线 → 重试；未配置 → 去设置）
         binding.offlineBar.setOnClickListener {
             if (lastUiState == MainUiState.NotConfigured) {
@@ -93,12 +106,25 @@ class MainActivity : AppCompatActivity() {
         // 通知栏录入可能在本页不可见时发生；Room Flow 会自动推新数据，
         // 这里只需在回到前台时确认常驻通知副标题与今日状态一致。
         vm.refreshNudgeSubtitle()
+        // 规则扫描走"打开时计算"，不依赖后台定时器（PRD §7.4）。
+        // 整个流程 0 次 AI 调用，纯本地。
+        vm.scanSignals()
     }
 
     private fun focusInput() {
         binding.input.requestFocus()
         val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
         imm.showSoftInput(binding.input, InputMethodManager.SHOW_IMPLICIT)
+    }
+
+    /**
+     * 状态行右侧 chevron 取色：摘要态 `text_3`、信号态 `accent`（规范 §9.2）。
+     *
+     * 每次都用同一个 drawable 实例 `setTint` —— 这里只有一个 ImageView 用它，
+     * 不存在共享可变状态被串改的问题。
+     */
+    private fun tintChevron(colorRes: Int) {
+        binding.statusChevron.drawable?.setTint(ContextCompat.getColor(this, colorRes))
     }
 
     private fun submit() {
@@ -182,6 +208,72 @@ class MainActivity : AppCompatActivity() {
 
                 launch { vm.presets.collect { renderPresets(it) } }
 
+                // 状态行：两态互斥渲染（规范 §9.2）
+                launch {
+                    vm.homeStatus.collect { status ->
+                        when (status) {
+                            is HomeStatus.Signal -> {
+                                binding.statusRow.tag = TAB_BODY
+                                binding.statusText.text = status.text
+                                binding.statusText.setTextColor(
+                                    ContextCompat.getColor(this@MainActivity, R.color.accent),
+                                )
+                                tintChevron(R.color.accent)
+                            }
+                            is HomeStatus.Summary -> {
+                                binding.statusRow.tag = TAB_EXERCISE
+                                binding.statusText.text = status.text
+                                binding.statusText.setTextColor(
+                                    ContextCompat.getColor(this@MainActivity, R.color.text_2),
+                                )
+                                tintChevron(R.color.text_3)
+                            }
+                            HomeStatus.Empty -> {
+                                binding.statusRow.tag = TAB_EXERCISE
+                                binding.statusText.setText(R.string.status_none)
+                                binding.statusText.setTextColor(
+                                    ContextCompat.getColor(this@MainActivity, R.color.text_3),
+                                )
+                                tintChevron(R.color.text_3)
+                            }
+                        }
+                    }
+                }
+
+                // 内联撤销条：写入成功后 5 秒可撤销（规范 §9.6 / PRD §15.7）
+                launch {
+                    vm.undo.collect { payload ->
+                        val text = if (payload.totalCount > 1) {
+                            // 一句话拆成多条时，"列表自己多长出来两行"必须有交代（PRD §15.4）
+                            getString(
+                                R.string.undo_recorded_extra,
+                                payload.totalCount,
+                                payload.valueText.ifEmpty { "" },
+                            )
+                        } else {
+                            getString(R.string.undo_recorded, payload.typeName, payload.valueText)
+                        }
+                        UndoBar.bind(
+                            container = binding.undoBar,
+                            leftText = binding.undoLeft,
+                            action = binding.undoAction,
+                            text = text,
+                            announce = getString(R.string.undo_announce, payload.typeName),
+                            onUndo = { vm.undo(payload.clientEventId) },
+                        )
+                    }
+                }
+
+                // 隐私：隐藏热量数字时，汇总区与计划条**整块不显示**（PRD §14.3）
+                launch {
+                    vm.hideKcal.collect { hidden ->
+                        binding.summaryBlock.visibility =
+                            if (hidden) View.GONE else View.VISIBLE
+                        binding.planBar.visibility = if (hidden) View.GONE else View.VISIBLE
+                        adapter.hideKcal = hidden
+                    }
+                }
+
                 launch {
                     vm.todayCount.collect { count ->
                         // 监督提示条：今日无记录时出现（被动监督，不依赖后台定时器）
@@ -212,6 +304,15 @@ class MainActivity : AppCompatActivity() {
             binding.presetRow.addView(tv)
         }
     }
+
+    companion object {
+        /**
+         * 状态行进入状态详情页时携带的默认段（规范 §9.4）：
+         * 信号态进来默认「身体」段（用户要看的就是那条信号），摘要态默认「运动」段。
+         */
+        private const val TAB_EXERCISE = "exercise"
+        private const val TAB_BODY = "body"
+    }
 }
 
 /**
@@ -224,6 +325,17 @@ class EventAdapter(
 ) : RecyclerView.Adapter<EventAdapter.VH>() {
 
     private var items: List<EventEntity> = emptyList()
+
+    /**
+     * 隐私：隐藏热量数字（规范 §9.7 ④）。为 true 时 meal / exercise 的摘要
+     * 不再显示 kcal，改为显示用户自己填的数量文本；没有数量就整行隐藏。
+     */
+    var hideKcal: Boolean = false
+        set(value) {
+            if (field == value) return
+            field = value
+            notifyDataSetChanged()
+        }
 
     fun submit(list: List<EventEntity>) {
         items = list
@@ -258,21 +370,40 @@ class EventAdapter(
             b.bodyText.text = e.rawText
 
             // 摘要：按类型口径，无信息则隐藏（不留空行）
-            val summary = EventText.summary(ctx, e)
+            val summary = EventText.summary(ctx, e, hideKcal)
             b.summaryText.text = summary
             b.summaryText.visibility = if (summary.isNullOrEmpty()) View.GONE else View.VISIBLE
 
-            // 三态：pending 显示"识别中"，failed 显示错误 + 重试
+            // 三态：pending 显示"识别中"，failed 显示「未识别 · 点此补充」
             when (e.parseStatus) {
                 PARSE_PENDING -> {
+                    // 「识别中」13sp text_3、**不可点**、整行仍可点进编辑（规范 §3.3）
                     b.pendingText.visibility = View.VISIBLE
                     b.errorText.visibility = View.GONE
                 }
                 PARSE_FAILED -> {
                     b.pendingText.visibility = View.GONE
                     b.errorText.visibility = View.VISIBLE
-                    b.errorText.text = ctx.getString(R.string.state_failed)
-                    b.errorText.setOnClickListener { onRetry(e) }
+
+                    // ⚠️ 失败 ≠ 错误（PRD §15.5 / 规范 §3.10）：
+                    //   原文已落库、day_key 已算对 → "这条还没算完"，不是数据丢了。
+                    //   染红会让用户以为 App 坏了或记录没了，而它好端端躺在列表里。
+                    //   negative **只留给"数据真的可能丢"**：DB 写入 / 更新失败。
+                    val dataLoss = e.lastError?.let {
+                        it.startsWith("db_insert_failed") || it.startsWith("db_update_failed")
+                    } == true
+
+                    if (dataLoss) {
+                        b.errorText.setText(R.string.state_save_failed)
+                        b.errorText.setTextColor(ContextCompat.getColor(ctx, R.color.negative))
+                        b.errorText.setOnClickListener { onRetry(e) }
+                    } else {
+                        b.errorText.setText(R.string.state_unrecognized)
+                        b.errorText.setTextColor(ContextCompat.getColor(ctx, R.color.text_2))
+                        // 「补充」= 进编辑弹窗，交给整行的 onEdit 处理
+                        b.errorText.setOnClickListener(null)
+                        b.errorText.isClickable = false
+                    }
                 }
                 else -> {
                     b.pendingText.visibility = View.GONE

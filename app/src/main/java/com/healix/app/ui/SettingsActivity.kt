@@ -1,5 +1,6 @@
 package com.healix.app.ui
 
+import android.content.DialogInterface
 import android.content.Intent
 import android.os.Bundle
 import android.text.InputType
@@ -8,6 +9,7 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
@@ -15,7 +17,14 @@ import androidx.core.widget.doAfterTextChanged
 import com.healix.app.HealixApp
 import com.healix.app.R
 import com.healix.app.databinding.ActivitySettingsBinding
+import com.healix.app.databinding.RowSettingValueBinding
+import com.healix.app.databinding.RowSheetFieldBinding
+import com.healix.app.db.GoalMetrics
+import com.healix.app.db.ReminderEntity
 import com.healix.app.db.SettingsKeys
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
 import kotlinx.coroutines.launch
 
 /**
@@ -59,14 +68,31 @@ class SettingsActivity : AppCompatActivity() {
         setupRow(binding.rowRetryDelay, R.string.setting_retry_delay) { editDecimal(KEY_RETRY_DELAY, R.string.setting_retry_delay) }
 
         // ── 个人 ─────────────────────────────────────────────────
+        // 体重行已移出本组（规范 9.7 ②）—— 它属于「目标」组的「体重目标」。
         setupRow(binding.rowHeight, R.string.setting_height) { editInt(KEY_HEIGHT, R.string.setting_height) }
-        setupRow(binding.rowWeight, R.string.setting_weight) { editDecimal(KEY_WEIGHT, R.string.setting_weight) }
         setupRow(binding.rowAge, R.string.setting_age) { editInt(KEY_AGE, R.string.setting_age) }
         setupRow(binding.rowActivity, R.string.setting_activity) { chooseActivity() }
         setupRow(binding.rowTargetKcal, R.string.setting_target_kcal) { editInt(KEY_TARGET_KCAL, R.string.setting_target_kcal) }
         setupRow(binding.rowDayStart, R.string.setting_day_start) { editInt(KEY_DAY_START, R.string.setting_day_start) }
 
         setupBackground()
+
+        // ── 目标（goals 表）──────────────────────────────────────
+        setupRow(binding.rowGoalPrimary, R.string.setting_primary_goal) { choosePrimaryGoal() }
+        setupRow(binding.rowGoalWeight, R.string.setting_weight_goal) { editGoalWeight() }
+        setupRow(binding.rowGoalTrain, R.string.setting_train_goal) { editGoalTrain() }
+        setupRow(binding.rowGoalSleep, R.string.setting_sleep_goal) { editGoalSleep() }
+        setupRow(binding.rowGoalWater, R.string.setting_water_goal) { editGoalWater() }
+
+        // 目标组「依据提示」：仅首次打开该组时显示一次（规范 9.7）
+        setupGoalSourceHint()
+
+        // ── 提醒（reminders 表）──────────────────────────────────
+        setupRow(binding.rowReminderAdd, R.string.reminder_add) { editReminder(null) }
+
+        // ── 隐私（settings：HIDE_KCAL / HIDE_WEIGHT）──────────────
+        setupRow(binding.rowHideKcal, R.string.setting_hide_kcal) { vm.toggleHide(KEY_HIDE_KCAL) }
+        setupRow(binding.rowHideWeight, R.string.setting_hide_weight) { vm.toggleHide(KEY_HIDE_WEIGHT) }
 
         // ── 数据 ─────────────────────────────────────────────────
         setupRow(binding.rowExport, R.string.export_backup) { vm.exportBackup(this) }
@@ -155,12 +181,17 @@ class SettingsActivity : AppCompatActivity() {
                     binding.rowRetry.value.text = getString(R.string.unit_times, v.retry)
                     binding.rowRetryDelay.value.text = getString(R.string.unit_seconds, trim(v.retryDelay))
                     binding.rowHeight.value.text = if (v.height > 0) getString(R.string.unit_cm, v.height) else "—"
-                    binding.rowWeight.value.text = if (v.weight > 0) getString(R.string.unit_kg, trim(v.weight)) else "—"
                     binding.rowAge.value.text = if (v.age > 0) getString(R.string.unit_years, v.age) else "—"
                     binding.rowActivity.value.text = activityLabel(v.activity)
                     binding.rowTargetKcal.value.text = getString(R.string.plan_item_kcal, "", v.targetKcal).trimStart(' ', '·')
                     binding.rowDayStart.value.text = getString(R.string.unit_hour_clock, v.dayStart)
                     binding.rowDebugSummary.value.text = v.debugSummary
+
+                    // 隐私：右侧值文字即状态，点击切换（不引入 Switch，规范 9.7 ④）
+                    binding.rowHideKcal.value.text =
+                        getString(if (v.hideKcal) R.string.value_hidden else R.string.value_shown)
+                    binding.rowHideWeight.value.text =
+                        getString(if (v.hideWeight) R.string.value_hidden else R.string.value_shown)
 
                     // 背景：只在「用户没在编辑」时回填。
                     // 否则 vm.reload() 触发的回填会把用户正在敲的字覆写掉。
@@ -228,7 +259,241 @@ class SettingsActivity : AppCompatActivity() {
                     }
             }
         }
+        // 目标：goals 表一次订阅，逐行格式化（规范 9.7 ①）
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                vm.goals.collect { list -> renderGoals(list) }
+            }
+        }
+        // 提醒：reminders 表动态渲染（可增删，规范 9.7 ③）
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                vm.reminders.collect { list -> renderReminders(list) }
+            }
+        }
     }
+
+    // ── 目标渲染与编辑 ────────────────────────────────────────────
+
+    /**
+     * 目标组「依据提示」：`来自膳食指南推荐量`，**仅在用户首次打开该组时显示一次**。
+     *
+     * 形式裁决：放**组标题下方一行**，而不是规范字面的「每项值下方」——
+     * 体重/训练/睡眠/饮水的默认值同出一个来源（《中国居民膳食指南(2022)》），
+     * 逐项重复 5 遍只是噪声。
+     * 已读标记落 `settings`（`SettingsKeys.GOAL_SOURCE_SEEN`），跨启动只显示一次；
+     * 先把提示设为可见、再落标记，保证用户至少真的看到过一眼。
+     */
+    private fun setupGoalSourceHint() {
+        lifecycleScope.launch {
+            if (vm.raw(SettingsKeys.GOAL_SOURCE_SEEN) == "true") return@launch
+            binding.goalSourceHint.setText(R.string.setting_goal_source_dietary)
+            binding.goalSourceHint.visibility = View.VISIBLE
+            vm.put(SettingsKeys.GOAL_SOURCE_SEEN, "true")
+        }
+    }
+
+    private fun renderGoals(list: List<com.healix.app.db.GoalEntity>) {
+        val byMetric = list.associateBy { it.metric }
+
+        val mode = byMetric[GoalMetrics.PRIMARY]?.targetValue?.toInt() ?: SettingsViewModel.GOAL_MODE_GAIN
+        binding.rowGoalPrimary.value.text = when (mode) {
+            SettingsViewModel.GOAL_MODE_LOSS -> getString(R.string.goal_loss)
+            SettingsViewModel.GOAL_MODE_KEEP -> getString(R.string.goal_keep)
+            else -> getString(R.string.goal_gain)
+        }
+
+        val weight = byMetric[GoalMetrics.WEIGHT_KG]?.targetValue ?: 0.0
+        binding.rowGoalWeight.value.text =
+            if (weight > 0) getString(R.string.unit_kg, trim(weight)) else getString(R.string.value_not_set)
+
+        val sessions = byMetric[GoalMetrics.SESSIONS_PER_WEEK]?.targetValue?.toInt() ?: 0
+        val minutes = byMetric[GoalMetrics.TRAIN_MINUTES_PER_WEEK]?.targetValue?.toInt() ?: 0
+        binding.rowGoalTrain.value.text = getString(R.string.unit_train_goal, sessions, minutes)
+
+        val sleepH = byMetric[GoalMetrics.SLEEP_H]?.targetValue ?: 0.0
+        binding.rowGoalSleep.value.text = getString(R.string.unit_hours, trim(sleepH))
+
+        val water = byMetric[GoalMetrics.WATER_ML]?.targetValue?.toInt() ?: 0
+        binding.rowGoalWater.value.text = getString(R.string.unit_ml, water)
+    }
+
+    /** 当前目标值（编辑弹窗回显用）。 */
+    private fun currentTarget(metric: String, fallback: Double): Double =
+        vm.goals.value.firstOrNull { it.metric == metric }?.targetValue ?: fallback
+
+    private fun choosePrimaryGoal() {
+        val labels = arrayOf(
+            getString(R.string.goal_gain),
+            getString(R.string.goal_loss),
+            getString(R.string.goal_keep),
+        )
+        AlertDialog.Builder(this)
+            .setTitle(R.string.setting_primary_goal)
+            .setItems(labels) { _, which -> vm.setPrimaryGoal(which) }
+            .setNegativeButton(R.string.cancel, null as DialogInterface.OnClickListener?)
+            .show()
+    }
+
+    private fun editGoalWeight() {
+        val initial = trimOrEmpty(currentTarget(GoalMetrics.WEIGHT_KG, 0.0))
+        showFieldDialog(
+            R.string.setting_weight_goal,
+            listOf(FieldSpec(R.string.setting_weight, initial, NUMBER_DECIMAL)),
+        ) { raw ->
+            raw.firstOrNull()?.toDoubleOrNull()?.let { vm.setGoalTarget(GoalMetrics.WEIGHT_KG, it) }
+        }
+    }
+
+    private fun editGoalTrain() {
+        val sessions = trimOrEmpty(currentTarget(GoalMetrics.SESSIONS_PER_WEEK, 0.0))
+        val minutes = trimOrEmpty(currentTarget(GoalMetrics.TRAIN_MINUTES_PER_WEEK, 0.0))
+        showFieldDialog(
+            R.string.setting_train_goal,
+            listOf(
+                FieldSpec(R.string.goal_train_sessions_label, sessions, NUMBER_INT),
+                FieldSpec(R.string.goal_train_minutes_label, minutes, NUMBER_INT),
+            ),
+        ) { raw ->
+            val s = raw.getOrNull(0)?.toIntOrNull()
+            val m = raw.getOrNull(1)?.toIntOrNull()
+            if (s != null && s > 0) vm.setGoalTarget(GoalMetrics.SESSIONS_PER_WEEK, s.toDouble())
+            if (m != null && m > 0) vm.setGoalTarget(GoalMetrics.TRAIN_MINUTES_PER_WEEK, m.toDouble())
+        }
+    }
+
+    private fun editGoalSleep() {
+        val initial = trimOrEmpty(currentTarget(GoalMetrics.SLEEP_H, 0.0))
+        showFieldDialog(
+            R.string.setting_sleep_goal,
+            listOf(FieldSpec(R.string.unit_hour_plain, initial, NUMBER_DECIMAL)),
+        ) { raw ->
+            raw.firstOrNull()?.toDoubleOrNull()?.let { vm.setGoalTarget(GoalMetrics.SLEEP_H, it) }
+        }
+    }
+
+    private fun editGoalWater() {
+        val initial = trimOrEmpty(currentTarget(GoalMetrics.WATER_ML, 0.0))
+        showFieldDialog(
+            R.string.setting_water_goal,
+            listOf(FieldSpec(R.string.setting_water_goal, initial, NUMBER_INT)),
+        ) { raw ->
+            raw.firstOrNull()?.toIntOrNull()?.let { vm.setGoalTarget(GoalMetrics.WATER_ML, it.toDouble()) }
+        }
+    }
+
+    // ── 提醒渲染与编辑 ────────────────────────────────────────────
+
+    private fun renderReminders(list: List<ReminderEntity>) {
+        val container = binding.reminderContainer
+        container.removeAllViews()
+        val now = System.currentTimeMillis()
+        list.forEach { reminder ->
+            val row = RowSettingValueBinding.inflate(layoutInflater, container, false)
+            row.label.text = reminder.name
+            row.chevron.visibility = View.VISIBLE
+            row.value.text = getString(R.string.status_reminder_next, dateLabel(reminder.nextDueAt))
+            // 到期或临期（≤7 天）：右侧日期用 accent（规范 9.7 ③）
+            val due = reminder.nextDueAt - now <= 7L * DAY_MS
+            row.value.setTextColor(ContextCompat.getColor(this, if (due) R.color.accent else R.color.text_2))
+            row.root.setOnClickListener { reminderActions(reminder) }
+            container.addView(row.root)
+        }
+    }
+
+    /** 点一条提醒：标记完成（顺延）/ 编辑 / 删除。 */
+    private fun reminderActions(reminder: ReminderEntity) {
+        // ⚠️ setItems 只接受 Array<CharSequence>，不接受 List<String>（见 showDialog 注释）。
+        // 「标记已完成」放首位：最常用动作在首项。
+        val items = arrayOf<CharSequence>(
+            getString(R.string.reminder_done),
+            getString(R.string.edit),
+            getString(R.string.delete),
+        )
+        AlertDialog.Builder(this)
+            .setTitle(reminder.name)
+            .setMessage(getString(R.string.status_reminder_next, dateLabel(reminder.nextDueAt)))
+            .setItems(items) { _, which ->
+                when (which) {
+                    0 -> vm.markReminderDone(reminder)
+                    1 -> editReminder(reminder)
+                    else -> vm.deleteReminder(reminder.id)
+                }
+            }
+            .setNegativeButton(R.string.cancel, null as DialogInterface.OnClickListener?)
+            .show()
+    }
+
+    /** 新增（existing == null）或编辑一条提醒：复用 ConfirmSheet 三行字段。 */
+    private fun editReminder(existing: ReminderEntity?) {
+        val specs = listOf(
+            FieldSpec(R.string.reminder_field_name, existing?.name.orEmpty(), InputType.TYPE_CLASS_TEXT),
+            FieldSpec(
+                R.string.reminder_field_days,
+                existing?.intervalDays?.toString().orEmpty(),
+                NUMBER_INT,
+            ),
+            FieldSpec(
+                R.string.reminder_field_last,
+                existing?.lastDoneAt?.let { dateLabel(it) }.orEmpty(),
+                InputType.TYPE_CLASS_TEXT,
+            ),
+        )
+        showFieldDialog(
+            if (existing == null) R.string.reminder_add else R.string.edit,
+            specs,
+        ) { raw ->
+            val name = raw.getOrNull(0).orEmpty()
+            val days = raw.getOrNull(1)?.toIntOrNull() ?: 0
+            val last = parseDate(raw.getOrNull(2).orEmpty())
+            vm.saveReminder(existing, name, days, last)
+        }
+    }
+
+    /** 复用 ConfirmSheet 的字段行（`row_sheet_field`）做数值 / 文本编辑。 */
+    private fun showFieldDialog(titleRes: Int, specs: List<FieldSpec>, onOk: (List<String>) -> Unit) {
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val pad = (20 * resources.displayMetrics.density).toInt()
+            setPadding(pad, pad / 2, pad, 0)
+        }
+        val inputs = mutableListOf<EditText>()
+        specs.forEach { spec ->
+            val b = RowSheetFieldBinding.inflate(layoutInflater, container, false)
+            b.fieldLabel.setText(spec.labelRes)
+            b.fieldValue.setText(spec.initial)
+            b.fieldValue.inputType = spec.inputType
+            b.fieldValue.setSelection(b.fieldValue.text.length)
+            container.addView(b.root)
+            inputs += b.fieldValue
+        }
+        AlertDialog.Builder(this)
+            .setTitle(titleRes)
+            .setView(container)
+            .setPositiveButton(R.string.confirm) { _: DialogInterface, _: Int ->
+                onOk(inputs.map { it.text.toString().trim() })
+            }
+            .setNegativeButton(R.string.cancel, null as DialogInterface.OnClickListener?)
+            .show()
+    }
+
+    /** 字段行规格（label 用资源 id，避免硬编码中文）。 */
+    private data class FieldSpec(val labelRes: Int, val initial: String, val inputType: Int)
+
+    /** 毫秒时间戳 → `yyyy-MM-dd`（本地时区）。 */
+    private fun dateLabel(ts: Long): String =
+        Instant.ofEpochMilli(ts).atZone(ZoneId.systemDefault()).toLocalDate().toString()
+
+    /** `yyyy-MM-dd` → 当天 0 点的毫秒时间戳；空或解析失败返回 null（不猜）。 */
+    private fun parseDate(s: String): Long? {
+        if (s.isBlank()) return null
+        return runCatching {
+            LocalDate.parse(s).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+        }.getOrNull()
+    }
+
+    private fun trimOrEmpty(v: Double): String =
+        if (v <= 0.0) "" else trim(v)
 
     /**
      * SAF 回传：用户选完导出文件后由系统调用。
@@ -426,6 +691,10 @@ class SettingsActivity : AppCompatActivity() {
         /** 用户背景（自由文本）。空 = 未填写，AI prompt 走无背景的原路径。 */
         const val KEY_BACKGROUND = SettingsKeys.BACKGROUND
 
+        // 隐私开关（SettingsKeys 是唯一事实来源；这里只做转发引用）
+        const val KEY_HIDE_KCAL = SettingsKeys.HIDE_KCAL
+        const val KEY_HIDE_WEIGHT = SettingsKeys.HIDE_WEIGHT
+
         /**
          * 背景字数上限。
          * 2000 字中文约 2000-2600 token，对免费档是可控的开销；
@@ -435,5 +704,12 @@ class SettingsActivity : AppCompatActivity() {
 
         /** 活动系数（总方案第五节 BMR 公式）。 */
         val ACTIVITY_VALUES = listOf("1.2", "1.375", "1.55", "1.725")
+
+        /** 一天的毫秒数，用于提醒临期（≤7 天）判定。 */
+        private const val DAY_MS = 24L * 60 * 60 * 1000
+
+        private const val NUMBER_INT = InputType.TYPE_CLASS_NUMBER
+        private const val NUMBER_DECIMAL =
+            InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
     }
 }

@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    训练日条目（设计规范系统 §9.5）。
+    - 训练日行最小 76dp；休息日行 48dp（由 Activity 按 rest 态调整，见 PlanReviewActivity）
+    - 「今天」标记：行首 2dp × 16dp accent 竖线（marker_width / marker_height），垂直居中于第一行
+    - 无卡片、无底色徽章、无 emoji（硬约束）
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:gravity="top"
+    android:minHeight="@dimen/item_height"
+    android:orientation="horizontal"
+    android:paddingStart="@dimen/screen_margin"
+    android:paddingEnd="@dimen/screen_margin"
+    android:paddingTop="12dp"
+    android:paddingBottom="12dp">
+
+    <!-- 「今天」竖线：2dp × 16dp accent，居中于第一行（标题行） -->
+    <View
+        android:id="@+id/trainingMarker"
+        android:layout_width="@dimen/marker_width"
+        android:layout_height="@dimen/marker_height"
+        android:layout_marginTop="2dp"
+        android:background="@color/accent"
+        android:visibility="invisible" />
+
+    <!-- 周X：固定 40dp 宽，13sp text_2 -->
+    <TextView
+        android:id="@+id/trainingDow"
+        style="@style/Text.Secondary"
+        android:layout_width="40dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="6dp"
+        android:layout_marginTop="1dp"
+        android:maxLines="1"
+        tools:text="周一" />
+
+    <!-- clipChildren=false：让「记一笔」的 -12dp 外边距不被裁掉（对齐文字右边界） -->
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:clipChildren="false"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/trainingTitle"
+            style="@style/Text.Body"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            tools:text="推（胸/肩/三头）" />
+
+        <TextView
+            android:id="@+id/trainingItems"
+            style="@style/Text.Secondary"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            tools:text="杠铃卧推 4×8-10 · 哑铃肩推 3×10-12" />
+
+        <!-- 文字按钮（Text.Link）：右侧内边距 12dp + marginEnd -12dp，
+             使文字右边界与内容右边界对齐（沿用 prototype 计划项 12px 补偿做法） -->
+        <TextView
+            android:id="@+id/btnLogDay"
+            style="@style/Text.Link"
+            android:layout_width="wrap_content"
+            android:layout_height="@dimen/touch_min"
+            android:layout_gravity="end"
+            android:layout_marginEnd="-12dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:gravity="center"
+            android:minWidth="@dimen/touch_min"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:text="@string/log_this" />
+    </LinearLayout>
+
+</LinearLayout>

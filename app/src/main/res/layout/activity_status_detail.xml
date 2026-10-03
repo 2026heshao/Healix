@@ -1,0 +1,468 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    状态详情页（设计规范 §9.4）。
+    页头「← 状态」+ 4 段文字 Tab（运动 | 睡眠 | 体重 | 身体）+ 4 个段容器 + 常驻免责声明。
+    Tab 样式完全复用计划页（§4.3）：13sp，选中 text_1/500 + 下方 2dp accent 线；段间距 24dp。
+    外层套 HorizontalScrollView(scrollbars="none") 兜住 200% 字号。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/bg"
+    android:fitsSystemWindows="true"
+    android:orientation="vertical">
+
+    <!-- 页头 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingEnd="@dimen/screen_margin">
+
+        <ImageButton
+            android:id="@+id/btnBack"
+            android:layout_width="@dimen/touch_min"
+            android:layout_height="@dimen/touch_min"
+            android:layout_marginStart="8dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/back"
+            android:padding="14dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_back" />
+
+        <TextView
+            android:id="@+id/statusTitle"
+            style="@style/Text.Title"
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:gravity="center_vertical"
+            android:text="@string/status_title" />
+    </LinearLayout>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/divider"
+        android:background="@color/line" />
+
+    <!-- 4 段文字 Tab -->
+    <HorizontalScrollView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:scrollbars="none">
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="48dp"
+            android:orientation="horizontal"
+            android:paddingStart="@dimen/screen_margin"
+            android:paddingEnd="@dimen/screen_margin">
+
+            <!-- 运动 -->
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="match_parent"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/tabExercise"
+                    style="@style/Text.Button"
+                    android:layout_width="wrap_content"
+                    android:layout_height="0dp"
+                    android:layout_weight="1"
+                    android:background="?attr/selectableItemBackground"
+                    android:gravity="center"
+                    android:minWidth="@dimen/touch_min"
+                    android:text="@string/tab_exercise" />
+
+                <View
+                    android:id="@+id/tabExerciseUnderline"
+                    android:layout_width="match_parent"
+                    android:layout_height="@dimen/tab_indicator"
+                    android:background="@color/accent" />
+            </LinearLayout>
+
+            <!-- 睡眠 -->
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="match_parent"
+                android:layout_marginStart="24dp"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/tabSleep"
+                    style="@style/Text.Button"
+                    android:layout_width="wrap_content"
+                    android:layout_height="0dp"
+                    android:layout_weight="1"
+                    android:background="?attr/selectableItemBackground"
+                    android:gravity="center"
+                    android:minWidth="@dimen/touch_min"
+                    android:text="@string/tab_sleep" />
+
+                <View
+                    android:id="@+id/tabSleepUnderline"
+                    android:layout_width="match_parent"
+                    android:layout_height="@dimen/tab_indicator"
+                    android:background="@color/accent"
+                    android:visibility="invisible" />
+            </LinearLayout>
+
+            <!-- 体重 -->
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="match_parent"
+                android:layout_marginStart="24dp"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/tabWeight"
+                    style="@style/Text.Button"
+                    android:layout_width="wrap_content"
+                    android:layout_height="0dp"
+                    android:layout_weight="1"
+                    android:background="?attr/selectableItemBackground"
+                    android:gravity="center"
+                    android:minWidth="@dimen/touch_min"
+                    android:text="@string/tab_weight" />
+
+                <View
+                    android:id="@+id/tabWeightUnderline"
+                    android:layout_width="match_parent"
+                    android:layout_height="@dimen/tab_indicator"
+                    android:background="@color/accent"
+                    android:visibility="invisible" />
+            </LinearLayout>
+
+            <!-- 身体 -->
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="match_parent"
+                android:layout_marginStart="24dp"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/tabBody"
+                    style="@style/Text.Button"
+                    android:layout_width="wrap_content"
+                    android:layout_height="0dp"
+                    android:layout_weight="1"
+                    android:background="?attr/selectableItemBackground"
+                    android:gravity="center"
+                    android:minWidth="@dimen/touch_min"
+                    android:text="@string/tab_body" />
+
+                <View
+                    android:id="@+id/tabBodyUnderline"
+                    android:layout_width="match_parent"
+                    android:layout_height="@dimen/tab_indicator"
+                    android:background="@color/accent"
+                    android:visibility="invisible" />
+            </LinearLayout>
+        </LinearLayout>
+    </HorizontalScrollView>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/divider"
+        android:background="@color/line" />
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:scrollbars="none">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <!-- ══ 运动段 ══ -->
+            <LinearLayout
+                android:id="@+id/exerciseGroup"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/exerciseProgress"
+                    style="@style/Text.Body"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:paddingStart="@dimen/screen_margin"
+                    android:paddingEnd="@dimen/screen_margin"
+                    android:paddingTop="20dp"
+                    tools:text="2 / 3 次 · 87 / 150 分钟" />
+
+                <TextView
+                    android:id="@+id/exerciseRecentTitle"
+                    style="@style/Text.Caption"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/block_gap"
+                    android:paddingStart="@dimen/screen_margin"
+                    android:paddingEnd="@dimen/screen_margin"
+                    android:paddingBottom="8dp"
+                    android:text="@string/status_recent_training"
+                    android:visibility="gone" />
+
+                <LinearLayout
+                    android:id="@+id/exerciseRecentContainer"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical" />
+
+                <TextView
+                    android:id="@+id/exerciseEmpty"
+                    style="@style/Text.Secondary"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:paddingStart="@dimen/screen_margin"
+                    android:paddingEnd="@dimen/screen_margin"
+                    android:text="@string/status_no_training_week"
+                    android:visibility="gone" />
+
+                <TextView
+                    android:id="@+id/exerciseViewPlan"
+                    style="@style/Text.Link"
+                    android:layout_width="match_parent"
+                    android:layout_height="@dimen/touch_min"
+                    android:layout_marginTop="8dp"
+                    android:background="?attr/selectableItemBackground"
+                    android:gravity="center_vertical"
+                    android:paddingStart="@dimen/screen_margin"
+                    android:paddingEnd="@dimen/screen_margin"
+                    android:text="@string/status_view_week_plan" />
+            </LinearLayout>
+
+            <!-- ══ 睡眠段 ══ -->
+            <LinearLayout
+                android:id="@+id/sleepGroup"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone"
+                tools:visibility="visible">
+
+                <com.healix.app.ui.widget.TrendChartView
+                    android:id="@+id/sleepChart"
+                    android:layout_width="match_parent"
+                    android:layout_height="@dimen/chart_height"
+                    android:layout_marginTop="20dp" />
+
+                <TextView
+                    android:id="@+id/sleepAvg"
+                    style="@style/Text.Body"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:paddingStart="@dimen/screen_margin"
+                    android:paddingEnd="@dimen/screen_margin"
+                    android:paddingTop="16dp"
+                    tools:text="日均 7.2 小时 · 目标 7.5" />
+
+                <TextView
+                    android:id="@+id/sleepDiff"
+                    style="@style/Text.Body"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:paddingStart="@dimen/screen_margin"
+                    android:paddingEnd="@dimen/screen_margin"
+                    android:paddingTop="4dp"
+                    android:visibility="gone"
+                    tools:text="比上周少 0.4 小时"
+                    tools:visibility="visible" />
+            </LinearLayout>
+
+            <!-- ══ 体重段 ══ -->
+            <LinearLayout
+                android:id="@+id/weightGroup"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone"
+                tools:visibility="visible">
+
+                <com.healix.app.ui.widget.TrendChartView
+                    android:id="@+id/weightChart"
+                    android:layout_width="match_parent"
+                    android:layout_height="@dimen/chart_height"
+                    android:layout_marginTop="20dp" />
+
+                <TextView
+                    android:id="@+id/weightCurrent"
+                    style="@style/Text.Body"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:paddingStart="@dimen/screen_margin"
+                    android:paddingEnd="@dimen/screen_margin"
+                    android:paddingTop="16dp"
+                    tools:text="当前 58.4 kg · 目标 62.0" />
+
+                <TextView
+                    android:id="@+id/weightDelta"
+                    style="@style/Text.Body"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:paddingStart="@dimen/screen_margin"
+                    android:paddingEnd="@dimen/screen_margin"
+                    android:paddingTop="4dp"
+                    android:visibility="gone"
+                    tools:text="近 14 日 ↑0.6 kg"
+                    tools:visibility="visible" />
+
+                <TextView
+                    android:id="@+id/weightBmi"
+                    style="@style/Text.Body"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:paddingStart="@dimen/screen_margin"
+                    android:paddingEnd="@dimen/screen_margin"
+                    android:paddingTop="4dp"
+                    android:visibility="gone"
+                    tools:text="BMI 18.4 · 偏低"
+                    tools:visibility="visible" />
+
+                <!-- 就医引导（H8 安全条款）：BMI 偏低且体重停滞/下降时追加，不加线不加底色不加图标 -->
+                <TextView
+                    android:id="@+id/bmiGuide"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/block_gap"
+                    android:lineSpacingExtra="7sp"
+                    android:paddingStart="@dimen/screen_margin"
+                    android:paddingEnd="@dimen/screen_margin"
+                    android:text="@string/status_bmi_guide"
+                    android:textColor="@color/text_1"
+                    android:textSize="13sp"
+                    android:visibility="gone" />
+
+                <!-- 数据不足时的文字入口（占位文案由折线控件自身承载） -->
+                <TextView
+                    android:id="@+id/weightGoRecord"
+                    style="@style/Text.Link"
+                    android:layout_width="match_parent"
+                    android:layout_height="@dimen/touch_min"
+                    android:background="?attr/selectableItemBackground"
+                    android:gravity="center_vertical"
+                    android:paddingStart="@dimen/screen_margin"
+                    android:paddingEnd="@dimen/screen_margin"
+                    android:text="@string/status_go_record"
+                    android:visibility="gone" />
+            </LinearLayout>
+
+            <!-- ══ 身体段 ══ -->
+            <LinearLayout
+                android:id="@+id/bodyGroup"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone"
+                tools:visibility="visible">
+
+                <TextView
+                    android:id="@+id/signalTitle"
+                    style="@style/Text.Caption"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:paddingStart="@dimen/screen_margin"
+                    android:paddingEnd="@dimen/screen_margin"
+                    android:paddingTop="20dp"
+                    android:paddingBottom="8dp"
+                    android:text="@string/status_need_attention"
+                    android:visibility="gone" />
+
+                <LinearLayout
+                    android:id="@+id/signalContainer"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:paddingStart="@dimen/screen_margin"
+                    android:paddingEnd="@dimen/screen_margin" />
+
+                <TextView
+                    android:id="@+id/illnessDayHeader"
+                    style="@style/Text.Body"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/block_gap"
+                    android:paddingStart="@dimen/screen_margin"
+                    android:paddingEnd="@dimen/screen_margin"
+                    android:visibility="gone"
+                    tools:text="本次不适 · 第 3 天"
+                    tools:visibility="visible" />
+
+                <LinearLayout
+                    android:id="@+id/illnessTimelineContainer"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:orientation="vertical"
+                    android:visibility="gone"
+                    tools:visibility="visible" />
+
+                <!-- 病程超 3 天的就医阈值引导（规范 9.4）：只给行动，不给诊断、不打分 -->
+                <TextView
+                    android:id="@+id/illnessGuide"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:lineSpacingExtra="7sp"
+                    android:paddingStart="@dimen/screen_margin"
+                    android:paddingEnd="@dimen/screen_margin"
+                    android:text="@string/status_illness_guide"
+                    android:textColor="@color/text_1"
+                    android:textSize="13sp"
+                    android:visibility="gone" />
+
+                <TextView
+                    android:id="@+id/reminderTitle"
+                    style="@style/Text.Caption"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/block_gap"
+                    android:paddingStart="@dimen/screen_margin"
+                    android:paddingEnd="@dimen/screen_margin"
+                    android:paddingBottom="8dp"
+                    android:text="@string/status_reminders"
+                    android:visibility="gone" />
+
+                <LinearLayout
+                    android:id="@+id/reminderContainer"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:visibility="gone" />
+
+                <!-- 唯一的空状态页：用户主动点进来，静默会像加载失败 -->
+                <TextView
+                    android:id="@+id/bodyEmpty"
+                    style="@style/Text.Secondary"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:paddingStart="@dimen/screen_margin"
+                    android:paddingEnd="@dimen/screen_margin"
+                    android:paddingTop="80dp"
+                    android:paddingBottom="24dp"
+                    android:text="@string/status_no_attention"
+                    android:visibility="gone" />
+            </LinearLayout>
+        </LinearLayout>
+    </ScrollView>
+
+    <!-- 免责声明常驻底部 -->
+    <TextView
+        style="@style/Text.Tertiary"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingStart="@dimen/screen_margin"
+        android:paddingEnd="@dimen/screen_margin"
+        android:paddingTop="8dp"
+        android:paddingBottom="12dp"
+        android:text="@string/disclaimer"
+        android:textSize="12sp" />
+
+</LinearLayout>
