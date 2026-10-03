@@ -7,7 +7,7 @@ import android.widget.TextView
 import java.util.WeakHashMap
 
 /**
- * 内联撤销条（Healix设计规范系统.md 9.6）。
+ * 内联撤销条（docs/Healix设计规范系统.md 9.6）。
  *
  * ```
  * 已记录 运动 · 推（胸/肩/三头）                    撤销

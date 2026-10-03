@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 深色模式令牌。规范来源：Healix设计规范系统.md 第五章。 -->
+<!-- 深色模式令牌。规范来源：docs/Healix设计规范系统.md 第五章。 -->
 <resources>
     <color name="bg">#131211</color>
     <color name="surface">#1C1B1A</color>

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    形状与尺寸令牌（Healix设计规范系统.md 2.3）。
+    形状与尺寸令牌（docs/Healix设计规范系统.md 2.3）。
     硬约束：圆角全局只有 8dp 一个值；进度线高 2dp 圆角 1dp。
 -->
 <resources>
@@ -27,7 +27,7 @@
     <dimen name="icon_size">20dp</dimen>
 
     <!--
-        v4 扩展功能 UI（Healix设计规范系统.md 9.11）新增 5 项。
+        v4 扩展功能 UI（docs/Healix设计规范系统.md 9.11）新增 5 项。
         ⚠️ 状态行 48dp / 训练日行 76dp / 提醒行 56dp 复用 touch_min / item_height /
         setting_row_height，**不新增** —— 新增 dimen 越多，圆角与间距越容易失控。
     -->

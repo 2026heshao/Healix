@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
     Healix 设计令牌（浅色）。
-    规范来源：Healix设计规范系统.md 第二章。
+    规范来源：docs/Healix设计规范系统.md 第二章。
     硬约束：全局只有 1 个强调色（accent）；positive / negative 只用于文字与 6px 圆点。
 -->
 <resources>

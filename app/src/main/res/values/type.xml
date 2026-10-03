@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    字体规范（Healix设计规范系统.md 2.2）。
+    字体规范（docs/Healix设计规范系统.md 2.2）。
     硬约束：全局只用 400 / 500 两个字重，禁止 600 / 700。
     行高：body 24sp(1.6) / secondary 20sp / caption 16sp。
 -->

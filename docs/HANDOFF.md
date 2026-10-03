@@ -568,10 +568,14 @@ D:\桌面\AI Port\Healix\
 ├── .github\workflows\
 │   ├── ci.yml               # 编译 + 单测 + 静态检查 + schema 产物
 │   └── release.yml
-├── docs\待核实清单.md        # 未决项清单
-├── 功能扩展设计方案.md       # ★ P0+P1 交付记录见第十六章
-├── .workbuddy\memory\2026-10-03.md   # 详细工作日志
-└── HANDOFF.md               # 本文件
+├── docs\                    # ★ 文档集中地（2026-10-03 整理；本文件也在此目录下）
+│   ├── HANDOFF.md           #   本文件（入库）
+│   ├── prototype.html       #   交互原型（入库）
+│   ├── contract.md / security.md / 待核实清单.md    # 入库
+│   └── 总方案 / 功能扩展设计方案（PRD，交付记录见第十六章）/ 设计规范 v5 /
+│       功能补充与套壳选型 / 参考产品研究与取舍 / UI设计方案 / 功能清单2
+│       —— **开发文档不入库**（用户 2026-10-03 指定，.gitignore 已固化，仅本机）
+└── .workbuddy\memory\2026-10-03.md   # 详细工作日志
 ```
 
 ---

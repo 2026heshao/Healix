@@ -1,7 +1,7 @@
 package com.healix.app.net
 
 /**
- * Provider 抽象层（对齐 `功能补充与套壳选型.md` 9.1 与 Python 侧 `pipeline/provider.py`）。
+ * Provider 抽象层（对齐 `docs/功能补充与套壳选型.md` 9.1 与 Python 侧 `pipeline/provider.py`）。
  *
  * 设计要点：
  * - 一个接口 + 一个实现（OpenAiCompatProvider），覆盖智谱 / DeepSeek / OpenRouter / SiliconFlow。

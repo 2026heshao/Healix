@@ -1,6 +1,6 @@
 """Provider 抽象层 + OpenAI 兼容实现（S1 的 Python 侧先行验证版）。
 
-设计对齐 `功能补充与套壳选型.md` 9.1：
+设计对齐 `docs/功能补充与套壳选型.md` 9.1：
 - 一个接口 + 一个实现，覆盖智谱 / DeepSeek / OpenRouter / SiliconFlow 等
   OpenAI 兼容端点（差异只有 baseUrl / model / key 三个字符串）
 - baseUrl 与 model **零硬编码**，必须由调用方传入

@@ -11,17 +11,27 @@
 
 ## 文档索引
 
+**随 git 分发**（都在 `docs/`）：
+
 | 文件 | 作用 |
 |---|---|
-| `总方案.md` | 总纲：已验证结论、技术栈、数据模型、prompt、执行计划 |
-| `功能补充与套壳选型.md` | 9 项工程缺口、可借鉴功能、Provider 抽象、交互式 Agent |
-| `功能扩展设计方案.md` | ★ 扩展为「预防生病 + 运动计划 + 多维度健康」的 PRD（**6 项决策已全部拍板**；含第十五章「先落库再识别」写入路径） |
-| `参考产品研究与取舍.md` | ★ 竞品研究：Fitbod / Bearable / Apple Health / Whoop 等的精华与糟粕 |
-| `Healix设计规范系统.md` | ★ 设计令牌与组件规格（**v4**，含扩展功能 UI：状态行 / 趋势图 / 状态详情页 / 训练 Tab，可直接进 XML） |
-| `UI设计方案.md` | v2 设计语言（规范系统的前身） |
-| `prototype.html` | 390×844 可交互高仿真原型，**7 屏**（v4 已同步状态详情页、训练 Tab 与直写路径） |
 | `docs/contract.md` | ★ Python↔Kotlin 契约（schema / 后处理 / prompt / 幂等 / 日界线） |
 | `docs/security.md` | ★ API key 生命周期、脱敏规则、签名密钥、数据丢失风险 |
+| `docs/待核实清单.md` | 未决项清单（版本号 / MagicOS 真机行为 / 功能完整度取舍） |
+| `docs/HANDOFF.md` | ★ 中断交接：CI 战绩、发布工具链、实现纪律、真机验收清单 |
+| `docs/prototype.html` | 390×844 可交互高仿真原型，**7 屏**（已同步状态详情页、训练 Tab 与直写路径） |
+
+**仅本机**（开发文档不入 git，清单固化在 `.gitignore`）：
+
+| 文件 | 作用 |
+|---|---|
+| `docs/总方案.md` | 总纲：已验证结论、技术栈、数据模型、prompt、执行计划 |
+| `docs/功能扩展设计方案.md` | ★ PRD：扩展为「预防生病 + 运动计划 + 多维度健康」（决策已拍板；P0+P1 交付记录见第十六章） |
+| `docs/Healix设计规范系统.md` | ★ 设计令牌与组件规格（**v5**，含扩展功能 UI：状态行 / 趋势图 / 状态详情页 / 训练 Tab，可直接进 XML） |
+| `docs/功能补充与套壳选型.md` | 9 项工程缺口、可借鉴功能、Provider 抽象、交互式 Agent |
+| `docs/参考产品研究与取舍.md` | ★ 竞品研究：Fitbod / Bearable / Apple Health / Whoop 等的精华与糟粕 |
+| `docs/UI设计方案.md` | v2 设计语言（规范系统的前身） |
+| `docs/功能清单2.md` | 「让 AI 真的知道你」：对话缺陷分析与数据层补充方案（待拍板） |
 
 ---
 
@@ -50,7 +60,8 @@ Healix/
 │   └── res/                     # 设计令牌：colors / type / dimens / strings
 │
 ├── .github/workflows/           # ci.yml（编译+单测）/ release.yml（签名 APK）
-└── docs/                        # contract.md / security.md / 待核实清单.md
+└── docs/                        # 入库：contract / security / 待核实清单 / HANDOFF / prototype.html
+                                  # 本机不入库：总方案 / PRD / 设计规范 v5 等 7 份开发文档（见 .gitignore）
 ```
 
 ---
