@@ -423,6 +423,21 @@ body{
 .centerhint{
   padding:60px 20px;text-align:center;font-size:13px;color:var(--text_2);
 }
+/* ---- 知识库（v5r3 · 第十章）零新令牌 ---- */
+.docrow{padding:12px 20px;border-bottom:1px solid var(--line);cursor:pointer}
+.docrow:active{background:var(--press)}
+.docrow .t{font-size:15px;color:var(--text_1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.docrow .meta{font-size:13px;color:var(--text_2);margin-top:2px}
+.docrow .meta.parse{color:var(--text_3)}
+.docrow .meta.retry{color:var(--text_2);text-decoration:underline;text-underline-offset:2px}
+.docrow .meta.bad{color:var(--text_2)}
+.addline{padding:14px 20px;font-size:15px;color:var(--text_2);cursor:pointer;border-bottom:1px solid var(--line)}
+.addline:active{background:var(--press)}
+.doc-empty{padding:72px 32px 24px;text-align:center}
+.doc-empty .h{font-size:15px;color:var(--text_1)}
+.doc-empty .p{font-size:13px;color:var(--text_3);margin:8px 0 24px;line-height:1.8}
+.srcrow{font-size:13px;color:var(--text_2);margin-top:4px;cursor:pointer}
+.srcrow u{text-underline-offset:2px}
 </style>
 </head>
 <body>
@@ -430,7 +445,7 @@ body{
 <!-- 原型外壳：左侧控制区（不属于产品 UI） -->
 <div class="panel">
   <h1>Healix 高仿真原型</h1>
-  <div class="sub">设计规范系统 v4 · 390×844</div>
+  <div class="sub">设计规范系统 v5 · 390×844</div>
 
   <div class="sec">屏幕</div>
   <ul class="navlist" id="nav">
@@ -441,6 +456,7 @@ body{
     <li data-s="settings">设置 <span class="tag">Provider</span></li>
     <li data-s="debug">调试</li>
     <li data-s="notify">通知栏录入</li>
+    <li data-s="knowledge">知识库 <span class="tag">v5r3</span></li>
   </ul>
 
   <div class="sec">原型选项</div>
@@ -450,6 +466,7 @@ body{
   <label class="toggle"><input type="checkbox" id="optSignal"> 有身体信号（状态行信号态）</label>
   <label class="toggle"><input type="checkbox" id="optNoData"> 数据不足（趋势不出图）</label>
   <label class="toggle"><input type="checkbox" id="optNoPlan"> 还没生成训练计划</label>
+  <label class="toggle"><input type="checkbox" id="optKnowledge"> 对话引用知识库（来源行）<span class="tag">v5r3</span></label>
 
   <div class="hint">
     交互提示：<br>
@@ -460,7 +477,9 @@ body{
     · 计划页 →「训练」Tab →「记一笔」单击直写 + 5 秒内可撤销<br>
     · 状态详情页 4 段 Tab：运动 / 睡眠 / 体重 / 身体<br>
     · 对话页：输入「我中午吃了牛肉面」也是直写；AI 提议（回复下方的「记一笔」）才需确认<br>
-    · 设置页可切换服务商、点「测试连通性」；主界面预设横条可横向滚动
+    · 设置页可切换服务商、点「测试连通性」；主界面预设横条可横向滚动<br>
+    · <b>知识库</b>：点「＋ 添加 PDF 文件」→ 立即入列「解析中」→ 2s 后<b>同一行原地</b>变就绪/失败（失败点第二行重试）；<br>
+    　 点文档行 → 操作弹窗（删除需二次确认）；勾「对话引用知识库」后对话回复末尾带来源行
   </div>
 </div>
 
@@ -707,6 +726,44 @@ body{
     </div>
   </div>
 
+  <!-- ============ 知识库（v5r3 · 第十章） ============ -->
+  <div class="screen" id="s-knowledge">
+    <div class="appbar">
+      <button class="iconbtn" onclick="go('settings')" aria-label="返回">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M15 18l-6-6 6-6"/></svg>
+      </button>
+      <span style="position:absolute;left:50%;transform:translateX(-50%)">知识库</span>
+      <span class="right"></span>
+    </div>
+    <div class="body" style="padding-top:0" id="kbBody">
+      <div class="doc-empty" id="kbEmpty" style="display:none">
+        <div class="h">还没有文档</div>
+        <div class="p">上传训练计划、体检报告或科普资料，<br>AI 回答时会引用里面的内容</div>
+        <button class="btn-primary" style="width:100%" onclick="kUpload()">选择 PDF 文件</button>
+      </div>
+      <div id="kbList">
+        <div class="docrow" onclick="kSheet(this)" data-name="训练计划.pdf" data-meta="12 页 · 2.1 MB">
+          <div class="t">训练计划.pdf</div>
+          <div class="meta">12 页 · 2.1 MB</div>
+        </div>
+        <div class="docrow" onclick="kSheet(this)" data-name="体检报告.pdf" data-meta="8 页 · 3.4 MB">
+          <div class="t">体检报告.pdf</div>
+          <div class="meta parse">解析中</div>
+        </div>
+        <div class="docrow" onclick="kSheet(this)" data-name="膳食指南摘录.pdf" data-meta="">
+          <div class="t">膳食指南摘录.pdf</div>
+          <div class="meta bad">扫描版 · 无法提取文字</div>
+        </div>
+      </div>
+      <div class="addline" id="kbAdd" onclick="kUpload()">＋ 添加 PDF 文件</div>
+      <div style="padding:20px;font-size:13px;color:var(--text_2);line-height:1.8">
+        解析在手机本地完成，PDF 原文件不出设备。<br>
+        AI 回答引用文档时，回复末尾会标注来源。<br>
+        扫描版 PDF 没有文字层，无法提取 —— 换文字版即可。
+      </div>
+    </div>
+  </div>
+
   <!-- 确认弹窗 -->
   <div class="scrim" id="scrim" onclick="if(event.target===this)closeSheet()">
     <div class="sheet">
@@ -722,6 +779,29 @@ body{
       </div>
     </div>
   </div>
+
+  <!-- 知识库文档弹窗（v5r3）：复用 EventEditSheet 容器规格，不新造组件 -->
+  <div class="scrim" id="kScrim" style="display:none" onclick="if(event.target===this)kClose()">
+    <div class="sheet">
+      <div class="handle"></div>
+      <h3 id="kSheetTitle">训练计划.pdf</h3>
+      <div class="from" id="kSheetMeta">12 页 · 2.1 MB · 2026-10-03 添加</div>
+      <div id="kSheetMain">
+        <div class="actions" style="flex-direction:column;align-items:stretch;gap:0;margin-top:8px">
+          <button class="btn-text" style="text-align:left;padding:14px 0;color:var(--text_1)" onclick="kClose()">打开原文</button>
+          <button class="btn-text" style="text-align:left;padding:14px 0;color:var(--negative)" onclick="kDelete()">删除文档</button>
+          <button class="btn-text" style="text-align:left;padding:14px 0" onclick="kClose()">取消</button>
+        </div>
+      </div>
+      <div id="kSheetConfirm" style="display:none">
+        <div class="from" style="color:var(--text_1)">删除后 AI 将不再引用这份资料</div>
+        <div class="actions">
+          <button class="btn-text" onclick="kCancelDelete()">取消</button>
+          <button class="btn-primary" style="background:var(--negative)" onclick="kDelete()">删除</button>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -729,7 +809,7 @@ body{
   "use strict";
 
   var $ = function(id){ return document.getElementById(id); };
-  var SCREENS = ["home","chat","plan","status","settings","debug","notify"];
+  var SCREENS = ["home","chat","plan","status","settings","debug","notify","knowledge"];
 
   // ---------- 屏幕切换 ----------
   window.go = function(name){
@@ -862,6 +942,78 @@ body{
     return d;
   }
 
+  // ---------- 知识库（v5r3 · 第十章）：先落库再解析，中间态中性色 ----------
+  var kSeq = 1, kTarget = null, kConfirmDelete = false;
+  var K_NAMES = ["力量训练手册摘录.pdf", "体态评估报告.pdf", "增肌食谱合集.pdf"];
+
+  window.kUpload = function(){
+    var empty = $("kbEmpty");
+    if (empty && empty.style.display !== "none") empty.style.display = "none";
+    var name = K_NAMES[(kSeq - 1) % K_NAMES.length];
+    kSeq += 1;
+    var list = $("kbList");
+    var d = document.createElement("div");
+    d.className = "docrow";
+    d.setAttribute("data-name", name);
+    d.setAttribute("data-meta", "3 页 · 0.8 MB");
+    d.onclick = function(){ kSheet(d); };
+    d.innerHTML = '<div class="t">' + esc(name) + '</div><div class="meta parse">解析中</div>';
+    list.insertBefore(d, list.firstChild);   // 新文档插顶部，0 弹窗
+    setTimeout(function(){
+      var m = d.querySelector(".meta");
+      if ((kSeq % 4) === 0){                 // 每 4 次演示 1 次失败态
+        m.className = "meta retry";
+        m.textContent = "解析失败 · 点此重试";
+        m.onclick = function(ev){ ev.stopPropagation(); kRetry(d); };
+      } else {
+        m.className = "meta";                // 原地回填：不新增行、不闪烁
+        m.textContent = d.getAttribute("data-meta");
+      }
+    }, 2200);
+  };
+
+  window.kRetry = function(d){
+    var m = d.querySelector(".meta");
+    m.className = "meta parse";
+    m.textContent = "解析中";
+    m.onclick = null;
+    setTimeout(function(){
+      m.className = "meta";
+      m.textContent = d.getAttribute("data-meta");
+    }, 2000);
+  };
+
+  window.kSheet = function(d){
+    kTarget = d;
+    kConfirmDelete = false;
+    $("kSheetTitle").textContent = d.getAttribute("data-name");
+    var meta = d.getAttribute("data-meta");
+    $("kSheetMeta").textContent = (meta ? meta + " · " : "") + "2026-10-03 添加";
+    $("kSheetMain").style.display = "block";
+    $("kSheetConfirm").style.display = "none";
+    $("kScrim").style.display = "flex";
+  };
+
+  window.kClose = function(){ $("kScrim").style.display = "none"; };
+
+  window.kCancelDelete = function(){
+    kConfirmDelete = false;
+    $("kSheetConfirm").style.display = "none";
+    $("kSheetMain").style.display = "block";
+  };
+
+  window.kDelete = function(){
+    if (!kConfirmDelete){
+      kConfirmDelete = true;                 // 唯一的确认弹窗：删除不可逆
+      $("kSheetMain").style.display = "none";
+      $("kSheetConfirm").style.display = "block";
+      return;
+    }
+    if (kTarget && kTarget.parentNode) kTarget.parentNode.removeChild(kTarget);
+    kClose();
+    if (!$("kbList").children.length) $("kbEmpty").style.display = "block";
+  };
+
   function addUser(text){
     var body = $("chatBody");
     var d = document.createElement("div");
@@ -958,7 +1110,15 @@ body{
   }
 
   function finishReply(spec){
-    addAssistant(spec.reply, true);
+    var msg = addAssistant(spec.reply, true);
+    // 知识库来源行（v5r3）：命中才出现，常态零噪声
+    if ($("optKnowledge") && $("optKnowledge").checked && /计划|周|练|吃|餐/.test(spec.reply)){
+      var s = document.createElement("div");
+      s.className = "srcrow";
+      s.innerHTML = '来源：<u>训练计划.pdf · 第 3 页</u>';
+      s.onclick = function(){ go("knowledge"); };
+      msg.insertBefore(s, msg.querySelector(".time"));
+    }
     if (spec.action === "记一笔"){
       var body = $("chatBody");
       var d = document.createElement("div");
