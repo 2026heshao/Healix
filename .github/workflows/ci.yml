@@ -67,6 +67,16 @@ jobs:
       - name: 赋予 gradlew 可执行权限
         run: chmod +x ./gradlew
 
+      # 资源静态检查：秒级发现「重复定义 / 悬空引用」，比等 Gradle 跑到
+      # mergeDebugResources 才报错快得多（实测首跑就栽在 strings.xml 的
+      # type_meal 重复定义上，而这本可以在 1 秒内查出来）。
+      - name: 资源静态检查
+        run: python3 pipeline/check_resources.py
+
+      # Python 侧合约自测：67 项断言，纯离线，不依赖网络/API key
+      - name: Python 合约自测
+        run: python3 pipeline/tests/test_norm.py
+
       - name: 编译 debug + 跑单元测试
         run: ./gradlew --no-daemon assembleDebug testDebugUnitTest
 

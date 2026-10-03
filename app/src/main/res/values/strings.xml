@@ -102,14 +102,6 @@
     <string name="gap_format">+%1$d</string>
     <string name="gap_negative_format">%1$d</string>
 
-    <!-- 事件类型名 -->
-    <string name="type_meal">饮食</string>
-    <string name="type_exercise">运动</string>
-    <string name="type_body">体重</string>
-    <string name="type_sleep">睡眠</string>
-    <string name="type_illness">生病</string>
-    <string name="type_other">其他</string>
-
     <!-- 列表摘要 -->
     <string name="summary_kcal">约 %1$d kcal</string>
     <string name="summary_kcal_amount">约 %1$d kcal · %2$s</string>
