@@ -1,6 +1,6 @@
 # Healix 中断交接文档
 
-> 更新时间：2026-10-03 18:45
+> 更新时间：2026-10-03 19:05
 > 用途：让下一个会话能**无上下文**接手。
 > 一律只写客观事实，不做推测性美化。
 
@@ -8,17 +8,17 @@
 
 ## 一、当前状态（一句话）
 
-**CI 连续 7 轮全绿，已产出可安装 APK（18,645,124 B / 17.78 MB）。**
+**CI 连续 9 轮全绿，已产出可安装 APK（18,645,124 B / 17.78 MB）。**
 Provider 配置已全部核实填入；Room schema v1 已入库；用户新需求「我的情况」背景项已实现并通过编译。
 **当前交付 APK = run#14 产物**（含背景项），签名 CN=Android Debug，**首次安装前请卸载旧版**（见 3.6）。
 
 | 项 | 值 |
 |---|---|
-| 本地 HEAD | `08508c4`（链：schema `db3bda6` → 背景项 `899347a` → HANDOFF `b9d51c9` → `8cddc2c` → `08508c4`） |
-| 远程 main | `a21bb63bcbeb` |
-| 远程 tree == 本地 tree | ✅ 是（`3b865b959091`） |
+| 本地 HEAD | `d2d7f9e`（链：schema `db3bda6` → 背景项 `899347a` → HANDOFF ×3 → dump_manifest `d2d7f9e`） |
+| 远程 main | `ec3a649f73f0` |
+| 远程 tree == 本地 tree | ✅ 是（`ef122828b989`） |
 | 仓库 | https://github.com/2026heshao/Healix （Public） |
-| 最近 CI | **#15 `a21bb63b` ✅ success**（交付 APK 仍是 **#14 `a48abc01`** 产物） |
+| 最近 CI | **#17 `ec3a649f` ✅ success**（交付 APK 仍是 **#14 `a48abc01`** 产物） |
 | 本地预检 | 三连全绿（资源 / Kotlin 8 类 / 67 断言） |
 | APK | `app-debug.apk` / 桌面 `Healix-v0.1-测试版.apk`，MD5 `7113fac0f543c9897974811bc62dcc37` |
 
@@ -129,6 +129,32 @@ identityHash `7410531927b5aa61859d6711508fdef9`）。
 修复：把磁盘侧 6 个含 CRLF 的文件（5 个源文件 + `regression_report.json`）
 统一改回 LF。验证：逐字节比对全部 OK，`git diff --numstat` 为空，三连全绿。
 
+### 3.8 新增 `pipeline/dump_manifest.py`（无 SDK 反编译清单）
+
+本机无 aapt2 / apktool，无法核对「APK 里最终落地的清单」。
+源码清单会被 AGP **合并**并注入 WorkManager / ProfileInstaller / Room / Emoji2
+等库组件，**两侧并不等价** —— 必须直接读 APK。
+
+纯标准库 AXML 解析器，4 种模式：`summary`（默认）/ `tree` / `strings` / `browser`。
+
+```bash
+$PY pipeline/dump_manifest.py app-debug.apk summary   # 组件 + intent-filter
+$PY pipeline/dump_manifest.py app-debug.apk browser   # 是否有浏览器型入口
+```
+
+**实测结论（回答用户"微信里没有浏览器选项"）**：
+APK 内 **0 个**组件声明 `VIEW + BROWSABLE + http/https` → 无浏览器入口，这是**正确行为**。
+全 APK 的 intent-filter 只有 3 处属于项目自身：`MainActivity`(MAIN+LAUNCHER)、
+`BootReceiver`(BOOT_COMPLETED / MY_PACKAGE_REPLACED)；
+其余全是库自带（WorkManager 约束代理、profileinstaller）。
+
+⚠️ 解析踩坑（5 轮才对，改这个工具前先读）：
+1. `strings_start` 是**相对 chunk 起点**，不是相对 offset 数组起点。
+   正确 `data_base = sp + strings_start`。误加 `header_size` 会整体偏移 28 字节，
+   读出 `'ame\x00permission\x00...'` 这种跨条拼接假象 → 极易误判成"字符串池损坏"。
+2. `ResXMLTree_attribute` 20 字节 = `ns(4) name(4) rawValue(4) size(2) res0(1) dataType(1) data(4)`。
+   `rawValue` 是独立字段；`dataType` 在 +15、`data` 在 +16。从 rawValue 取会全变 `0xff:0xffffff`。
+
 ---
 
 ## 四、CI 战绩（本轮）
@@ -142,6 +168,8 @@ identityHash `7410531927b5aa61859d6711508fdef9`）。
 | **#12** | ee53c7e3 | ✅ 背景项 |
 | **#13** | bcbeb7c3 | ✅ HANDOFF 更新 |
 | **#14** | a48abc01 | ✅ **当前交付 APK（含背景项）** |
+| **#15** | a21bb63b | ✅ HANDOFF 同步 |
+| **#17** | ec3a649f | ✅ 新增 dump_manifest.py |
 
 ---
 
@@ -263,7 +291,8 @@ D:\桌面\AI Port\Healix\
 │   ├── check_resources.py   # 资源静态检查（5 类）
 │   ├── check_kotlin.py      # Kotlin/Room 静态检查（8 类）
 │   ├── push_via_api.py      # ★ Git Data API 推送
-│   ├── pull_schemas.py      # ★ 拉回 Room schema（新）
+│   ├── pull_schemas.py      # ★ 拉回 Room schema
+│   ├── dump_manifest.py     # ★ 无 SDK 反编译 APK 内 AXML 清单（新）
 │   ├── run_regression.py    # 回归脚本
 │   └── tests\test_norm.py   # 67 项断言
 ├── app\src\main\java\com\healix\app\
