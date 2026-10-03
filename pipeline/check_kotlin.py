@@ -16,6 +16,9 @@
   6. Manifest 里 android:name 指向的类是否存在
   7. AndroidManifest 引用的 @xml/@mipmap/@style/@string 是否声明
   8. `AlertDialog.Builder.setItems()` 首参传 List<String>（只接受 Array）
+  9. settings 键名不得写裸字符串，必须引用 SettingsKeys
+ 10. 游戏化词汇（streak / 打卡 / 归零 / 勋章 …）
+ 11. pipeline/contract.py ↔ Kotlin 的 prompt 必须**字节一致**
 
 退出码：0 = 全通过；1 = 发现问题。
 """
@@ -880,6 +883,63 @@ def check_manifest_resources() -> None:
             errors.append(f"AndroidManifest.xml:{line}: @xml/{nm} 文件不存在")
 
 
+# ── prompt 双处一致性 ────────────────────────────────────────────────────
+# Python 侧（pipeline/contract.py）与 Kotlin 侧各有一份 prompt 副本。
+# 这是刻意的：Python 侧用于离线自测与后处理层，Kotlin 侧是真正发给模型的字符串。
+# 但两份**必须逐字节相同** —— 否则「本地自测通过」与「App 实际行为」会悄悄分叉，
+# 而这种分叉不会报错，只会让模型表现变差，极难定位。
+PROMPT_PARITY: list[tuple[str, str]] = [
+    ("PROMPT_EXTRACT", "com/healix/app/parse/SchemaValidator.kt"),
+    ("PROMPT_TRAINING", "com/healix/app/ui/TrainingPlanner.kt"),
+]
+
+
+def check_prompt_parity() -> None:
+    """contract.py 里的 prompt 必须与 Kotlin 侧对应常量**逐字节一致**。
+
+    2026-10-03 补：此前这个约束只写在文档与 memory 里，**没有任何自动检查**。
+    本轮新增 PROMPT_TRAINING 时才发现 —— 手工比对过才知道是一致的。
+    这类"文档里有、机器不验"的契约最容易腐坏，所以固化成检查。
+    """
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    try:
+        import contract  # noqa: PLC0415
+    except Exception as e:  # 防止 contract.py 自身语法错误把整个检查搞挂
+        errors.append(f"无法导入 pipeline/contract.py（prompt 一致性检查跳过）：{e}")
+        return
+
+    for ver in ("PROMPT_VER", "PROMPT_VER_TRAINING"):
+        if not hasattr(contract, ver):
+            errors.append(f"pipeline/contract.py 缺少版本号常量 {ver}")
+
+    for name, rel_path in PROMPT_PARITY:
+        py_side = getattr(contract, name, None)
+        kt_file = JAVA / rel_path
+        if py_side is None:
+            errors.append(f"pipeline/contract.py 缺少 {name}")
+            continue
+        if not kt_file.exists():
+            errors.append(f"{rel_path} 不存在，但 contract.py 里有 {name}")
+            continue
+        text = kt_file.read_text(encoding="utf-8")
+        m = re.search(
+            rf'const val {name}\s*:\s*String\s*=\s*"""(.*?)"""', text, re.S
+        )
+        if not m:
+            errors.append(
+                f"{rel_path}: 找不到 `const val {name}: String = \"\"\"…\"\"\"`"
+            )
+            continue
+        kt_side = m.group(1)
+        if kt_side.encode("utf-8") != py_side.encode("utf-8"):
+            errors.append(
+                f"{rel_path}: {name} 与 pipeline/contract.py **不一致** "
+                f"（Python {len(py_side.encode('utf-8'))} 字节 / "
+                f"Kotlin {len(kt_side.encode('utf-8'))} 字节）—— "
+                f"两处必须逐字相同，否则离线自测与 App 实际行为会静默分叉"
+            )
+
+
 def main() -> int:
     if not DB.exists():
         print(f"找不到 db 目录：{DB}")
@@ -899,6 +959,7 @@ def main() -> int:
     check_settings_keys()
     check_settings_keys_consistency()
     check_no_gamification()
+    check_prompt_parity()
 
     print("=" * 64)
     print("Healix Kotlin/Room 静态检查")
