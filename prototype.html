@@ -3,11 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Healix 高仿真原型 v3</title>
+<title>Healix 高仿真原型 v4</title>
 <style>
 /* ============================================================
-   Healix Design Tokens v3
+   Healix Design Tokens v4
    全 App 只有 1 个强调色 / 圆角只有 8dp / 无卡片无阴影
+   v4 未新增任何颜色令牌 —— 新元素全部复用既有令牌
    ============================================================ */
 :root{
   --bg:#FAFAF9; --surface:#FFFFFF; --text_1:#1A1918; --text_2:#6E6B66;
@@ -118,6 +119,7 @@ body{
   cursor:pointer;font-family:inherit;padding:12px;min-height:48px;
 }
 .btn-text:active{color:var(--accent_press)}
+.btn-text:disabled{cursor:default}
 
 /* 输入区（常驻底部） */
 .inputbar{
@@ -145,6 +147,10 @@ body{
 .item .main{font-size:15px;color:var(--text_1);margin-top:2px;
   display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .item .sum{font-size:13px;color:var(--text_2);margin-top:2px}
+/* ★v4 记录级状态（规范 3.3）：与摘要同位置，不新增行、不改行高 */
+.item .pending{font-size:13px;color:var(--text_3);margin-top:2px}          /* 识别中 */
+.item .pending.retry{color:var(--text_2);text-decoration:underline;        /* 未识别：可点 */
+  text-underline-offset:3px;text-decoration-thickness:1px}
 
 /* 设置行 */
 .row{
@@ -323,6 +329,100 @@ body{
 .notify.done .fake{display:none}
 .notify .undo{margin-top:8px;font-size:13px;color:var(--accent);cursor:pointer;display:none}
 .notify.done .undo{display:block}
+
+/* ============================================================
+   v4 新增（规范 第九章）
+   全部复用 v3 令牌，不新增颜色 / 字体级别 / 字重
+   ============================================================ */
+
+/* ---------- 9.2 多维状态行（两态互斥，恒定 48px） ---------- */
+.statusrow{
+  height:48px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;
+  padding:0 20px;font-size:13px;color:var(--text_2);cursor:pointer;
+  transition:background var(--dur_fast) var(--ease),color var(--dur_normal) var(--ease);
+}
+.statusrow:active{background:var(--press)}
+.statusrow>span{
+  min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.statusrow .cv{flex-shrink:0;margin-left:12px;color:var(--text_3);
+  transition:color var(--dur_normal) var(--ease)}
+/* 信号态：整行原地变 accent，高度不变 —— 不新增行、页面不跳动 */
+.statusrow.sig{color:var(--accent)}
+.statusrow.sig .cv{color:var(--accent)}
+
+/* ---------- 9.6 内联撤销条 ---------- */
+.undobar{
+  height:48px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;
+  padding:0 20px;font-size:13px;color:var(--text_2);
+}
+.undobar .undo{color:var(--accent);font-weight:500;cursor:pointer;padding:12px 0 12px 12px}
+.undobar .undo:active{color:var(--accent_press)}
+
+/* ---------- 9.5 训练日行 ---------- */
+.tday{padding:12px 20px;min-height:76px;display:flex;position:relative}
+.tday .marker{
+  position:absolute;left:0;top:16px;width:2px;height:16px;background:var(--accent);
+  border-radius:1px;display:none;
+}
+.tday.today .marker{display:block}
+.tday .dow{width:44px;flex-shrink:0;font-size:13px;color:var(--text_2);padding-top:1px}
+.tday .col{flex:1;min-width:0}
+.tday .h{font-size:15px;color:var(--text_1)}
+.tday .items{font-size:13px;color:var(--text_2);margin-top:2px}
+.tday .act{margin-top:6px;margin-left:-12px}
+.tday.rest{min-height:48px;align-items:center;padding-top:0;padding-bottom:0}
+.tday.rest .h{font-size:13px;color:var(--text_2)}
+
+/* ---------- 9.4 状态详情页：4 段文字 Tab（复用计划页 Tab 样式） ---------- */
+.seg{
+  display:flex;gap:24px;padding:0 20px;border-bottom:1px solid var(--line);
+  flex-shrink:0;overflow-x:auto;
+}
+.seg::-webkit-scrollbar{height:0}
+.seg div{
+  padding:12px 0;font-size:13px;color:var(--text_2);cursor:pointer;position:relative;
+  white-space:nowrap;
+}
+.seg div.on{color:var(--text_1);font-weight:500}
+.seg div.on::after{
+  content:"";position:absolute;left:0;right:0;bottom:0;height:2px;
+  background:var(--accent);border-radius:1px;
+}
+
+/* ---------- 9.3 趋势折线 ---------- */
+.chart{padding:0 20px}
+.chart .range{font-size:13px;color:var(--text_2)}
+.chart .plot{position:relative;height:80px;margin-top:4px;
+  border-bottom:1px solid var(--line)}
+.chart .plot svg{display:block}
+/* 窗口标注放在基线下方右对齐 —— 压在绘图区里会与折线右端重叠 */
+.chart .win{display:block;text-align:right;font-size:13px;color:var(--text_3);
+  margin-top:6px}
+/* 数据点 < 3 时不画线（规范 9.3，依据反伪相关原则 R6） */
+.chart .nodata{height:80px;display:flex;align-items:center;justify-content:center;
+  font-size:13px;color:var(--text_2);border-bottom:1px solid var(--line)}
+
+/* ---------- 状态详情页：汇总文字 / 信号全文 / 病程 / 链接行 ---------- */
+.sumline{padding:20px;font-size:15px;color:var(--text_1);line-height:24px}
+.sigfull{padding:0 20px 20px;font-size:13px;color:var(--text_1);line-height:20px}
+.tlrow{
+  display:flex;gap:12px;padding:12px 20px;align-items:baseline;
+  border-bottom:1px solid var(--line);
+}
+.tlrow .n{width:20px;font-size:13px;color:var(--text_3);
+  font-variant-numeric:tabular-nums;flex-shrink:0}
+.tlrow .dt{width:48px;font-size:13px;color:var(--text_2);
+  font-variant-numeric:tabular-nums;flex-shrink:0}
+.tlrow .tx{flex:1;font-size:15px;color:var(--text_1)}
+.linkrow{
+  height:48px;display:flex;align-items:center;padding:0 20px;
+  font-size:13px;color:var(--accent);font-weight:500;cursor:pointer;
+}
+.linkrow:active{color:var(--accent_press)}
+.centerhint{
+  padding:60px 20px;text-align:center;font-size:13px;color:var(--text_2);
+}
 </style>
 </head>
 <body>
@@ -330,13 +430,14 @@ body{
 <!-- 原型外壳：左侧控制区（不属于产品 UI） -->
 <div class="panel">
   <h1>Healix 高仿真原型</h1>
-  <div class="sub">设计规范系统 v3 · 390×844</div>
+  <div class="sub">设计规范系统 v4 · 390×844</div>
 
   <div class="sec">屏幕</div>
   <ul class="navlist" id="nav">
     <li class="on" data-s="home">主界面</li>
     <li data-s="chat">对话页 <span class="tag">Agent</span></li>
-    <li data-s="plan">计划 / 复盘</li>
+    <li data-s="plan">计划 / 训练 / 回顾</li>
+    <li data-s="status">状态详情 <span class="tag">v4</span></li>
     <li data-s="settings">设置 <span class="tag">Provider</span></li>
     <li data-s="debug">调试</li>
     <li data-s="notify">通知栏录入</li>
@@ -346,13 +447,20 @@ body{
   <label class="toggle"><input type="checkbox" id="optDark"> 深色模式</label>
   <label class="toggle"><input type="checkbox" id="optLimit"> 模拟限流（429）</label>
   <label class="toggle"><input type="checkbox" id="optEmpty"> 今日无记录（监督态）</label>
+  <label class="toggle"><input type="checkbox" id="optSignal"> 有身体信号（状态行信号态）</label>
+  <label class="toggle"><input type="checkbox" id="optNoData"> 数据不足（趋势不出图）</label>
+  <label class="toggle"><input type="checkbox" id="optNoPlan"> 还没生成训练计划</label>
 
   <div class="hint">
     交互提示：<br>
-    · 对话页点三条快捷入口，或直接在输入框发消息<br>
-    · 输入含「记」会触发写入确认弹窗（human-in-the-loop）<br>
-    · 设置页可切换服务商、点「测试连通性」<br>
-    · 主界面预设横条可横向滚动
+    · <b>主界面输入框直接发</b>：不弹确认框 —— 立即出现该行（正文是原话）→「识别中」→<br>
+    　 约 1.4s 后<b>同一行原地</b>变成「饮食 · 约 600 kcal」。勾「模拟限流」看未识别态<br>
+    · <b>点任意一行</b> → 编辑弹窗（弹窗只在编辑 / 对话确认时出现，不是写入闸门）<br>
+    · 主界面状态行可点 → 状态详情页（两态原地切换，高度不变）<br>
+    · 计划页 →「训练」Tab →「记一笔」单击直写 + 5 秒内可撤销<br>
+    · 状态详情页 4 段 Tab：运动 / 睡眠 / 体重 / 身体<br>
+    · 对话页：输入「我中午吃了牛肉面」也是直写；AI 提议（回复下方的「记一笔」）才需确认<br>
+    · 设置页可切换服务商、点「测试连通性」；主界面预设横条可横向滚动
   </div>
 </div>
 
@@ -382,7 +490,13 @@ body{
         <div class="progress"><i style="width:72%"></i></div>
         <div class="sub">摄入 2180 · 消耗 1860 · 目标 2500</div>
       </div>
-      <div class="sep" style="margin-top:20px"></div>
+      <div style="height:28px"></div>
+      <!-- ★v4 多维状态行：两态互斥，恒定 48px（规范 9.2） -->
+      <div class="statusrow" id="statusRow" onclick="openStatusFrom()">
+        <span id="statusText">运动 2/3 · 睡眠 7.2h · 体重 58.2kg</span>
+        <svg class="cv" width="16" height="16" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="1.6"><path d="M9 6l6 6-6 6"/></svg>
+      </div>
       <div class="supervise" id="supervise" style="display:none">今天还没有记录 · 去记一笔</div>
       <div class="sep" id="superviseSep" style="display:none"></div>
       <div class="planhint" onclick="go('plan')">
@@ -427,7 +541,7 @@ body{
     </div>
   </div>
 
-  <!-- ============ 计划 / 复盘 ============ -->
+  <!-- ============ 计划 / 训练 / 回顾 ============ -->
   <div class="screen" id="s-plan">
     <div class="appbar">
       <button class="iconbtn" onclick="go('home')" aria-label="返回">
@@ -436,11 +550,40 @@ body{
       <span style="position:absolute;left:50%;transform:translateX(-50%)">今日</span>
       <button class="btn-text" onclick="regenerate()">刷新</button>
     </div>
+    <!-- ★v4：三段文字 Tab（规范 4.3，宽度实测 166/390dp，不拥挤） -->
     <div class="tabs" id="planTabs">
       <div class="on" data-t="plan">计划</div>
+      <div data-t="training">训练</div>
       <div data-t="review">回顾</div>
     </div>
+    <!-- ★v4：内联撤销条（规范 9.6）—— 训练「记一笔」单击直写后的反馈 -->
+    <div class="undobar" id="undoBar" style="display:none">
+      <span id="undoText"></span>
+      <span class="undo" onclick="undoTraining()">撤销</span>
+    </div>
     <div class="body" id="planBody"></div>
+  </div>
+
+  <!-- ============ 状态详情 ★v4 ============ -->
+  <div class="screen" id="s-status">
+    <div class="appbar">
+      <button class="iconbtn" onclick="go('home')" aria-label="返回">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M15 18l-6-6 6-6"/></svg>
+      </button>
+      <span style="position:absolute;left:50%;transform:translateX(-50%)">状态</span>
+      <span class="right"></span>
+    </div>
+    <!--
+      4 段文字 Tab（规范 9.4）：样式完全复用计划页 Tab。
+      宽度实测 4×26 + 3×24 + 2×20 = 216dp / 390dp = 55%，不拥挤。
+    -->
+    <div class="seg" id="statusSeg">
+      <div class="on" data-s2="training">运动</div>
+      <div data-s2="sleep">睡眠</div>
+      <div data-s2="weight">体重</div>
+      <div data-s2="body">身体</div>
+    </div>
+    <div class="body" id="statusBody"></div>
   </div>
 
   <!-- ============ 设置 ============ -->
@@ -476,10 +619,31 @@ body{
       <div class="row"><span>重试次数</span><span class="val"><input value="5 次" style="width:90px"></span></div>
       <div class="row"><span>退避初始间隔</span><span class="val"><input value="1.5 秒" style="width:90px"></span></div>
 
+      <!-- ★v4：「体重」已从「个人」移出 —— 它是记录数据不是基础信息，见规范 9.7 -->
       <div class="grouptitle">个人</div>
-      <div class="row"><span>身高 / 体重 / 年龄</span><span class="val">178cm · 58kg · 21 ›</span></div>
-      <div class="row"><span>活动系数</span><span class="val">轻度 1.375 ›</span></div>
+      <div class="row"><span>身高 / 年龄 / 活动系数</span><span class="val">178cm · 21 · 轻度 ›</span></div>
       <div class="row"><span>日界线</span><span class="val">4:00 ›</span></div>
+
+      <div class="grouptitle">目标　<span style="color:var(--text_3)">v4</span></div>
+      <div class="row"><span>主目标</span><span class="val">增重 ›</span></div>
+      <div class="row"><span>体重目标</span><span class="val">62.0 kg ›</span></div>
+      <div class="row"><span>每周训练</span><span class="val">3 次 / 150 分钟 ›</span></div>
+      <div class="row"><span>睡眠目标</span><span class="val">7.5 小时 ›</span></div>
+      <div class="row"><span>饮水目标</span><span class="val">1700 ml ›</span></div>
+
+      <div class="grouptitle">提醒　<span style="color:var(--text_3)">v4</span></div>
+      <div class="row"><span>体检</span><span class="val">下次 2027-03-15 ›</span></div>
+      <div class="row"><span>洗牙</span><span class="val">下次 2026-11-02 ›</span></div>
+      <div class="row"><span>配镜</span><span class="val">下次 2027-06-20 ›</span></div>
+      <div class="row"><span>添加提醒</span><span class="val">›</span></div>
+
+      <!--
+        隐私（P3，先定义好）：开关用设置行右侧的值文字承载状态，不引入 Switch 组件。
+        理由：全 App 无底色容器，Switch 的彩色轨道会成为唯一的「彩色面」。
+      -->
+      <div class="grouptitle">隐私　<span style="color:var(--text_3)">v4 · P3</span></div>
+      <div class="row" onclick="toggleHide(this)"><span>隐藏热量数字</span><span class="val">显示 ›</span></div>
+      <div class="row" onclick="toggleHide(this)"><span>隐藏体重数字</span><span class="val">显示 ›</span></div>
 
       <div class="grouptitle">数据</div>
       <div class="row"><span>导出备份</span><span class="val">JSON ›</span></div>
@@ -547,7 +711,7 @@ body{
   <div class="scrim" id="scrim" onclick="if(event.target===this)closeSheet()">
     <div class="sheet">
       <div class="handle"></div>
-      <h3>确认这条记录</h3>
+      <h3 id="sheetTitle">编辑记录</h3>
       <div class="from" id="sheetFrom">来自对话</div>
       <div class="field"><label>类型</label><span id="fType">饮食</span></div>
       <div class="field"><label>内容</label><input id="fFoods" value="牛肉炒饭"></div>
@@ -565,7 +729,7 @@ body{
   "use strict";
 
   var $ = function(id){ return document.getElementById(id); };
-  var SCREENS = ["home","chat","plan","settings","debug","notify"];
+  var SCREENS = ["home","chat","plan","status","settings","debug","notify"];
 
   // ---------- 屏幕切换 ----------
   window.go = function(name){
@@ -589,12 +753,12 @@ body{
 
   // ---------- 主界面数据 ----------
   var EVENTS = [
-    {type:"meal", label:"饮食", dot:"var(--dot_meal)", time:"12:30",
-     main:"中午吃了牛肉面加鸡蛋", sum:"约 600 kcal"},
-    {type:"exercise", label:"运动", dot:"var(--dot_exercise)", time:"19:00",
-     main:"晚上跑了五公里", sum:"约 300 kcal · 5 公里"},
-    {type:"body", label:"体重", dot:"var(--dot_body)", time:"08:10",
-     main:"早上称了体重", sum:"58.2 kg"}
+    {cid:"e1", status:"done", type:"meal", label:"饮食", dot:"var(--dot_meal)", time:"12:30",
+     main:"中午吃了牛肉面加鸡蛋", sum:"约 600 kcal", kcal:"600"},
+    {cid:"e2", status:"done", type:"exercise", label:"运动", dot:"var(--dot_exercise)", time:"19:00",
+     main:"晚上跑了五公里", sum:"约 300 kcal · 5 公里", kcal:"300"},
+    {cid:"e3", status:"done", type:"body", label:"体重", dot:"var(--dot_body)", time:"08:10",
+     main:"早上称了体重", sum:"58.2 kg", kcal:""}
   ];
 
   function esc(s){
@@ -603,14 +767,66 @@ body{
     });
   }
 
+  /* ============================================================
+     ★v4 记录写入路径（PRD 第十五章）：直接发送 → 先落库 → AI 后台识别
+     不弹类型确认。识别中/未识别的规格见设计规范 3.3。
+     ============================================================ */
+  var cidSeq = 0;
+  function newCid(){ cidSeq++; return "c" + Date.now() + "_" + cidSeq; }
+
+  function findEvent(cid){
+    for (var i = 0; i < EVENTS.length; i++){ if (EVENTS[i].cid === cid) return EVENTS[i]; }
+    return null;
+  }
+
+  // 点行 = 编辑已有记录（不是写入闸门）。识别中 / 未识别都可以点进来补。
+  window.editRow = function(cid){
+    var e = findEvent(cid);
+    if (!e) return;
+    openSheet("编辑记录", e.label, e.main, e.kcal || "0", { mode: "edit", cid: cid });
+  };
+
+  /** 直写：0ms 落 pending 行，AI 返回后原地填充同一行 */
+  function directLog(rawText){
+    var cid = newCid();
+    EVENTS.unshift({
+      cid: cid, status: "pending", type: "other", label: "其他",
+      dot: "var(--dot_other)", time: now(), main: rawText, sum: "", kcal: "",
+    });
+    $("optEmpty").checked = false;
+    renderHome();
+
+    setTimeout(function(){
+      var e = findEvent(cid);
+      if (!e) return;
+      if ($("optLimit").checked){
+        // ★ 失败 ≠ 错误：原文还在、日界线已算对，只是没算完 → 中性色 text_2（规范 3.10）
+        e.status = "failed";
+      } else {
+        e.status = "done";
+        e.type = "meal"; e.label = "饮食"; e.dot = "var(--dot_meal)";
+        e.kcal = "600"; e.sum = "约 600 kcal";
+      }
+      renderHome();
+    }, 1400);
+  }
+
+  // 记录级状态渲染：与摘要同位置，不新增行
+  function rowStatusHtml(e){
+    if (e.status === "pending") return '<div class="pending">识别中</div>';
+    if (e.status === "failed")  return '<div class="pending retry">未识别 · 点此补充</div>';
+    return e.sum ? '<div class="sum">' + esc(e.sum) + '</div>' : '';
+  }
+
   function renderHome(){
     var box = $("homelist");
     var empty = $("optEmpty").checked;
     box.innerHTML = EVENTS.filter(function(){ return !empty; }).map(function(e){
-      return '<div class="item"><span class="dot" style="background:' + e.dot + '"></span>' +
+      return '<div class="item" onclick="editRow(\'' + e.cid + '\')">' +
+        '<span class="dot" style="background:' + e.dot + '"></span>' +
         '<div class="bodycol"><div class="meta"><span>' + esc(e.label) + '</span><span>' +
         esc(e.time) + '</span></div><div class="main">' + esc(e.main) +
-        '</div><div class="sum">' + esc(e.sum) + '</div></div></div>' +
+        '</div>' + rowStatusHtml(e) + '</div></div>' +
         '<div class="sep indent"></div>';
     }).join("");
     $("supervise").style.display = empty ? "flex" : "none";
@@ -618,11 +834,12 @@ body{
     $("surplus").innerHTML = empty ? '+0<span>kcal</span>' : '+320<span>kcal</span>';
   }
 
+  // 预设横条：点一下 = 一条记录，同样直写（与速记框行为一致）
   window.toastHome = function(el){
     var old = el.style.color;
     el.style.color = "var(--accent)";
     setTimeout(function(){ el.style.color = old; }, 400);
-    openSheet("来自预设", "饮食", el.textContent, "600");
+    directLog(el.textContent);
   };
 
   // ---------- 对话 ----------
@@ -749,7 +966,8 @@ body{
       d.innerHTML = '<button class="btn-text" style="padding-left:0" data-log="牛肉炒饭">记一笔</button>';
       body.appendChild(d);
       d.querySelector("button").onclick = function(){
-        openSheet("来自对话", "饮食", "牛肉炒饭", "650");
+        // AI 提议 → 走确认（这就是 propose_log 的人工确认，规范 3.5 待确认态）
+        openSheet("来自对话", "饮食", "牛肉炒饭", "650", { mode: "chat" });
         this.disabled = true;
       };
       scrollChat();
@@ -770,32 +988,56 @@ body{
       var t = addThinking("思考中");
       setTimeout(function(){
         t.parentNode.removeChild(t);
-        addAssistant("我按这个给你记：", false);
-        openSheet("来自对话", "饮食", v.replace(/记一下|记一笔|记录|我/g, "").trim() || v, "600");
+        // 用户在对话里陈述事实 → 与首页速记框同一条路径：直写，不弹确认
+        directLog(v.replace(/记一下|记一笔|记录|我/g, "").trim() || v);
+        addTool("已记录 饮食 · 约 600 kcal");
+        addAssistant("记好了。还差 680 kcal，睡前加餐可以少一点。", true);
       }, 800);
       return;
     }
     askFlow(v);
   };
 
-  // ---------- 确认弹窗（human-in-the-loop） ----------
+  /* ============================================================
+     底部弹窗：**不是写入闸门**（设计规范 3.5 / PRD 第十五章）
+       ① 点记录行 → 编辑/修正已有记录
+       ② 对话页 AI 提议（propose_log）→ 人工确认
+     首页速记框、预设横条、训练「记一笔」都不走这里。
+     ============================================================ */
   var sheetResolve = null;
+  var sheetCtx = null;            // { mode: "edit"|"chat"|"new", cid? }
 
-  function openSheet(from, type, foods, kcal){
+  function openSheet(from, type, foods, kcal, ctx){
     $("sheetFrom").textContent = from;
     $("fType").textContent = type;
     $("fFoods").value = foods;
     $("fKcal").value = kcal;
+    // 编辑已有记录 ≠ 确认 AI 提议，标题要区分
+    $("sheetTitle").textContent =
+      (ctx && ctx.mode === "edit") ? "编辑记录" : "确认这条记录";
     $("scrim").classList.add("on");
     $("homeInput").blur();
     $("chatInput").blur();
+    sheetCtx = ctx || { mode: "new" };
   }
   window.openSheet = openSheet;
 
   window.closeSheet = function(){
     $("scrim").classList.remove("on");
+    sheetCtx = null;
     if (sheetResolve){ sheetResolve(false); sheetResolve = null; }
   };
+
+  /** 直写一条「已完成」记录（不走 AI 的场景：编辑确认后的新记录等） */
+  function pushDoneEvent(label, main, kcal){
+    EVENTS.unshift({
+      cid: newCid(), status: "done", type: "meal", label: label,
+      dot: "var(--dot_meal)", time: now(), main: main,
+      sum: kcal ? ("约 " + kcal + " kcal") : "", kcal: kcal,
+    });
+    $("optEmpty").checked = false;
+    renderHome();
+  }
 
   window.confirmSheet = function(){
     var type = $("fType").textContent;
@@ -803,27 +1045,37 @@ body{
     var kcal = $("fKcal").value.trim();
     $("scrim").classList.remove("on");
 
-    if ($("s-chat").classList.contains("on")){
+    var ctx = sheetCtx || { mode: "new" };
+    sheetCtx = null;
+
+    if (ctx.mode === "edit"){
+      // 编辑：原地改这一条，不新增行
+      var e = findEvent(ctx.cid);
+      if (e){
+        e.main = foods;
+        e.kcal = kcal;
+        if (kcal) e.sum = "约 " + kcal + " kcal";
+        if (e.status !== "done"){ e.status = "done"; e.label = type; e.dot = "var(--dot_meal)"; }
+        renderHome();
+      }
+    } else if (ctx.mode === "chat"){
+      // 对话页的「记一笔」= AI 提议 → 用户点头才写（方向与首页相反，PRD 15.6）
       addTool("已记录 " + type + " · 约 " + kcal + " kcal");
-      addAssistant("记好了。还差 " + Math.max(0, 1280 - parseInt(kcal, 10)) + " kcal，睡前加餐可以少一点。", true);
+      addAssistant("记好了。还差 " + Math.max(0, 1280 - parseInt(kcal, 10)) +
+        " kcal，睡前加餐可以少一点。", true);
     } else {
-      EVENTS.unshift({
-        type:"meal", label:type, dot:"var(--dot_meal)", time:now(),
-        main:foods, sum:"约 " + kcal + " kcal"
-      });
-      $("optEmpty").checked = false;
-      renderHome();
+      pushDoneEvent(type, foods, kcal);
     }
     if (sheetResolve){ sheetResolve(true); sheetResolve = null; }
   };
 
-  // ---------- 主界面发送 ----------
+  // ---------- 主界面发送：直写，不确认 ----------
   window.sendFromHome = function(){
     var el = $("homeInput");
     var v = el.value.trim();
     if (!v) return;
     el.value = "";
-    openSheet("来自速记", "饮食", v, "600");
+    directLog(v);          // ★ 直接发出 → 先落 pending → AI 后台识别
   };
 
   // ---------- 计划 / 复盘 ----------
@@ -849,7 +1101,117 @@ body{
     '今天热量盈余 320 kcal，达到增重目标。蛋白质摄入充足，蔬菜偏少，晚餐建议增加一份绿叶菜。</div>' +
     '<div class="disclaimer">估算值，非医疗建议</div>';
 
-  function renderPlan(tab){ $("planBody").innerHTML = tab === "review" ? REVIEW_HTML : PLAN_HTML; }
+  /* ---------- ★v4 训练 Tab（规范 9.5） ---------- */
+
+  // 训练日行：最小 76px；今天用行首 2×16px accent 竖线标记（不用文字标签、不用底色徽章）
+  function tday(dow, title, items, isToday){
+    var html = '<div class="tday' + (isToday ? ' today' : '') + '">' +
+      '<span class="marker"></span>' +
+      '<span class="dow">' + dow + '</span><div class="col">' +
+      '<div class="h">' + esc(title) + '</div>';
+    if (items){
+      html += '<div class="items">' + esc(items) + '</div>' +
+        '<div class="act"><button class="btn-text" style="padding-left:0" ' +
+        'onclick="logTraining(this,\'' + esc(title) + '\')">记一笔</button></div>';
+    }
+    return html + '</div></div><div class="sep indent"></div>';
+  }
+
+  // 休息日：48px 单行，无「记一笔」
+  function trest(dow){
+    return '<div class="tday rest"><span class="dow">' + dow + '</span>' +
+      '<div class="col"><div class="h">休息</div></div></div>' +
+      '<div class="sep indent"></div>';
+  }
+
+  var TRAINING_HTML =
+    '<div style="padding:20px;font-size:15px;color:var(--text_1)">本周 3 练 · 已完成 2</div>' +
+    tday("周一", "推（胸/肩/三头）", "杠铃卧推 4×8-10 · 哑铃肩推 3×10-12", false) +
+    trest("周二") +
+    tday("周三", "拉（背/二头）", "引体 4×力竭 · 坐姿划船 3×12", true) +
+    trest("周四") +
+    tday("周五", "腿", "深蹲 4×6-8 · 硬拉 3×5", false) +
+    trest("周六") + trest("周日") +
+    '<div style="padding:20px;font-size:13px;color:var(--text_2)">本周重点：卧推尝试比上周加 2.5kg</div>' +
+    '<div class="disclaimer">估算值，非医疗建议</div>';
+
+  // 首次进入：还没有计划。主按钮撑满，生成中 / 失败 / 降级三态见规范 9.5
+  var TRAINING_EMPTY =
+    '<div style="padding:20px 20px 0">' +
+    '<div style="font-size:15px;color:var(--text_1)">生成这周练什么</div>' +
+    '<div style="font-size:13px;color:var(--text_2);margin-top:4px;line-height:20px">' +
+    '结合你的目标（增重）和本周已练肌群，一次生成 7 天安排。</div></div>' +
+    '<div class="sep" style="margin:20px 0"></div>' +
+    '<div style="padding:0 20px"><button class="btn-primary" style="width:100%" ' +
+    'onclick="genTraining(this)">生成本周计划</button></div>' +
+    '<div style="padding:12px 20px;font-size:13px;color:var(--text_2)">' +
+    '本周目标 3 次 · 休息日也会排出来</div>' +
+    '<div class="disclaimer">估算值，非医疗建议</div>';
+
+  window.genTraining = function(btn){
+    btn.disabled = true;
+    btn.textContent = "生成中";
+    var row = document.createElement("div");
+    row.style.cssText = "padding:12px 20px;font-size:13px;color:var(--text_2)";
+    row.textContent = "正在排这周的训练…";
+    $("planBody").appendChild(row);
+    setTimeout(function(){
+      if ($("optLimit").checked){
+        btn.disabled = false;
+        btn.textContent = "生成本周计划";
+        row.style.color = "var(--negative)";
+        row.innerHTML = '生成失败（已限流）。' +
+          '<button class="btn-text" style="padding-left:8px" onclick="retryGen()">重试</button>';
+        return;
+      }
+      $("optNoPlan").checked = false;
+      renderPlan("training");
+    }, 1200);
+  };
+
+  window.retryGen = function(){
+    $("optLimit").checked = false;                 // 原型：重试即成功，便于看后续状态
+    renderPlan("training");
+    var b = document.querySelector("#planBody .btn-primary");
+    if (b) window.genTraining(b);
+  };
+
+  /* ---------- ★v4 内联撤销条（规范 9.6） ----------
+     「记一笔」单击直写，不弹 ConfirmSheet —— 用户意图 100% 明确，
+     human-in-the-loop 那套是为「AI 从模糊输入里提取」设计的。
+     与通知栏录入的「直写 + 5 秒撤销」保持同一套逻辑。 */
+  var undoState = null, undoTimer = null;
+
+  window.logTraining = function(btn, title){
+    btn.textContent = "已记录";
+    btn.disabled = true;
+    btn.style.color = "var(--text_3)";
+    $("undoText").textContent = "已记录 运动 · " + title;
+    $("undoBar").style.display = "flex";
+    undoState = { btn: btn };
+    clearTimeout(undoTimer);
+    undoTimer = setTimeout(function(){
+      $("undoBar").style.display = "none";
+      undoState = null;
+    }, 5000);
+  };
+
+  window.undoTraining = function(){
+    $("undoBar").style.display = "none";
+    clearTimeout(undoTimer);
+    if (undoState && undoState.btn){
+      undoState.btn.textContent = "记一笔";
+      undoState.btn.disabled = false;
+      undoState.btn.style.color = "";
+    }
+    undoState = null;
+  };
+
+  function renderPlan(tab){
+    $("planBody").innerHTML = tab === "review" ? REVIEW_HTML
+      : tab === "training" ? ($("optNoPlan").checked ? TRAINING_EMPTY : TRAINING_HTML)
+      : PLAN_HTML;
+  }
   window.renderPlan = renderPlan;
   window.regenerate = function(){
     var b = $("planBody");
@@ -866,6 +1228,152 @@ body{
       renderPlan(currentTab);
     };
   });
+
+  /* ============================================================
+     ★v4 状态详情页（规范 9.3 / 9.4）
+     ============================================================ */
+
+  /* ---------- 9.2 状态行两态：原地切换，高度恒定，不新增行 ---------- */
+  function applyStatusRow(){
+    var sig = $("optSignal").checked;
+    $("statusRow").classList.toggle("sig", sig);
+    $("statusText").textContent = sig
+      ? "连续 3 天睡眠不足 · 今晚提前 1 小时熄灯"      // 信号态：_short 版，≤24 汉字
+      : "运动 2/3 · 睡眠 7.2h · 体重 58.2kg";        // 摘要态：最多 3 项，固定顺序
+  }
+  window.applyStatusRow = applyStatusRow;
+
+  // 从信号态进来默认落在「身体」段；从摘要态进来默认「运动」段
+  window.openStatusFrom = function(){
+    go("status");
+    selectSeg($("optSignal").checked ? "body" : "training");
+  };
+
+  /* ---------- 9.3 趋势折线：无网格、无坐标轴刻度、无图例、无绘制动画 ---------- */
+  var SLEEP_VALS  = [6.8, 7.5, 7.1, 8.1, 7.6, 7.9, 7.5];
+  var WEIGHT_VALS = [58.2, 58.3, 58.2, 58.4, 58.5, 58.4, 58.6];
+
+  function sparkline(vals){
+    // 数据点 < 3 不画线 —— 依据「反伪相关」原则 R6
+    if (vals.length < 3) return '<div class="nodata">记录不足 3 天，暂不画趋势</div>';
+    var W = 350, H = 80, pad = 8;
+    var mn = Math.min.apply(null, vals), mx = Math.max.apply(null, vals);
+    var span = (mx - mn) || 1;
+    var y0 = mn - span * 0.15, y1 = mx + span * 0.15, s2 = y1 - y0;   // 上下各留 15% 余量
+    var pts = vals.map(function(v, i){
+      return [pad + i * (W - pad * 2) / (vals.length - 1),
+              H - pad - (v - y0) / s2 * (H - pad * 2)];
+    });
+    var d = pts.map(function(p, i){
+      return (i ? "L" : "M") + p[0].toFixed(1) + " " + p[1].toFixed(1);
+    }).join(" ");
+    var last = pts[pts.length - 1];
+    return '<div class="plot"><svg width="' + W + '" height="' + H +
+      '" viewBox="0 0 ' + W + ' ' + H + '">' +
+      '<path d="' + d + '" fill="none" stroke="var(--accent)" stroke-width="1.6" ' +
+      'stroke-linecap="round" stroke-linejoin="round"/>' +
+      // 只标记最后一个点，中间点不画
+      '<circle cx="' + last[0].toFixed(1) + '" cy="' + last[1].toFixed(1) +
+      '" r="3" fill="var(--accent)"/></svg></div><span class="win">近 7 日</span>';
+  }
+
+  function sparklineFor(vals){
+    return sparkline($("optNoData").checked ? vals.slice(0, 2) : vals);
+  }
+
+  /* ---------- 复用组件的小helper ---------- */
+  function segItem(time, main, sum){
+    return '<div class="item"><span class="dot" style="background:var(--dot_exercise)"></span>' +
+      '<div class="bodycol"><div class="meta"><span>运动</span><span>' + time + '</span></div>' +
+      '<div class="main">' + esc(main) + '</div>' +
+      '<div class="sum">' + esc(sum) + '</div></div></div><div class="sep indent"></div>';
+  }
+
+  function sumLines(arr){
+    return arr.map(function(t, i){
+      return '<div style="padding:' + (i === 0 ? '20px 20px 0' : '4px 20px 0') +
+        ';font-size:15px;color:var(--text_1);line-height:24px">' + esc(t) + '</div>';
+    }).join("");
+  }
+
+  function tlRow(n, dt, tx){
+    return '<div class="tlrow"><span class="n">' + n + '</span>' +
+      '<span class="dt">' + dt + '</span><span class="tx">' + esc(tx) + '</span></div>';
+  }
+
+  function rowKV(k, v){
+    return '<div class="row"><span>' + esc(k) + '</span>' +
+      '<span class="val">' + esc(v) + ' ›</span></div>';
+  }
+
+  /* ---------- 9.4 四段内容 ---------- */
+  var SEG = {
+    // 运动：离散事件用清单比折线信息量高 —— 能看到练了什么
+    training: function(){
+      return '<div class="grouptitle">本周目标</div>' +
+        sumLines(["2 / 3 次 · 87 / 150 分钟"]) +
+        '<div class="grouptitle">最近训练</div>' +
+        segItem("周三", "推（胸/肩/三头）", "杠铃卧推 4×8-10 · 哑铃肩推 3×10-12") +
+        segItem("周一", "拉（背/二头）", "引体 4×力竭 · 坐姿划船 3×12") +
+        '<div class="linkrow" onclick="go(\'plan\')">查看本周训练计划　›</div>' +
+        '<div class="disclaimer">估算值，非医疗建议</div>';
+    },
+    sleep: function(){
+      return '<div class="chart"><div class="range">7.5 – 8.1 小时</div>' +
+        sparklineFor(SLEEP_VALS) + '</div>' +
+        sumLines(["日均 7.2 小时 · 目标 7.5", "比上周少 0.4 小时"]) +
+        '<div class="disclaimer">估算值，非医疗建议</div>';
+    },
+    weight: function(){
+      return '<div class="chart"><div class="range">58.2 – 59.0 kg</div>' +
+        sparklineFor(WEIGHT_VALS) + '</div>' +
+        sumLines(["当前 58.4 kg · 目标 62.0", "近 14 日 ↑0.6 kg", "BMI 18.4 · 偏低"]) +
+        // ★规则 H8 安全条款：BMI<18.5 且体重停滞/下降时给就医引导，
+        //   且本段不得出现「多吃 / 加餐 / 上调摄入」。不做成警告条 —— 它不是错误，是引导。
+        '<div style="height:28px"></div>' +
+        '<div style="padding:0 20px;font-size:13px;color:var(--text_1);line-height:20px">' +
+        '你的体重偏低且近期没涨。指南对体重过轻者的第一条建议是先排除疾病原因，建议做一次常规检查。</div>' +
+        '<div class="disclaimer">估算值，非医疗建议</div>';
+    },
+    body: function(){
+      if (!$("optSignal").checked){
+        return '<div class="centerhint">暂时没有需要留意的事</div>';
+      }
+      return '<div class="grouptitle">需要留意</div>' +
+        '<div class="sigfull">连续 3 天睡不到 6 小时。睡眠直接决定恢复和免疫，今晚提前 1 小时熄灯。</div>' +
+        '<div class="grouptitle">本次不适 · 第 3 天</div>' +
+        tlRow(1, "10-01", "嗓子疼") +
+        tlRow(2, "10-02", "嗓子疼 · 未就医") +
+        tlRow(3, "10-03", "低烧 37.8 · 已就医") +
+        '<div class="grouptitle">提醒</div>' +
+        rowKV("体检", "下次 2027-03-15") +
+        rowKV("洗牙", "下次 2026-11-02") +
+        rowKV("配镜", "下次 2027-06-20") +
+        '<div class="disclaimer">估算值，非医疗建议</div>';
+    }
+  };
+
+  var currentSeg = "training";
+  function selectSeg(name){
+    currentSeg = name;
+    Array.prototype.forEach.call($("statusSeg").children, function(t){
+      t.classList.toggle("on", t.getAttribute("data-s2") === name);
+    });
+    $("statusBody").innerHTML = SEG[name]();
+  }
+  window.selectSeg = selectSeg;
+
+  Array.prototype.forEach.call($("statusSeg").children, function(t){
+    t.onclick = function(){ selectSeg(t.getAttribute("data-s2")); };
+  });
+
+  /* ---------- 9.7 隐私：右侧值文字即状态，不引入 Switch 组件 ---------- */
+  window.toggleHide = function(row){
+    var v = row.querySelector(".val");
+    var on = v.textContent.indexOf("已隐藏") === -1;
+    v.textContent = (on ? "已隐藏" : "显示") + " ›";
+    v.style.color = on ? "var(--accent)" : "";
+  };
 
   // ---------- 设置：Provider ----------
   var PRESETS = {
@@ -920,6 +1428,15 @@ body{
     document.documentElement.setAttribute("data-theme", this.checked ? "dark" : "light");
   };
   $("optEmpty").onchange = renderHome;
+  // ★v4 状态行两态：切换时高度完全不变，页面不跳动
+  $("optSignal").onchange = function(){
+    applyStatusRow();
+    if (currentSeg === "body") selectSeg("body");
+  };
+  $("optNoData").onchange = function(){ selectSeg(currentSeg); };
+  $("optNoPlan").onchange = function(){
+    if (currentTab === "training") renderPlan("training");
+  };
 
   Array.prototype.forEach.call($("nav").children, function(li){
     li.onclick = function(){ go(li.getAttribute("data-s")); };
@@ -936,6 +1453,8 @@ body{
   // ---------- 初始化 ----------
   renderHome();
   renderPlan("plan");
+  applyStatusRow();          // ★v4 状态行初始为摘要态
+  selectSeg("training");     // ★v4 状态详情页默认「运动」段
   var opening = addAssistant(
     "已摄入 1200 / 目标 2500\n还差 1300。晚饭建议吃牛肉炒饭（牛肉 150g + 米饭 200g + 鸡蛋），约 650 kcal。", true);
   // 开场白必须排在快捷入口之前
