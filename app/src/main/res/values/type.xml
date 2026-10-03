@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    字体规范（Healix设计规范系统.md 2.2）。
+    硬约束：全局只用 400 / 500 两个字重，禁止 600 / 700。
+    行高：body 24sp(1.6) / secondary 20sp / caption 16sp。
+-->
+<resources>
+
+    <!-- numeral：36sp/400，全 App 唯一超大字，热量盈余主数字 -->
+    <style name="Text.Numeral" parent="">
+        <item name="android:textSize">36sp</item>
+        <item name="android:textStyle">normal</item>
+        <item name="android:textColor">@color/text_1</item>
+        <item name="android:letterSpacing">-0.02</item>
+        <item name="android:includeFontPadding">false</item>
+    </style>
+
+    <!-- title：17sp/500 -->
+    <style name="Text.Title" parent="">
+        <item name="android:textSize">17sp</item>
+        <item name="android:textStyle">normal</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:textColor">@color/text_1</item>
+    </style>
+
+    <!-- body：15sp/400，行高 24sp -->
+    <style name="Text.Body" parent="">
+        <item name="android:textSize">15sp</item>
+        <item name="android:textColor">@color/text_1</item>
+        <item name="android:lineSpacingExtra">6sp</item>
+    </style>
+
+    <!-- secondary：13sp/400，行高 20sp -->
+    <style name="Text.Secondary" parent="">
+        <item name="android:textSize">13sp</item>
+        <item name="android:textColor">@color/text_2</item>
+        <item name="android:lineSpacingExtra">3sp</item>
+    </style>
+
+    <!-- caption：12sp/400，分区标题、免责声明 -->
+    <style name="Text.Caption" parent="">
+        <item name="android:textSize">12sp</item>
+        <item name="android:textColor">@color/text_2</item>
+    </style>
+
+    <style name="Text.Tertiary" parent="">
+        <item name="android:textSize">13sp</item>
+        <item name="android:textColor">@color/text_3</item>
+    </style>
+
+    <!-- 按钮：13sp/500（主按钮规格 3.1） -->
+    <style name="Text.Button" parent="">
+        <item name="android:textSize">13sp</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:textAllCaps">false</item>
+    </style>
+
+    <!-- 可点文字：accent 13sp/500（文字按钮 / 监督提示条） -->
+    <style name="Text.Link" parent="Text.Button">
+        <item name="android:textColor">@color/accent</item>
+    </style>
+
+    <style name="Text.Danger" parent="Text.Button">
+        <item name="android:textColor">@color/negative</item>
+    </style>
+
+</resources>

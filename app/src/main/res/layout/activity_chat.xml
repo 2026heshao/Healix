@@ -1,0 +1,212 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    对话页（设计规范系统 4.2）。
+    硬约束：无彩色气泡、无头像，身份只靠对齐区分。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/bg"
+    android:fitsSystemWindows="true"
+    android:orientation="vertical">
+
+    <!-- 顶部：返回 + 标题 + 会话日期 -->
+    <RelativeLayout
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:paddingStart="8dp"
+        android:paddingEnd="@dimen/screen_margin">
+
+        <ImageButton
+            android:id="@+id/btnBack"
+            android:layout_width="@dimen/touch_min"
+            android:layout_height="@dimen/touch_min"
+            android:layout_centerVertical="true"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/back"
+            android:padding="14dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_back" />
+
+        <TextView
+            style="@style/Text.Title"
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:layout_marginStart="4dp"
+            android:layout_toEndOf="@id/btnBack"
+            android:gravity="center_vertical"
+            android:text="@string/assistant" />
+
+        <TextView
+            android:id="@+id/sessionLabel"
+            style="@style/Text.Secondary"
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:layout_alignParentEnd="true"
+            android:gravity="center_vertical"
+            tools:text="今天" />
+    </RelativeLayout>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/divider"
+        android:background="@color/line" />
+
+    <!-- 简化模式提示（降级）：text_2，不用 negative -->
+    <TextView
+        android:id="@+id/simplifiedBar"
+        style="@style/Text.Secondary"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingStart="@dimen/screen_margin"
+        android:paddingEnd="@dimen/screen_margin"
+        android:paddingTop="6dp"
+        android:paddingBottom="6dp"
+        android:text="@string/state_simplified"
+        android:visibility="gone"
+        tools:visibility="visible" />
+
+    <!-- 消息区：可滚动，输入区固定底部 -->
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/messageList"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:clipToPadding="false"
+            android:paddingTop="20dp"
+            android:paddingBottom="12dp"
+            android:scrollbars="none" />
+
+        <TextView
+            android:id="@+id/emptyHint"
+            style="@style/Text.Secondary"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:text="@string/empty_hint"
+            android:visibility="gone"
+            tools:visibility="visible" />
+    </FrameLayout>
+
+    <!-- 快捷入口三行（替代 chips）：仅空会话时出现 -->
+    <LinearLayout
+        android:id="@+id/quickGroup"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/quickToday"
+            style="@style/Text.Secondary"
+            android:layout_width="match_parent"
+            android:layout_height="@dimen/touch_min"
+            android:background="?attr/selectableItemBackground"
+            android:gravity="center_vertical"
+            android:paddingStart="@dimen/screen_margin"
+            android:paddingEnd="@dimen/screen_margin"
+            android:text="@string/quick_today_ok" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="@dimen/divider"
+            android:layout_marginStart="@dimen/screen_margin"
+            android:background="@color/line" />
+
+        <TextView
+            android:id="@+id/quickDinner"
+            style="@style/Text.Secondary"
+            android:layout_width="match_parent"
+            android:layout_height="@dimen/touch_min"
+            android:background="?attr/selectableItemBackground"
+            android:gravity="center_vertical"
+            android:paddingStart="@dimen/screen_margin"
+            android:paddingEnd="@dimen/screen_margin"
+            android:text="@string/quick_dinner" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="@dimen/divider"
+            android:layout_marginStart="@dimen/screen_margin"
+            android:background="@color/line" />
+
+        <TextView
+            android:id="@+id/quickWeek"
+            style="@style/Text.Secondary"
+            android:layout_width="match_parent"
+            android:layout_height="@dimen/touch_min"
+            android:background="?attr/selectableItemBackground"
+            android:gravity="center_vertical"
+            android:paddingStart="@dimen/screen_margin"
+            android:paddingEnd="@dimen/screen_margin"
+            android:text="@string/quick_week" />
+    </LinearLayout>
+
+    <!-- 免责声明：常驻消息区底部上方，不随滚动消失 -->
+    <TextView
+        style="@style/Text.Tertiary"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingStart="@dimen/screen_margin"
+        android:paddingEnd="@dimen/screen_margin"
+        android:paddingTop="4dp"
+        android:paddingBottom="4dp"
+        android:text="@string/disclaimer"
+        android:textSize="12sp" />
+
+    <!-- 输 入 区：与主界面同规格 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/input_height"
+        android:background="@drawable/bg_input_bar"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="@dimen/screen_margin"
+        android:paddingEnd="12dp">
+
+        <EditText
+            android:id="@+id/input"
+            style="@style/Widget.Healix.QuickInput"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:hint="@string/hint_chat_input"
+            android:importantForAutofill="no"
+            android:minHeight="@dimen/input_height" />
+
+        <ProgressBar
+            android:id="@+id/spinner"
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:layout_marginEnd="8dp"
+            android:indeterminate="true"
+            android:indeterminateTint="@color/accent"
+            android:visibility="gone"
+            tools:visibility="visible" />
+
+        <TextView
+            android:id="@+id/stateLabel"
+            style="@style/Text.Secondary"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="4dp"
+            android:visibility="gone"
+            tools:text="排队中 · 约 4s"
+            tools:visibility="visible" />
+
+        <ImageButton
+            android:id="@+id/btnSend"
+            android:layout_width="@dimen/touch_min"
+            android:layout_height="@dimen/touch_min"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/send"
+            android:padding="12dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_send" />
+    </LinearLayout>
+
+</LinearLayout>

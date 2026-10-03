@@ -1,0 +1,54 @@
+# Healix —— 敏感与构建产物忽略清单
+# 硬约束：绝不提交任何 key
+
+# 密钥与本机配置
+local.properties
+*.keystore
+*.jks
+keystore.properties
+secrets.properties
+
+# 环境变量文件
+.env
+.env.*
+!.env.example
+
+# 构建产物
+*.iml
+.gradle/
+build/
+captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+*.ap_
+*.dex
+output.json
+
+# IDE
+.idea/
+*.hprof
+.DS_Store
+Thumbs.db
+
+# Python 竖切片产物
+pipeline/*.db
+pipeline/*.db-wal
+pipeline/*.db-shm
+pipeline/regression_report.json
+pipeline/__pycache__/
+**/__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# 回归测试运行日志：含 API 原始响应，不入库
+.regression_out.log
+*.regression.log
+
+# 工作区本地数据（记忆/会话缓存），属本机状态而非项目源码
+.workbuddy/
+
+# 明确保留：Room schema 历史（迁移必须可追溯）
+!app/schemas/

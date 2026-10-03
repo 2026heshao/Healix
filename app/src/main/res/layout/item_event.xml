@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    记录列表项（组件规范 3.3）。
+    · 饮食                        12:30
+      中午吃了牛肉面加鸡蛋
+      约 600 kcal
+    ──────────────────────────  1dp 线（左缩进 20dp）
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical">
+
+    <LinearLayout
+        style="@style/Widget.Healix.ListRow"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <!-- 6px 低饱和圆点，垂直居中于第一行 -->
+        <View
+            android:id="@+id/dot"
+            android:layout_width="@dimen/dot_size"
+            android:layout_height="@dimen/dot_size"
+            android:layout_gravity="top"
+            android:layout_marginTop="8dp"
+            android:layout_marginEnd="10dp"
+            android:background="@drawable/dot" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/typeLabel"
+                    style="@style/Text.Secondary"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    tools:text="饮食" />
+
+                <TextView
+                    android:id="@+id/timeLabel"
+                    style="@style/Text.Secondary"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    tools:text="12:30" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/bodyText"
+                style="@style/Text.Body"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="5dp"
+                android:ellipsize="end"
+                android:maxLines="2"
+                tools:text="中午吃了牛肉面加鸡蛋" />
+
+            <TextView
+                android:id="@+id/summaryText"
+                style="@style/Text.Secondary"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="3dp"
+                android:visibility="gone"
+                tools:text="约 600 kcal"
+                tools:visibility="visible" />
+
+            <!-- 失败提示：出现在该行下方，不弹窗 -->
+            <TextView
+                android:id="@+id/errorText"
+                style="@style/Text.Danger"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="3dp"
+                android:textSize="13sp"
+                android:visibility="gone"
+                tools:text="识别失败 · 重试"
+                tools:visibility="visible" />
+
+            <!-- 待处理标记：pending 状态 -->
+            <TextView
+                android:id="@+id/pendingText"
+                style="@style/Text.Tertiary"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="3dp"
+                android:text="@string/state_parsing"
+                android:visibility="gone"
+                tools:visibility="visible" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- 分隔线：左缩进 20dp -->
+    <View
+        android:id="@+id/divider"
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/divider"
+        android:layout_marginStart="@dimen/screen_margin"
+        android:background="@color/line" />
+
+</LinearLayout>

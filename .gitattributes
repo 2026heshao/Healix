@@ -1,0 +1,33 @@
+# Healix —— 换行符纪律
+#
+# 背景：本仓库在 Windows 上开发，但 CI 跑在 ubuntu-latest。
+# 若 gradlew 被写成 CRLF，Linux 上会报 "bad interpreter: /bin/sh^M" 而拒绝执行。
+# 因此 shell 脚本必须强制 LF，且不可被 core.autocrlf 改写。
+
+# 默认：文本文件入库统一 LF
+* text=auto eol=lf
+
+# Shell / 批处理脚本：gradlew 必须 LF；gradlew.bat 用 CRLF（Windows cmd 需要）
+gradlew text eol=lf
+*.sh text eol=lf
+gradlew.bat text eol=crlf
+*.bat text eol=crlf
+
+# 二进制：不做任何换行转换
+*.jar binary
+*.apk binary
+*.aab binary
+*.keystore binary
+*.jks binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ttf binary
+*.otf binary
+*.woff binary
+*.woff2 binary
+
+# Gradle wrapper jar 明确标为二进制（防止 git 误判为文本）
+gradle/wrapper/gradle-wrapper.jar binary

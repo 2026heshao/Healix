@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 应用图标：暖白底 + 赤陶圆点，符合设计语言（无渐变、无阴影） -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:pathData="M0,0h108v108h-108z"
+        android:fillColor="#FAFAF9" />
+    <!-- 圆环，1.6dp 线性语言的放大版 -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#B85028"
+        android:strokeWidth="5"
+        android:pathData="M54,30 A24,24 0 1,0 54,78 A24,24 0 1,0 54,30 Z" />
+    <!-- 中心圆点 -->
+    <path
+        android:pathData="M54,48 A6,6 0 1,0 54,60 A6,6 0 1,0 54,48 Z"
+        android:fillColor="#B85028" />
+</vector>

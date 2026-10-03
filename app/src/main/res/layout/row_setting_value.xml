@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    设置项（56dp）：标签左 15sp text_1，值右 15sp text_2，可点时右侧 16dp 箭头。
+    被 <include> 复用时 id 会带上 include 的 id 前缀。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    style="@style/Widget.Healix.SettingRow"
+    android:layout_width="match_parent"
+    android:layout_height="@dimen/setting_row_height"
+    android:orientation="horizontal">
+
+    <TextView
+        android:id="@+id/label"
+        style="@style/Text.Body"
+        android:layout_width="96dp"
+        android:layout_height="match_parent"
+        android:gravity="center_vertical"
+        tools:text="服务商" />
+
+    <TextView
+        android:id="@+id/value"
+        style="@style/Text.Body"
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1"
+        android:ellipsize="end"
+        android:gravity="center_vertical|end"
+        android:maxLines="1"
+        android:textColor="@color/text_2"
+        tools:text="智谱 GLM" />
+
+    <ImageView
+        android:id="@+id/chevron"
+        android:layout_width="16dp"
+        android:layout_height="16dp"
+        android:layout_gravity="center_vertical"
+        android:layout_marginStart="6dp"
+        android:contentDescription="@null"
+        android:src="@drawable/ic_chevron"
+        android:visibility="gone"
+        tools:visibility="visible" />
+
+</LinearLayout>

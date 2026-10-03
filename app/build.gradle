@@ -1,0 +1,113 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+    id 'com.google.devtools.ksp'
+}
+
+android {
+    namespace 'com.healix.app'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "com.healix.app"
+        minSdk 29          // Android 10，覆盖 Magic6 Pro 即可
+        targetSdk 35
+        versionCode 1
+        versionName "0.1.0"
+
+        // 禁止把 key 注入构建。API key 只从设置页输入 → EncryptedSharedPreferences。
+        // 见 docs/security.md
+    }
+
+    signingConfigs {
+        // 签名信息全部来自环境变量（GitHub Secrets / 本地 local.properties）
+        // 缺任一变量则不注册该 signingConfig，debug 构建不受影响
+        release {
+            def storePath = System.getenv("HEALIX_KEYSTORE_PATH")
+            def storePass = System.getenv("HEALIX_KEYSTORE_PASSWORD")
+            def keyAlias_ = System.getenv("HEALIX_KEY_ALIAS")
+            def keyPass = System.getenv("HEALIX_KEY_PASSWORD")
+            if (storePath && storePass && keyAlias_ && keyPass) {
+                storeFile file(storePath)
+                storePassword storePass
+                keyAlias keyAlias_
+                keyPassword keyPass
+            }
+        }
+    }
+
+    buildTypes {
+        debug {
+            applicationIdSuffix ""
+            debuggable true
+        }
+        release {
+            minifyEnabled false      // 自用，不做混淆，便于排障
+            shrinkResources false
+            if (System.getenv("HEALIX_KEYSTORE_PATH")) {
+                signingConfig signingConfigs.release
+            }
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+
+    buildFeatures {
+        viewBinding true
+    }
+
+    // Room exportSchema=true 要求 schema 输出目录
+    sourceSets {
+        main {
+            assets.srcDirs += ['src/main/assets']
+        }
+    }
+}
+
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+    arg("room.generateKotlin", "true")
+}
+
+dependencies {
+    implementation 'androidx.core:core-ktx:1.15.0'
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'com.google.android.material:material:1.12.0'
+    implementation 'androidx.constraintlayout:constraintlayout:2.2.0'
+    implementation 'androidx.recyclerview:recyclerview:1.3.2'
+
+    // Room（禁 fallbackToDestructiveMigration，见 AppDatabase.kt）
+    implementation 'androidx.room:room-runtime:2.6.1'
+    implementation 'androidx.room:room-ktx:2.6.1'
+    ksp 'androidx.room:room-compiler:2.6.1'
+
+    // 生命周期 / 协程
+    implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.8.7'
+    implementation 'androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.7'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0'
+
+    // WorkManager（离线待处理队列退避重试）
+    implementation 'androidx.work:work-runtime-ktx:2.10.0'
+
+    // 网络：OkHttp（需自己控重试）
+    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+
+    // 安全存储：API key 用 EncryptedSharedPreferences
+    implementation 'androidx.security:security-crypto:1.1.0-alpha06'
+
+    testImplementation 'junit:junit:4.13.2'
+    // 纯 JVM 单元测试里没有 Android 内置的 org.json。
+    // SchemaValidator 依赖它，因此测试期引入同 API 的独立实现。
+    // 注意：这是**测试期**依赖，不会进 APK（Android 运行时仍用系统内置实现）。
+    testImplementation 'org.json:json:20240303'
+    androidTestImplementation 'androidx.test.ext:junit:1.2.1'
+    androidTestImplementation 'androidx.test.espresso:espresso-core:3.6.1'
+    androidTestImplementation 'androidx.room:room-testing:2.6.1'
+}

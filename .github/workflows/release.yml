@@ -1,0 +1,147 @@
+name: Release
+
+# 触发方式：
+#   1) 手动：Actions 页 → Release → Run workflow
+#   2) 打 tag：git tag v0.1.0 && git push origin v0.1.0
+#      → 构建 + 上传 artifact + 自动创建 GitHub Release 并附 APK
+#
+# ══════════════════════════════════════════════════════════════════════════
+# 需要的 GitHub Secrets（Settings → Secrets and variables → Actions）
+# ══════════════════════════════════════════════════════════════════════════
+#
+#   HEALIX_KEYSTORE_BASE64   签名 keystore（.jks）的 base64 编码全文
+#                            本地生成：
+#                              Windows: certutil -encode healix.jks tmp.b64
+#                              Git Bash: base64 -w0 healix.jks > healix.jks.b64
+#                            只提交 base64 文本到 Secrets，**绝不提交 .jks 本身**
+#                            （.gitignore 已排除 *.jks / *.keystore）
+#
+#   HEALIX_KEYSTORE_PASSWORD keystore 的 storePassword
+#   HEALIX_KEY_ALIAS         key 的别名
+#   HEALIX_KEY_PASSWORD      key 的 keyPassword
+#
+# ⚠️ 本 workflow **不注入任何 API key**（模型服务的 key）。
+#    API key 属于运行时用户配置，走 App 内 EncryptedSharedPreferences（C6），
+#    与构建签名是两件完全不同的事，不要混淆。
+#
+# app/build.gradle 的 signingConfigs.release 从**环境变量**读取签名信息：
+#   HEALIX_KEYSTORE_PATH / HEALIX_KEYSTORE_PASSWORD / HEALIX_KEY_ALIAS / HEALIX_KEY_PASSWORD
+# 缺任一变量则不注册 release signingConfig（debug 构建不受影响）。
+# 因此这里必须把解密后的 keystore 路径写进 HEALIX_KEYSTORE_PATH。
+# ══════════════════════════════════════════════════════════════════════════
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '发行 tag（留空则只用当前 commit 名）'
+        required: false
+        default: ''
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write   # softprops/action-gh-release 需要写权限来创建 Release
+
+jobs:
+  release:
+    name: 构建签名 APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 安装 JDK 17（Temurin）
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: 配置 Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: 缓存 Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-release-${{ runner.os }}-${{ hashFiles('**/*.gradle', '**/*.gradle.kts', 'gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-release-${{ runner.os }}-
+
+      - name: 赋予 gradlew 可执行权限
+        run: chmod +x ./gradlew
+
+      # ── 从 Secrets 解出 keystore ──────────────────────────────────────
+      # 用 base64 -d 还原二进制。写到 runner 的工作目录（构建后随 runner 销毁）。
+      # 注意：**不要**把这个文件放进 cache 或 artifact，避免签名密钥外泄。
+      - name: 解密 keystore
+        env:
+          HEALIX_KEYSTORE_BASE64: ${{ secrets.HEALIX_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$HEALIX_KEYSTORE_BASE64" ]; then
+            echo "::error::缺少 secret HEALIX_KEYSTORE_BASE64，无法签名。请先配置 keystore 相关 secrets。"
+            exit 1
+          fi
+          printf '%s' "$HEALIX_KEYSTORE_BASE64" | base64 -d > healix.jks
+          # 校验还原结果确实是 JKS/PKCS12（防止 base64 粘贴时丢了字符）
+          if [ ! -s healix.jks ]; then
+            echo "::error::keystore 解码后为空，请检查 HEALIX_KEYSTORE_BASE64 是否完整。"
+            exit 1
+          fi
+          echo "keystore 已还原（$(wc -c < healix.jks) 字节）"
+
+      # ── 构建签名 release ─────────────────────────────────────────────
+      # HEALIX_KEYSTORE_PATH 指向上一步还原的文件，与 app/build.gradle 约定一致。
+      - name: 构建 release APK
+        env:
+          HEALIX_KEYSTORE_PATH: ${{ github.workspace }}/healix.jks
+          HEALIX_KEYSTORE_PASSWORD: ${{ secrets.HEALIX_KEYSTORE_PASSWORD }}
+          HEALIX_KEY_ALIAS: ${{ secrets.HEALIX_KEY_ALIAS }}
+          HEALIX_KEY_PASSWORD: ${{ secrets.HEALIX_KEY_PASSWORD }}
+        run: ./gradlew --no-daemon assembleRelease
+
+      # ── 校验产物确实被签名 ───────────────────────────────────────────
+      # 未签名的 release APK 装不上真机，早失败好于发布坏包。
+      - name: 校验 APK 已签名
+        run: |
+          APK=$(ls app/build/outputs/apk/release/*.apk | head -n 1)
+          echo "产物：$APK"
+          APKTOOL=$(ls "$ANDROID_HOME"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -n 1)
+          if [ -z "$APKTOOL" ]; then
+            echo "::warning::未找到 apksigner，跳过签名校验"
+          else
+            "$APKTOOL" verify --print-certs "$APK"
+          fi
+
+      - name: 上传 release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: healix-release-apk
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      # ── tag 触发时创建 GitHub Release ────────────────────────────────
+      - name: 创建 Release 并附 APK
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: app/build/outputs/apk/release/*.apk
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── 清理签名密钥 ─────────────────────────────────────────────────
+      # Runner 是一次性的，但显式删除是好习惯（防止后续 step 误打包进 artifact）。
+      - name: 删除临时 keystore
+        if: always()
+        run: rm -f healix.jks

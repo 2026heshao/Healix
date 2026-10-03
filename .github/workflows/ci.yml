@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+# Healix —— 持续集成。
+#
+# 触发：push 到 main、向 main 提 PR。
+# 目标：证明"代码能编译 + 单元测试能过"，并留下 debug APK 供真机试装。
+#
+# ⚠️ 本 workflow **不注入任何 API key**。
+#    API key 只在 App 里由用户手动输入 → EncryptedSharedPreferences（C6）。
+#    构建期不需要、也不允许接触 key。
+#
+# 需要的 GitHub Secrets：无。
+# （release 才需要 keystore 相关 secrets，见 release.yml）
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# 同一分支的旧构建自动取消，省 runner 时间
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: 编译 + 单元测试
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 JDK 17（Temurin）
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # Android SDK 由 runner 预装，这一步负责接受 licenses 并配置 ANDROID_HOME
+      - name: 配置 Android SDK
+        uses: android-actions/setup-android@v3
+
+      # Gradle 缓存：key 跟 build.gradle 的 hash 走，依赖不变则命中
+      - name: 缓存 Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle', '**/*.gradle.kts', 'gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
+      # gradlew 需要可执行位。Windows 下提交的文件在 Linux runner 上会丢失该位。
+      - name: 赋予 gradlew 可执行权限
+        run: chmod +x ./gradlew
+
+      - name: 编译 debug + 跑单元测试
+        run: ./gradlew --no-daemon assembleDebug testDebugUnitTest
+
+      # always()：即使测试失败也要拿到 APK，便于定位问题
+      - name: 上传 debug APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: healix-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: warn
+          retention-days: 14
+
+      # 单元测试报告（失败时最有价值）
+      - name: 上传单元测试报告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: healix-unit-test-report
+          path: app/build/reports/tests/testDebugUnitTest/**
+          if-no-files-found: warn
+          retention-days: 7

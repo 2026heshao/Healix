@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 调试页一行：时间 用途 状态 延迟 备注。等宽数字，13sp。 -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingStart="@dimen/screen_margin"
+        android:paddingEnd="@dimen/screen_margin"
+        android:paddingTop="12dp"
+        android:paddingBottom="12dp">
+
+        <TextView
+            android:id="@+id/timeText"
+            style="@style/Text.Secondary"
+            android:layout_width="48dp"
+            android:layout_height="wrap_content"
+            android:fontFamily="monospace"
+            tools:text="15:06" />
+
+        <TextView
+            android:id="@+id/purposeText"
+            style="@style/Text.Secondary"
+            android:layout_width="56dp"
+            android:layout_height="wrap_content"
+            tools:text="抽取" />
+
+        <TextView
+            android:id="@+id/statusText"
+            style="@style/Text.Secondary"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textColor="@color/text_2"
+            tools:text="ok" />
+
+        <TextView
+            android:id="@+id/latencyText"
+            style="@style/Text.Secondary"
+            android:layout_width="56dp"
+            android:layout_height="wrap_content"
+            android:fontFamily="monospace"
+            android:gravity="end"
+            tools:text="1.2s" />
+
+        <TextView
+            android:id="@+id/noteText"
+            style="@style/Text.Tertiary"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="10dp"
+            tools:text="3 次重试" />
+    </LinearLayout>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/divider"
+        android:layout_marginStart="@dimen/screen_margin"
+        android:background="@color/line" />
+
+</LinearLayout>

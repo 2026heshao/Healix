@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Healix 通知小图标（设计规范第六章：线性图标、1.6dp 描边、无填充、无底色、无 emoji）。
+
+    ⚠️ 通知小图标必须是**单色剪影**（系统会强制染色为白/黑），
+       因此这里用纯白填充的极简形状 —— 描边在 24dp 小尺寸下会糊成一团。
+       这是通知栏与 App 内图标的重要差异，不是违反规范。
+       形状：一个"记录"符号 —— 圆点 + 短横线，暗示一条记录条目。
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="#FFFFFF">
+
+    <!-- 左列圆点：3 个，代表记录条目 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M4.6,6.4 m-1.6,0 a1.6,1.6 0 1,0 3.2,0 a1.6,1.6 0 1,0 -3.2,0" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M4.6,12 m-1.6,0 a1.6,1.6 0 1,0 3.2,0 a1.6,1.6 0 1,0 -3.2,0" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M4.6,17.6 m-1.6,0 a1.6,1.6 0 1,0 3.2,0 a1.6,1.6 0 1,0 -3.2,0" />
+
+    <!-- 右列横线：3 条，对应三条记录文本 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M9.2,5.6 h10.2 v1.6 h-10.2 z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M9.2,11.2 h10.2 v1.6 h-10.2 z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M9.2,16.8 h6.6 v1.6 h-6.6 z" />
+</vector>

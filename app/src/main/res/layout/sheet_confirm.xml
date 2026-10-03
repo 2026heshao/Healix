@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    ConfirmSheet（组件规范 3.5）：顶部圆角 8dp，把手 36×3dp，字段行高 52dp。
+    底部右对齐：文字按钮「重新识别」+ 主按钮「确认」。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="@drawable/bg_sheet"
+    android:orientation="vertical"
+    android:paddingStart="@dimen/screen_margin"
+    android:paddingEnd="@dimen/screen_margin"
+    android:paddingBottom="20dp">
+
+    <!-- 把手 -->
+    <View
+        android:layout_width="@dimen/handle_width"
+        android:layout_height="@dimen/handle_height"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="10dp"
+        android:layout_marginBottom="14dp"
+        android:background="@drawable/bg_handle" />
+
+    <TextView
+        android:id="@+id/sheetTitle"
+        style="@style/Text.Title"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/sheet_title_confirm" />
+
+    <!-- 对话场景变体：字段行上方增加来源标注 -->
+    <TextView
+        android:id="@+id/sourceLabel"
+        style="@style/Text.Tertiary"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:textSize="12sp"
+        android:text="@string/from_chat"
+        android:visibility="gone"
+        tools:visibility="visible" />
+
+    <!-- 原文（只读展示，帮助用户核对） -->
+    <TextView
+        android:id="@+id/rawText"
+        style="@style/Text.Secondary"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:textColor="@color/text_2"
+        tools:text="中午吃了牛肉面加鸡蛋，还称了下体重 58.2" />
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/divider"
+        android:layout_marginTop="14dp"
+        android:background="@color/line" />
+
+    <!-- 字段行容器：由代码按类型动态填充 -->
+    <LinearLayout
+        android:id="@+id/fieldContainer"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical" />
+
+    <!-- 底部按钮：右对齐 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:gravity="end"
+        android:orientation="horizontal">
+
+        <TextView
+            android:id="@+id/btnReparse"
+            style="@style/Text.Link"
+            android:layout_width="wrap_content"
+            android:layout_height="@dimen/touch_min"
+            android:layout_marginEnd="8dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:gravity="center"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:text="@string/reparse" />
+
+        <Button
+            android:id="@+id/btnConfirm"
+            style="@style/Widget.Healix.Button"
+            android:layout_width="wrap_content"
+            android:layout_height="48dp"
+            android:text="@string/confirm" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/btnDelete"
+        style="@style/Text.Danger"
+        android:layout_width="wrap_content"
+        android:layout_height="@dimen/touch_min"
+        android:layout_gravity="start"
+        android:layout_marginTop="4dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:gravity="center"
+        android:text="@string/delete" />
+
+</LinearLayout>

@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- 网络：调用云端大模型 -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- 通知栏录入（Android 13+ 必须运行时申请） -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- 常驻通知依赖前台服务。Android 14 (API 34) 起必须声明 FOREGROUND_SERVICE_SPECIAL_USE -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+
+    <!-- 电池优化白名单引导（国行 ROM 会杀后台，见总方案第十节） -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
+    <!-- 开机自启：重启后恢复常驻通知（部分 ROM 仍需用户手动加白） -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <application
+        android:name=".HealixApp"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="false"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="false"
+        android:theme="@style/Theme.Healix"
+        tools:targetApi="35">
+
+        <!-- 主界面 -->
+        <activity
+            android:name=".ui.MainActivity"
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize"
+            android:theme="@style/Theme.Healix">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".ui.ChatActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+
+        <activity
+            android:name=".ui.PlanReviewActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".ui.SettingsActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".ui.DebugActivity"
+            android:exported="false" />
+
+        <!--
+            常驻通知录入服务。
+            Android 14 必须匹配 foregroundServiceType，否则 startForeground() 抛异常。
+            ⚠️ specialUse 在部分国产 ROM 上可能被忽略 —— 真机需验证（见 docs/待核实清单）。
+        -->
+        <service
+            android:name=".notify.QuickInputService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="health_quick_input" />
+        </service>
+
+        <!-- 通知栏 RemoteInput 的接收者 -->
+        <receiver
+            android:name=".notify.QuickInputReceiver"
+            android:exported="false" />
+
+        <!-- 撤销上一笔：发出后 5 秒内可点（UI 设计方案 5.2） -->
+        <receiver
+            android:name=".notify.UndoReceiver"
+            android:exported="false" />
+
+        <!-- 开机广播：恢复常驻通知 -->
+        <receiver
+            android:name=".notify.BootReceiver"
+            android:exported="true"
+            android:enabled="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
+    </application>
+
+</manifest>

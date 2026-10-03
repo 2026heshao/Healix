@@ -1,0 +1,192 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Healix</string>
+
+    <!-- 主界面 -->
+    <string name="summary_label">今日盈余</string>
+    <string name="kcal_unit">kcal</string>
+    <string name="hint_quick_input">记一笔…</string>
+    <string name="send">发送</string>
+    <string name="settings">设置</string>
+    <string name="empty_hint">还没有记录</string>
+    <string name="empty_example">例如：中午吃了牛肉面加鸡蛋</string>
+    <string name="supervise_no_record">今天还没有记录 · 去记一笔</string>
+
+    <!-- 状态（必须显示预估秒数，禁止静默转圈） -->
+    <string name="state_parsing">识别中</string>
+    <string name="state_queued">排队中 · 约 %1$d s</string>
+    <string name="state_thinking">思考中</string>
+    <string name="retry">重试</string>
+    <string name="state_failed">识别失败</string>
+    <string name="state_offline">无网络，已先记下，联网后自动补全</string>
+    <string name="state_simplified">已切简化模式</string>
+
+    <!-- 计划 / 复盘 -->
+    <string name="tab_plan">计划</string>
+    <string name="tab_review">回顾</string>
+    <string name="plan_gap">还差 %1$d kcal</string>
+    <string name="plan_reached">今日已达标</string>
+    <string name="log_this">记一笔</string>
+    <string name="refresh">刷新</string>
+    <string name="disclaimer">估算值，非医疗建议</string>
+
+    <!-- 对话 -->
+    <string name="assistant">助理</string>
+    <string name="hint_chat_input">问问助理…</string>
+    <string name="quick_today_ok">今天达标了吗</string>
+    <string name="quick_dinner">推荐晚餐</string>
+    <string name="quick_week">本周复盘</string>
+    <string name="quota_exhausted">今日对话次数已用完，明天再来</string>
+    <string name="tool_running">查了一下记录…</string>
+
+    <!-- 设置 -->
+    <string name="group_model">模型服务</string>
+    <string name="group_quota">调用限制</string>
+    <string name="group_personal">个人</string>
+    <string name="group_data">数据</string>
+    <string name="group_debug">调试</string>
+    <string name="provider">服务商</string>
+    <string name="base_url">接口地址</string>
+    <string name="model_name">模型名</string>
+    <string name="api_key">API Key</string>
+    <string name="test_conn">测试连通性</string>
+    <string name="conn_ok">连通 · %1$s</string>
+    <string name="conn_fail">连接失败</string>
+    <string name="export_backup">导出备份</string>
+
+    <!-- 通知 -->
+    <string name="notif_title">Healix</string>
+    <string name="notif_subtitle">点此记录</string>
+    <string name="notif_subtitle_nag">今天还没记录 · 点此记录</string>
+    <!-- %1$s = 类型标签（如「饮食」）；%2$s = 数值文案（如「600 kcal」「58.2 kg」） -->
+    <string name="notif_recorded">已记录 %1$s · 约 %2$s</string>
+    <string name="undo">撤销</string>
+    <string name="notif_input_hint">输入…</string>
+
+    <!-- 通知（服务层新增） -->
+    <string name="notif_channel_name">快捷记录</string>
+    <string name="notif_channel_desc">常驻通知栏，随时记一笔</string>
+    <string name="notif_action_input">记录</string>
+    <string name="notif_recorded_with_undo">%1$s ｜ 撤销</string>
+    <string name="notif_failed">识别失败 · 点此重试</string>
+
+    <!-- 事件类型标签（设计规范 2.1：6px 圆点 + 灰字，不做彩色徽章） -->
+    <string name="type_meal">饮食</string>
+    <string name="type_exercise">运动</string>
+    <string name="type_body">体重</string>
+    <string name="type_sleep">睡眠</string>
+    <string name="type_illness">生病</string>
+    <string name="type_other">其他</string>
+
+    <!-- 权限引导 -->
+    <string name="perm_notification_needed">需要通知权限才能用通知栏录入</string>
+    <string name="perm_battery_needed">建议将 Healix 加入电池优化白名单，否则常驻通知可能被系统清理</string>
+
+    <!-- 主界面补充 -->
+    <string name="tab_home">记录</string>
+    <string name="delete">删除</string>
+    <string name="edit">编辑</string>
+    <string name="confirm">确认</string>
+    <string name="cancel">取消</string>
+    <string name="reparse">重新识别</string>
+    <string name="close">关闭</string>
+    <string name="from_chat">来自对话</string>
+    <string name="browse_presets">常用餐预设</string>
+    <string name="no_record_yet">还没有记录</string>
+    <string name="nodata">暂无数据</string>
+    <string name="today">今天</string>
+    <string name="yesterday">昨天</string>
+
+    <!-- 汇总格式 -->
+    <string name="summary_format">摄入 %1$d · 消耗 %2$d · 目标 %3$d</string>
+    <string name="gap_format">+%1$d</string>
+    <string name="gap_negative_format">%1$d</string>
+
+    <!-- 事件类型名 -->
+    <string name="type_meal">饮食</string>
+    <string name="type_exercise">运动</string>
+    <string name="type_body">体重</string>
+    <string name="type_sleep">睡眠</string>
+    <string name="type_illness">生病</string>
+    <string name="type_other">其他</string>
+
+    <!-- 列表摘要 -->
+    <string name="summary_kcal">约 %1$d kcal</string>
+    <string name="summary_kcal_amount">约 %1$d kcal · %2$s</string>
+    <string name="summary_weight">%1$s kg</string>
+    <string name="summary_sleep">%1$s 小时</string>
+
+    <!-- 计划 / 复盘 -->
+    <string name="plan_item_kcal">%1$s · 约 %2$d kcal</string>
+    <string name="plan_gap_label">还差 %1$d kcal</string>
+    <string name="review_stat_kcal_in">摄入</string>
+    <string name="review_stat_kcal_out">消耗</string>
+    <string name="review_stat_weight">体重</string>
+
+    <!-- 设置补充 -->
+    <string name="setting_height">身高</string>
+    <string name="setting_weight">体重</string>
+    <string name="setting_age">年龄</string>
+    <string name="setting_activity">活动系数</string>
+    <string name="setting_day_start">日界线</string>
+    <string name="setting_target_kcal">每日目标摄入</string>
+    <string name="setting_daily_quota">每日调用上限</string>
+    <string name="setting_chat_quota">每日对话上限</string>
+    <string name="setting_retry">重试次数</string>
+    <string name="setting_retry_delay">退避初始间隔</string>
+    <string name="setting_custom">自定义</string>
+    <string name="setting_untested">未测试</string>
+    <string name="setting_testing">测试中…</string>
+    <string name="unit_times">%1$d 次</string>
+    <string name="unit_seconds">%1$s 秒</string>
+    <string name="unit_cm">%1$d cm</string>
+    <string name="unit_kg">%1$s kg</string>
+    <string name="unit_years">%1$d 岁</string>
+    <string name="unit_hour_clock">%1$d:00</string>
+
+    <!-- 活动系数选项 -->
+    <string-array name="activity_levels">
+        <item>久坐（1.2）</item>
+        <item>轻度（1.375）</item>
+        <item>中度（1.55）</item>
+        <item>高强度（1.725）</item>
+    </string-array>
+
+    <!-- 调试页 -->
+    <string name="debug_summary">今日 %1$d 次 · 失败 %2$d · P95 %3$s</string>
+    <string name="debug_empty">暂无调用记录</string>
+    <string name="debug_retry_times">%1$d 次重试</string>
+    <string name="debug_tool_calls">%1$d 工具调用</string>
+    <string name="debug_degraded">已降级</string>
+
+    <!-- 导出 -->
+    <string name="export_success">已导出到所选位置</string>
+    <string name="export_failed">导出失败</string>
+    <string name="export_share_title">导出 Healix 备份</string>
+
+    <!-- 意见 / 提示 -->
+    <string name="quota_exhausted_short">今日配额已用尽</string>
+    <string name="no_provider_config">未配置模型服务，请到设置页填写</string>
+    <string name="yes">是</string>
+    <string name="no">否</string>
+
+    <!-- 视图补充 -->
+    <string name="back">返回</string>
+    <string name="view_advice">查看今日建议 →</string>
+
+    <!-- 降级回答模板（AI 不可用时，功能补充 1.7） -->
+    <string name="fallback_gap">今天已摄入 %1$d kcal，目标 %2$d kcal，还差 %3$d kcal。建议晚餐补一份主食加蛋白质，睡前再加一勺蛋白粉。\n（当前是简化模式，AI 未接入或不可用）</string>
+    <string name="fallback_reached">今天已摄入 %1$d kcal，达到目标 %2$d kcal。可以安排一次力量训练。\n（当前是简化模式，AI 未接入或不可用）</string>
+
+    <!-- ConfirmSheet -->
+    <string name="sheet_title_confirm">确认记录</string>
+    <string name="field_type">类型</string>
+    <string name="field_time">时间</string>
+    <string name="field_foods">食物</string>
+    <string name="field_kcal">热量 kcal</string>
+    <string name="field_exercise">项目</string>
+    <string name="field_amount">数量</string>
+    <string name="field_weight">体重 kg</string>
+    <string name="field_sleep">睡眠 小时</string>
+    <string name="field_symptom">症状</string>
+</resources>

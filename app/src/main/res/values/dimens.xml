@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    形状与尺寸令牌（Healix设计规范系统.md 2.3）。
+    硬约束：圆角全局只有 8dp 一个值；进度线高 2dp 圆角 1dp。
+-->
+<resources>
+    <dimen name="screen_margin">20dp</dimen>
+    <dimen name="block_gap">28dp</dimen>
+    <dimen name="item_padding">16dp</dimen>
+
+    <!-- ★ 全局唯一圆角值 -->
+    <dimen name="radius">8dp</dimen>
+    <dimen name="progress_height">2dp</dimen>
+    <dimen name="progress_radius">1dp</dimen>
+    <dimen name="divider">1dp</dimen>
+
+    <dimen name="touch_min">48dp</dimen>
+    <dimen name="input_height">64dp</dimen>
+    <dimen name="item_height">76dp</dimen>
+    <dimen name="setting_row_height">56dp</dimen>
+    <dimen name="sheet_row_height">52dp</dimen>
+
+    <dimen name="dot_size">6dp</dimen>
+    <dimen name="send_btn">36dp</dimen>
+    <dimen name="handle_width">36dp</dimen>
+    <dimen name="handle_height">3dp</dimen>
+    <dimen name="icon_size">20dp</dimen>
+</resources>

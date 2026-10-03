@@ -1,0 +1,951 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Healix 高仿真原型 v3</title>
+<style>
+/* ============================================================
+   Healix Design Tokens v3
+   全 App 只有 1 个强调色 / 圆角只有 8dp / 无卡片无阴影
+   ============================================================ */
+:root{
+  --bg:#FAFAF9; --surface:#FFFFFF; --text_1:#1A1918; --text_2:#6E6B66;
+  --text_3:#9C9891; --line:#EAE8E4; --line_strong:#DAD7D2; --press:#F2F1EE;
+  --accent:#B85028; --accent_press:#A3451F; --positive:#4A7C59; --negative:#A63D40;
+  --dot_meal:#B85028; --dot_exercise:#3D5A6C; --dot_body:#6B5B7B;
+  --dot_sleep:#4A5568; --dot_illness:#A63D40; --dot_other:#9C9891;
+  --r:8px; --dur_fast:150ms; --dur_normal:240ms; --dur_slow:400ms;
+  --ease:cubic-bezier(.4,0,.2,1);
+  --shell_bg:#EFEDEA; --shell_line:#DDD9D4; --panel:#FFFFFF; --panel_text:#1A1918;
+}
+[data-theme="dark"]{
+  --bg:#131211; --surface:#1C1B1A; --text_1:#F2F0ED; --text_2:#A09C95;
+  --text_3:#6E6A64; --line:#2E2C2A; --line_strong:#3A3735; --press:#252321;
+  --accent:#D4703F; --accent_press:#B85028; --positive:#6E9E7C; --negative:#C4565A;
+  --dot_meal:#D4703F; --dot_exercise:#5C7C8F; --dot_body:#8B7C9A;
+  --dot_sleep:#6C7683; --dot_illness:#C4565A; --dot_other:#6E6A64;
+  --shell_bg:#0A0A09; --shell_line:#2E2C2A; --panel:#1C1B1A; --panel_text:#F2F0ED;
+}
+
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{
+  font-family:-apple-system,"PingFang SC","HarmonyOS Sans SC","Noto Sans CJK SC","Microsoft YaHei",sans-serif;
+  background:var(--shell_bg); color:var(--panel_text);
+  display:flex; gap:40px; justify-content:center; padding:32px; min-height:100vh;
+  font-size:14px; line-height:1.6;
+}
+
+/* ---------- 原型外壳（非产品 UI） ---------- */
+.panel{width:236px;flex-shrink:0}
+.panel h1{font-size:17px;font-weight:500;letter-spacing:-0.01em}
+.panel .sub{font-size:12px;color:var(--text_2);margin-top:2px}
+.panel .sec{font-size:12px;color:var(--text_2);margin:24px 0 8px;letter-spacing:.04em}
+.navlist{list-style:none}
+.navlist li{
+  padding:9px 12px;border-radius:var(--r);cursor:pointer;font-size:14px;
+  color:var(--text_2);transition:background var(--dur_fast) var(--ease);
+  display:flex;justify-content:space-between;align-items:center;
+}
+.navlist li:hover{background:var(--press)}
+.navlist li.on{background:var(--accent);color:#fff;font-weight:500}
+.navlist li .tag{font-size:11px;opacity:.7}
+[data-theme="dark"] .navlist li.on{color:#131211}
+.toggle{
+  display:flex;align-items:center;gap:8px;padding:8px 12px;cursor:pointer;
+  font-size:13px;color:var(--text_2);border:1px solid var(--line_strong);
+  border-radius:var(--r);margin-bottom:8px;
+}
+.toggle input{accent-color:var(--accent)}
+.hint{font-size:12px;color:var(--text_2);line-height:1.7;margin-top:16px;
+  border-top:1px solid var(--line);padding-top:12px}
+
+/* ---------- 设备外壳 ---------- */
+.device{
+  width:390px;height:844px;flex-shrink:0;background:var(--bg);
+  border:1px solid var(--shell_line);border-radius:44px;overflow:hidden;
+  display:flex;flex-direction:column;position:relative;
+}
+.statusbar{
+  height:44px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;
+  padding:0 24px;font-size:13px;color:var(--text_1);font-weight:500;
+}
+.statusbar .dots{display:flex;gap:4px;align-items:flex-end;height:10px}
+.statusbar .dots i{width:3px;background:var(--text_1);border-radius:1px;display:block}
+.statusbar .dots i:nth-child(1){height:4px}
+.statusbar .dots i:nth-child(2){height:6px}
+.statusbar .dots i:nth-child(3){height:8px}
+.statusbar .dots i:nth-child(4){height:10px}
+
+.screen{flex:1;display:none;flex-direction:column;min-height:0}
+.screen.on{display:flex}
+
+/* ---------- 通用组件 ---------- */
+.appbar{
+  height:52px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;
+  padding:0 20px;font-size:17px;font-weight:500;color:var(--text_1);
+  position:relative; /* 居中标题的定位基准 */
+}
+.appbar .iconbtn{
+  width:48px;height:48px;display:flex;align-items:center;justify-content:center;
+  border:none;background:none;cursor:pointer;color:var(--text_1);margin-left:-14px;
+}
+.appbar .right{font-size:13px;font-weight:400;color:var(--text_2)}
+.sep{height:1px;background:var(--line);flex-shrink:0}
+.sep.indent{margin-left:20px}
+.body{flex:1;overflow-y:auto;min-height:0}
+.body::-webkit-scrollbar{width:0}
+.p20{padding:0 20px}
+.grouptitle{font-size:12px;color:var(--text_2);padding:20px 20px 8px}
+.spinner{
+  width:20px;height:20px;border:1.6px solid var(--line_strong);
+  border-top-color:var(--accent);border-radius:50%;
+  animation:spin .8s linear infinite;flex-shrink:0;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* 按钮 */
+.btn-primary{
+  height:48px;border-radius:var(--r);background:var(--accent);color:#fff;
+  border:none;font-size:13px;font-weight:500;cursor:pointer;font-family:inherit;
+  padding:0 24px;transition:background var(--dur_fast) var(--ease);
+}
+[data-theme="dark"] .btn-primary{color:#131211}
+.btn-primary:active{background:var(--accent_press)}
+.btn-primary:disabled{background:var(--line_strong);color:var(--text_3);cursor:default}
+.btn-text{
+  border:none;background:none;color:var(--accent);font-size:13px;font-weight:500;
+  cursor:pointer;font-family:inherit;padding:12px;min-height:48px;
+}
+.btn-text:active{color:var(--accent_press)}
+
+/* 输入区（常驻底部） */
+.inputbar{
+  height:64px;flex-shrink:0;background:var(--surface);border-top:1px solid var(--line);
+  display:flex;align-items:center;padding:0 12px 0 20px;gap:8px;
+}
+.inputbar input{
+  flex:1;border:none;outline:none;background:none;font-size:15px;font-family:inherit;
+  color:var(--text_1);caret-color:var(--accent);min-width:0;
+}
+.inputbar input::placeholder{color:var(--text_2)}
+.sendbtn{
+  width:36px;height:36px;border:none;background:none;color:var(--accent);
+  cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;
+}
+.sendbtn:active{color:var(--accent_press)}
+
+/* 记录列表项 */
+.item{padding:16px 20px 16px 20px;display:flex;gap:10px;cursor:pointer;
+  transition:background var(--dur_fast) var(--ease)}
+.item:active{background:var(--press)}
+.item .bodycol{flex:1;min-width:0}
+.item .dot{width:6px;height:6px;border-radius:3px;margin-top:8px;flex-shrink:0}
+.item .meta{font-size:13px;color:var(--text_2);display:flex;justify-content:space-between;gap:8px}
+.item .main{font-size:15px;color:var(--text_1);margin-top:2px;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.item .sum{font-size:13px;color:var(--text_2);margin-top:2px}
+
+/* 设置行 */
+.row{
+  height:56px;display:flex;align-items:center;justify-content:space-between;
+  padding:0 20px;font-size:15px;color:var(--text_1);cursor:pointer;
+  transition:background var(--dur_fast) var(--ease);
+}
+.row:active{background:var(--press)}
+.row .val{font-size:15px;color:var(--text_2);display:flex;align-items:center;gap:6px}
+.row input{
+  border:none;outline:none;background:none;text-align:right;font-size:15px;
+  font-family:inherit;color:var(--text_2);width:190px;
+}
+.row input:focus{color:var(--text_1)}
+.row select{
+  border:none;outline:none;background:none;font-size:15px;font-family:inherit;
+  color:var(--text_2);text-align:right;cursor:pointer;appearance:none;
+  padding-right:2px;
+}
+[data-theme="dark"] .row select option{background:var(--surface);color:var(--text_1)}
+
+/* ---------- 主界面 ---------- */
+.presetbar{display:flex;gap:20px;overflow-x:auto;padding:12px 20px;
+  border-bottom:1px solid var(--line);flex-shrink:0}
+.presetbar::-webkit-scrollbar{height:0}
+.presetbar span{
+  font-size:13px;color:var(--text_2);white-space:nowrap;cursor:pointer;
+  padding:8px 0;min-height:48px;display:flex;align-items:center;
+}
+.presetbar span:active{color:var(--accent)}
+.summary{padding:20px 20px 0}
+.summary .label{font-size:12px;color:var(--text_2)}
+.summary .num{font-size:36px;font-weight:400;color:var(--text_1);
+  letter-spacing:-0.02em;margin:2px 0 12px}
+.summary .num span{font-size:13px;color:var(--text_2);letter-spacing:0;margin-left:4px}
+.progress{height:2px;border-radius:1px;background:var(--line);overflow:hidden;margin:12px 0}
+.progress i{display:block;height:100%;background:var(--accent);border-radius:1px}
+.summary .sub{font-size:13px;color:var(--text_2)}
+.supervise{
+  padding:0 20px;height:48px;display:flex;align-items:center;font-size:13px;
+  color:var(--accent);cursor:pointer;
+}
+.planhint{
+  padding:0 20px;height:48px;display:flex;align-items:center;justify-content:space-between;
+  font-size:13px;color:var(--text_2);cursor:pointer;
+}
+.planhint b{color:var(--accent);font-weight:500}
+.planhint em{font-style:normal;color:var(--accent)}
+
+/* 底部主导航 */
+.tabbar{
+  height:64px;flex-shrink:0;border-top:1px solid var(--line);background:var(--surface);
+  display:flex;
+}
+.tabbar div{
+  flex:1;display:flex;align-items:center;justify-content:center;font-size:13px;
+  color:var(--text_2);cursor:pointer;transition:color var(--dur_fast) var(--ease);
+}
+.tabbar div.on{color:var(--text_1);font-weight:500}
+
+/* ---------- 对话页 ---------- */
+.chat{flex:1;overflow-y:auto;padding:8px 0 0;min-height:0}
+.chat::-webkit-scrollbar{width:0}
+.msg{padding:0 20px;max-width:100%;animation:enter var(--dur_slow) var(--ease)}
+@keyframes enter{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.msg.user{margin-top:20px}
+.msg.user .text{
+  font-size:15px;color:var(--text_1);line-height:24px;text-align:right;
+  margin-left:20%;word-break:break-word;white-space:pre-line;
+}
+.msg.assistant{margin-top:8px}
+.msg.assistant .text{font-size:15px;color:var(--text_1);line-height:24px;
+  word-break:break-word;white-space:pre-line}
+.msg .time{font-size:13px;color:var(--text_3);margin-top:8px}
+.msg.user .time{text-align:right}
+.msg.gap{margin-top:20px}
+.toolline{
+  margin:8px 20px 0;padding-left:12px;border-left:2px solid var(--accent);
+  font-size:13px;color:var(--text_2);line-height:20px;
+}
+.toolline.pending{border-left-color:transparent;padding-left:14px;color:var(--text_2);
+  display:flex;align-items:center;gap:8px}
+.toolline.pending .spinner{width:14px;height:14px;border-width:1.4px}
+.disclaimer{font-size:12px;color:var(--text_3);padding:20px;text-align:center}
+.quick{margin-top:20px;border-top:1px solid var(--line)}
+.quick div{
+  height:48px;display:flex;align-items:center;padding:0 20px;font-size:15px;
+  color:var(--text_2);cursor:pointer;transition:background var(--dur_fast) var(--ease);
+}
+.quick div:active{background:var(--press)}
+.quick div+div{border-top:1px solid var(--line)}
+.thinking{display:flex;align-items:center;gap:8px;padding:0 20px;
+  font-size:13px;color:var(--text_2);margin-top:12px}
+
+/* ---------- 计划/复盘 ---------- */
+.tabs{display:flex;gap:24px;padding:0 20px;border-bottom:1px solid var(--line);flex-shrink:0}
+.tabs div{
+  padding:12px 0;font-size:13px;color:var(--text_2);cursor:pointer;position:relative;
+}
+.tabs div.on{color:var(--text_1);font-weight:500}
+.tabs div.on::after{
+  content:"";position:absolute;left:0;right:0;bottom:0;height:2px;
+  background:var(--accent);border-radius:1px;
+}
+.gapline{display:flex;align-items:center;justify-content:space-between;padding:20px}
+.gapline .n{font-size:24px;color:var(--text_1);letter-spacing:-0.02em}
+.planitem{padding:16px 20px}
+.planitem .t{font-size:13px;color:var(--text_2)}
+.planitem .h{font-size:15px;color:var(--text_1);margin-top:4px}
+.planitem .d{font-size:13px;color:var(--text_2);margin-top:2px}
+.planitem .a{margin-top:8px;margin-left:-12px}
+.stats3{display:flex;padding:20px;gap:0}
+.stats3 div{flex:1}
+.stats3 .n{font-size:24px;color:var(--text_1);letter-spacing:-0.02em}
+.stats3 .l{font-size:13px;color:var(--text_2);margin-top:4px}
+
+/* ---------- 调试页 ---------- */
+.dbghead{padding:20px;font-size:13px;color:var(--text_2);
+  border-bottom:1px solid var(--line)}
+.dbgrow{display:flex;gap:12px;padding:14px 20px;font-size:13px;
+  border-bottom:1px solid var(--line);align-items:baseline}
+.dbgrow .t{color:var(--text_3);width:44px;font-variant-numeric:tabular-nums}
+.dbgrow .p{color:var(--text_1);width:44px}
+.dbgrow .s{width:44px}
+.dbgrow .s.ok{color:var(--text_2)}
+.dbgrow .s.bad{color:var(--negative)}
+.dbgrow .l{color:var(--text_2);width:48px;text-align:right;
+  font-variant-numeric:tabular-nums}
+.dbgrow .n{color:var(--text_2);flex:1}
+
+/* ---------- 底部弹窗 ---------- */
+.scrim{
+  position:absolute;inset:0;background:rgba(0,0,0,.32);z-index:20;
+  display:none;align-items:flex-end;
+}
+.scrim.on{display:flex}
+.sheet{
+  width:100%;background:var(--surface);border-radius:var(--r) var(--r) 0 0;
+  padding:0 20px 20px;animation:up var(--dur_normal) var(--ease);
+}
+@keyframes up{from{transform:translateY(100%)}to{transform:none}}
+.sheet .handle{width:36px;height:3px;background:var(--line_strong);
+  border-radius:2px;margin:8px auto 12px}
+.sheet h3{font-size:17px;font-weight:500;color:var(--text_1);margin-bottom:4px}
+.sheet .from{font-size:12px;color:var(--text_3);margin-bottom:12px}
+.field{height:52px;display:flex;align-items:center;justify-content:space-between;
+  border-bottom:1px solid var(--line)}
+.field label{font-size:13px;color:var(--text_2)}
+.field span{font-size:15px;color:var(--text_1)}
+.field input{
+  border:none;outline:none;background:none;text-align:right;font-size:15px;
+  font-family:inherit;color:var(--text_1);width:180px;
+}
+.sheet .actions{display:flex;justify-content:flex-end;align-items:center;gap:8px;margin-top:20px}
+
+/* ---------- 通知栏预览 ---------- */
+.notify{
+  margin:8px 12px;background:var(--surface);border-radius:var(--r);
+  padding:12px 16px;border:1px solid var(--line);
+}
+.notify .t{font-size:13px;color:var(--text_2);display:flex;justify-content:space-between}
+.notify .c{font-size:15px;color:var(--text_1);margin-top:2px}
+.notify .fake{display:flex;gap:8px;margin-top:10px;align-items:center}
+.notify .fake input{
+  flex:1;border:1px solid var(--line_strong);border-radius:var(--r);height:40px;
+  padding:0 12px;font-size:15px;font-family:inherit;background:var(--bg);
+  color:var(--text_1);outline:none;
+}
+.notify .fake button{
+  height:40px;padding:0 16px;border:none;border-radius:var(--r);
+  background:var(--accent);color:#fff;font-size:13px;font-weight:500;cursor:pointer;
+  font-family:inherit;
+}
+[data-theme="dark"] .notify .fake button{color:#131211}
+.notify.done .c{font-size:13px;color:var(--text_2)}
+.notify.done .fake{display:none}
+.notify .undo{margin-top:8px;font-size:13px;color:var(--accent);cursor:pointer;display:none}
+.notify.done .undo{display:block}
+</style>
+</head>
+<body>
+
+<!-- 原型外壳：左侧控制区（不属于产品 UI） -->
+<div class="panel">
+  <h1>Healix 高仿真原型</h1>
+  <div class="sub">设计规范系统 v3 · 390×844</div>
+
+  <div class="sec">屏幕</div>
+  <ul class="navlist" id="nav">
+    <li class="on" data-s="home">主界面</li>
+    <li data-s="chat">对话页 <span class="tag">Agent</span></li>
+    <li data-s="plan">计划 / 复盘</li>
+    <li data-s="settings">设置 <span class="tag">Provider</span></li>
+    <li data-s="debug">调试</li>
+    <li data-s="notify">通知栏录入</li>
+  </ul>
+
+  <div class="sec">原型选项</div>
+  <label class="toggle"><input type="checkbox" id="optDark"> 深色模式</label>
+  <label class="toggle"><input type="checkbox" id="optLimit"> 模拟限流（429）</label>
+  <label class="toggle"><input type="checkbox" id="optEmpty"> 今日无记录（监督态）</label>
+
+  <div class="hint">
+    交互提示：<br>
+    · 对话页点三条快捷入口，或直接在输入框发消息<br>
+    · 输入含「记」会触发写入确认弹窗（human-in-the-loop）<br>
+    · 设置页可切换服务商、点「测试连通性」<br>
+    · 主界面预设横条可横向滚动
+  </div>
+</div>
+
+<!-- 设备 -->
+<div class="device">
+  <div class="statusbar">
+    <span id="clock">15:04</span>
+    <span class="dots"><i></i><i></i><i></i><i></i></span>
+  </div>
+
+  <!-- ============ 主界面 ============ -->
+  <div class="screen on" id="s-home">
+    <div class="appbar"><span>10月3日 周五</span>
+      <button class="iconbtn" onclick="go('settings')" aria-label="设置">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </button>
+    </div>
+    <div class="presetbar">
+      <span onclick="toastHome(this)">牛肉面</span><span onclick="toastHome(this)">鸡蛋灌饼</span>
+      <span onclick="toastHome(this)">米饭 + 鸡腿</span><span onclick="toastHome(this)">蛋白粉</span>
+      <span onclick="toastHome(this)">小米粥</span>
+    </div>
+    <div class="body">
+      <div class="summary">
+        <div class="label">今日盈余</div>
+        <div class="num" id="surplus">+320<span>kcal</span></div>
+        <div class="progress"><i style="width:72%"></i></div>
+        <div class="sub">摄入 2180 · 消耗 1860 · 目标 2500</div>
+      </div>
+      <div class="sep" style="margin-top:20px"></div>
+      <div class="supervise" id="supervise" style="display:none">今天还没有记录 · 去记一笔</div>
+      <div class="sep" id="superviseSep" style="display:none"></div>
+      <div class="planhint" onclick="go('plan')">
+        <span>还差 <b>1280 kcal</b></span><em>查看今日建议 →</em>
+      </div>
+      <div class="sep"></div>
+      <div id="homelist"></div>
+    </div>
+    <div class="inputbar">
+      <input id="homeInput" placeholder="记一笔…">
+      <button class="sendbtn" onclick="sendFromHome()" aria-label="发送">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M7 17L17 7"/><path d="M8 7h9v9"/></svg>
+      </button>
+    </div>
+    <div class="tabbar">
+      <div class="on" onclick="go('home')">记录</div>
+      <div onclick="go('chat')">助理</div>
+    </div>
+  </div>
+
+  <!-- ============ 对话页 ============ -->
+  <div class="screen" id="s-chat">
+    <div class="appbar">
+      <button class="iconbtn" onclick="go('home')" aria-label="返回">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M15 18l-6-6 6-6"/></svg>
+      </button>
+      <span style="position:absolute;left:50%;transform:translateX(-50%)">助理</span>
+      <span class="right">今天</span>
+    </div>
+    <div class="body chat" id="chatBody">
+      <div id="quick" class="quick">
+        <div onclick="ask('今天达标了吗')">今天达标了吗</div>
+        <div onclick="ask('推荐晚餐')">推荐晚餐</div>
+        <div onclick="ask('本周复盘')">本周复盘</div>
+      </div>
+    </div>
+    <div class="inputbar">
+      <input id="chatInput" placeholder="问问助理…">
+      <button class="sendbtn" id="chatSend" onclick="sendChat()" aria-label="发送">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M7 17L17 7"/><path d="M8 7h9v9"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- ============ 计划 / 复盘 ============ -->
+  <div class="screen" id="s-plan">
+    <div class="appbar">
+      <button class="iconbtn" onclick="go('home')" aria-label="返回">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M15 18l-6-6 6-6"/></svg>
+      </button>
+      <span style="position:absolute;left:50%;transform:translateX(-50%)">今日</span>
+      <button class="btn-text" onclick="regenerate()">刷新</button>
+    </div>
+    <div class="tabs" id="planTabs">
+      <div class="on" data-t="plan">计划</div>
+      <div data-t="review">回顾</div>
+    </div>
+    <div class="body" id="planBody"></div>
+  </div>
+
+  <!-- ============ 设置 ============ -->
+  <div class="screen" id="s-settings">
+    <div class="appbar">
+      <button class="iconbtn" onclick="go('home')" aria-label="返回">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M15 18l-6-6 6-6"/></svg>
+      </button>
+      <span style="position:absolute;left:50%;transform:translateX(-50%)">设置</span>
+      <span class="right"></span>
+    </div>
+    <div class="body">
+      <div class="grouptitle">模型服务</div>
+      <div class="row"><span>服务商</span><span class="val">
+        <select id="provider" onchange="applyProvider()">
+          <option value="zhipu">智谱 GLM</option>
+          <option value="deepseek">DeepSeek</option>
+          <option value="openrouter">OpenRouter</option>
+          <option value="custom">自定义</option>
+        </select></span></div>
+      <div class="row"><span>接口地址</span><span class="val"><input id="baseUrl" value="https://open.bigmodel.cn/api/paas/v4"></span></div>
+      <div class="row"><span>模型名</span><span class="val"><input id="modelName" value="glm-4.7-flash"></span></div>
+      <div class="row"><span>API Key</span><span class="val"><input id="apiKey" type="password" value="••••••••••••"></span></div>
+      <div class="sep"></div>
+      <div style="padding:16px 20px 0">
+        <button class="btn-primary" style="width:100%" onclick="testConn()">测试连通性</button>
+        <div id="connResult" style="font-size:13px;color:var(--text_2);margin-top:8px;min-height:20px"></div>
+      </div>
+
+      <div class="grouptitle">调用限制</div>
+      <div class="row"><span>每日调用上限</span><span class="val"><input value="20 次" style="width:90px"></span></div>
+      <div class="row"><span>每日对话上限</span><span class="val"><input value="15 次" style="width:90px"></span></div>
+      <div class="row"><span>重试次数</span><span class="val"><input value="5 次" style="width:90px"></span></div>
+      <div class="row"><span>退避初始间隔</span><span class="val"><input value="1.5 秒" style="width:90px"></span></div>
+
+      <div class="grouptitle">个人</div>
+      <div class="row"><span>身高 / 体重 / 年龄</span><span class="val">178cm · 58kg · 21 ›</span></div>
+      <div class="row"><span>活动系数</span><span class="val">轻度 1.375 ›</span></div>
+      <div class="row"><span>日界线</span><span class="val">4:00 ›</span></div>
+
+      <div class="grouptitle">数据</div>
+      <div class="row"><span>导出备份</span><span class="val">JSON ›</span></div>
+
+      <div class="grouptitle">调试</div>
+      <div class="row" onclick="go('debug')"><span>今日调用</span><span class="val">7 次 · 失败 1 ›</span></div>
+      <div class="row" onclick="go('debug')"><span>最近调用记录</span><span class="val">›</span></div>
+      <div style="height:28px"></div>
+    </div>
+  </div>
+
+  <!-- ============ 调试 ============ -->
+  <div class="screen" id="s-debug">
+    <div class="appbar">
+      <button class="iconbtn" onclick="go('settings')" aria-label="返回">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M15 18l-6-6 6-6"/></svg>
+      </button>
+      <span style="position:absolute;left:50%;transform:translateX(-50%)">调试</span>
+      <span class="right"></span>
+    </div>
+    <div class="dbghead">今日 7 次 · 失败 1 · P95 1.8s</div>
+    <div class="body">
+      <div class="dbgrow"><span class="t">15:06</span><span class="p">抽取</span><span class="s ok">ok</span><span class="l">1.2s</span><span class="n">重试 3 次</span></div>
+      <div class="dbgrow"><span class="t">15:04</span><span class="p">对话</span><span class="s ok">ok</span><span class="l">3.1s</span><span class="n">2 次工具调用</span></div>
+      <div class="dbgrow"><span class="t">14:58</span><span class="p">计划</span><span class="s bad">429</span><span class="l">4.4s</span><span class="n">已降级为本地估算</span></div>
+      <div class="dbgrow"><span class="t">14:30</span><span class="p">抽取</span><span class="s ok">ok</span><span class="l">1.4s</span><span class="n">—</span></div>
+      <div class="dbgrow"><span class="t">13:12</span><span class="p">抽取</span><span class="s ok">ok</span><span class="l">0.9s</span><span class="n">—</span></div>
+      <div class="dbgrow"><span class="t">12:40</span><span class="p">抽取</span><span class="s ok">ok</span><span class="l">1.1s</span><span class="n">—</span></div>
+      <div class="dbgrow"><span class="t">12:05</span><span class="p">抽取</span><span class="s ok">ok</span><span class="l">1.6s</span><span class="n">重试 1 次</span></div>
+    </div>
+  </div>
+
+  <!-- ============ 通知栏录入 ============ -->
+  <div class="screen" id="s-notify">
+    <div class="appbar">
+      <button class="iconbtn" onclick="go('home')" aria-label="返回">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M15 18l-6-6 6-6"/></svg>
+      </button>
+      <span style="position:absolute;left:50%;transform:translateX(-50%)">通知栏</span>
+      <span class="right"></span>
+    </div>
+    <div class="body" style="padding-top:8px">
+      <div class="notify" id="notif1">
+        <div class="t"><span>Healix</span><span>刚刚</span></div>
+        <div class="c">今天还没记录 · 点此记录</div>
+        <div class="fake">
+          <input placeholder="输入…" id="notifInput">
+          <button onclick="notifSend()">发送</button>
+        </div>
+        <div class="undo" onclick="notifReset()">撤销</div>
+      </div>
+      <div class="notify" id="notif2">
+        <div class="t"><span>Healix</span><span>12:30</span></div>
+        <div class="c">已记录 饮食 · 约 600 kcal</div>
+      </div>
+      <div style="padding:20px;font-size:13px;color:var(--text_2);line-height:1.8">
+        常驻通知保持系统默认样式，不自定义配色。<br>
+        今日无记录且已过 20:00 时，副标题切换为提醒文案。<br>
+        发送后 5 秒内可撤销（幂等键防重复投递）。
+      </div>
+    </div>
+  </div>
+
+  <!-- 确认弹窗 -->
+  <div class="scrim" id="scrim" onclick="if(event.target===this)closeSheet()">
+    <div class="sheet">
+      <div class="handle"></div>
+      <h3>确认这条记录</h3>
+      <div class="from" id="sheetFrom">来自对话</div>
+      <div class="field"><label>类型</label><span id="fType">饮食</span></div>
+      <div class="field"><label>内容</label><input id="fFoods" value="牛肉炒饭"></div>
+      <div class="field"><label>热量</label><input id="fKcal" value="650"></div>
+      <div class="actions">
+        <button class="btn-text" onclick="closeSheet()">取消</button>
+        <button class="btn-primary" onclick="confirmSheet()">确认</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  var $ = function(id){ return document.getElementById(id); };
+  var SCREENS = ["home","chat","plan","settings","debug","notify"];
+
+  // ---------- 屏幕切换 ----------
+  window.go = function(name){
+    SCREENS.forEach(function(s){
+      var el = $("s-" + s);
+      if (el) el.classList.toggle("on", s === name);
+    });
+    Array.prototype.forEach.call($("nav").children, function(li){
+      li.classList.toggle("on", li.getAttribute("data-s") === name);
+    });
+    if (window.__navSync) syncTabs(name);
+  };
+
+  function syncTabs(name){
+    var bar = document.querySelector("#s-home .tabbar");
+    if (!bar) return;
+    bar.children[0].classList.toggle("on", name === "home");
+    bar.children[1].classList.toggle("on", name === "chat");
+  }
+  window.__navSync = true;
+
+  // ---------- 主界面数据 ----------
+  var EVENTS = [
+    {type:"meal", label:"饮食", dot:"var(--dot_meal)", time:"12:30",
+     main:"中午吃了牛肉面加鸡蛋", sum:"约 600 kcal"},
+    {type:"exercise", label:"运动", dot:"var(--dot_exercise)", time:"19:00",
+     main:"晚上跑了五公里", sum:"约 300 kcal · 5 公里"},
+    {type:"body", label:"体重", dot:"var(--dot_body)", time:"08:10",
+     main:"早上称了体重", sum:"58.2 kg"}
+  ];
+
+  function esc(s){
+    return String(s).replace(/[&<>"']/g, function(c){
+      return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];
+    });
+  }
+
+  function renderHome(){
+    var box = $("homelist");
+    var empty = $("optEmpty").checked;
+    box.innerHTML = EVENTS.filter(function(){ return !empty; }).map(function(e){
+      return '<div class="item"><span class="dot" style="background:' + e.dot + '"></span>' +
+        '<div class="bodycol"><div class="meta"><span>' + esc(e.label) + '</span><span>' +
+        esc(e.time) + '</span></div><div class="main">' + esc(e.main) +
+        '</div><div class="sum">' + esc(e.sum) + '</div></div></div>' +
+        '<div class="sep indent"></div>';
+    }).join("");
+    $("supervise").style.display = empty ? "flex" : "none";
+    $("superviseSep").style.display = empty ? "block" : "none";
+    $("surplus").innerHTML = empty ? '+0<span>kcal</span>' : '+320<span>kcal</span>';
+  }
+
+  window.toastHome = function(el){
+    var old = el.style.color;
+    el.style.color = "var(--accent)";
+    setTimeout(function(){ el.style.color = old; }, 400);
+    openSheet("来自预设", "饮食", el.textContent, "600");
+  };
+
+  // ---------- 对话 ----------
+  var chatBusy = false;
+  var pendingMsg = null;
+
+  function now(){
+    var d = new Date();
+    return ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2);
+  }
+
+  function addAssistant(text, withTime){
+    var body = $("chatBody");
+    var d = document.createElement("div");
+    d.className = "msg assistant";
+    d.innerHTML = '<div class="text">' + esc(text) + '</div>' +
+      (withTime ? '<div class="time">' + now() + '</div>' : '');
+    body.appendChild(d);
+    scrollChat();
+    return d;
+  }
+
+  function addUser(text){
+    var body = $("chatBody");
+    var d = document.createElement("div");
+    d.className = "msg user";
+    d.innerHTML = '<div class="text">' + esc(text) + '</div><div class="time">' + now() + '</div>';
+    body.appendChild(d);
+    scrollChat();
+  }
+
+  function addTool(text, kind){
+    var body = $("chatBody");
+    var d = document.createElement("div");
+    d.className = "toolline" + (kind === "pending" ? " pending" : "");
+    d.innerHTML = (kind === "pending" ? '<span class="spinner"></span>' : '') + esc(text);
+    body.appendChild(d);
+    scrollChat();
+    return d;
+  }
+
+  function addThinking(label){
+    var body = $("chatBody");
+    var d = document.createElement("div");
+    d.className = "thinking";
+    d.innerHTML = '<span class="spinner"></span><span>' + esc(label) + '</span>';
+    body.appendChild(d);
+    scrollChat();
+    return d;
+  }
+
+  function scrollChat(){
+    var b = $("chatBody");
+    b.scrollTop = b.scrollHeight;
+  }
+
+  function hideQuick(){
+    var q = $("quick");
+    if (q) q.remove();
+  }
+
+  var REPLIES = {
+    "今天达标了吗": {
+      tool: "查了一下今天的记录",
+      result: "今日 3 条 · 摄入 2180 · 消耗 1860",
+      reply: "还没达标。摄入 2180，目标 2500，还差 320 kcal。\n这个缺口一顿加餐就能补上，睡前喝杯蛋白粉加两根香蕉正好。"
+    },
+    "推荐晚餐": {
+      tool: "查了一下今日缺口和体重趋势",
+      result: "缺口 1280 kcal · 体重 7 日 +0.3kg",
+      reply: "体重在涨，但速度偏慢，今晚建议吃够：\n牛肉炒饭（牛肉 150g + 米饭 200g + 鸡蛋 1 个），约 650 kcal。\n睡前再加蛋白粉 1 勺 + 香蕉 2 根，约 400 kcal。",
+      action: "记一笔"
+    },
+    "本周复盘": {
+      tool: "查了一下这 7 天的记录",
+      result: "7 日 · 平均摄入 2410 · 体重 58.2 → 58.5",
+      reply: "这周平均摄入 2410，比目标低 90，体重涨了 0.3kg。\n主要缺口在晚餐 —— 有 4 天晚餐低于 500 kcal。\n下周把晚餐固定到 700 以上，配合现在这个运动量，一周涨 0.5kg 是能做到的。"
+    }
+  };
+
+  var FALLBACK = "我看了下记录，给你一个保守建议：先把今天的晚餐吃到 700 kcal 以上，主食加一份。\n具体菜单等恢复联网后再给你细化。";
+
+  function ask(text){ askFlow(text); }
+
+  function askFlow(text){
+    if (chatBusy) return;
+    chatBusy = true;
+    hideQuick();
+    addUser(text);
+
+    var limit = $("optLimit").checked;
+    var spec = REPLIES[text] || {tool:"查了一下记录", result:"已找到相关记录", reply:"先按缺口安排：晚餐补到 700 kcal 以上，睡前加餐。"};
+
+    // 1) 工具执行中
+    var toolEl = addTool(spec.tool + "…", "pending");
+
+    setTimeout(function(){
+      // 2) 限流态：显示预估秒数，不静默转圈
+      if (limit){
+        toolEl.parentNode.removeChild(toolEl);
+        var t = addThinking("排队中 · 约 4s");
+        setTimeout(function(){
+          t.parentNode.removeChild(t);
+          addTool(spec.result);
+          setTimeout(function(){ finishReply(spec, null); }, 700);
+        }, 1600);
+        return;
+      }
+      // 3) 工具完成
+      toolEl.parentNode.removeChild(toolEl);
+      addTool(spec.result);
+      setTimeout(function(){ finishReply(spec, null); }, 700);
+    }, 700);
+
+    pendingMsg = spec;
+  }
+
+  function finishReply(spec){
+    addAssistant(spec.reply, true);
+    if (spec.action === "记一笔"){
+      var body = $("chatBody");
+      var d = document.createElement("div");
+      d.className = "msg assistant";
+      d.innerHTML = '<button class="btn-text" style="padding-left:0" data-log="牛肉炒饭">记一笔</button>';
+      body.appendChild(d);
+      d.querySelector("button").onclick = function(){
+        openSheet("来自对话", "饮食", "牛肉炒饭", "650");
+        this.disabled = true;
+      };
+      scrollChat();
+    }
+    chatBusy = false;
+  }
+
+  window.ask = ask;
+
+  window.sendChat = function(){
+    var el = $("chatInput");
+    var v = el.value.trim();
+    if (!v || chatBusy) return;
+    el.value = "";
+    if (/记|记录|吃|喝/.test(v)){
+      hideQuick();
+      addUser(v);
+      var t = addThinking("思考中");
+      setTimeout(function(){
+        t.parentNode.removeChild(t);
+        addAssistant("我按这个给你记：", false);
+        openSheet("来自对话", "饮食", v.replace(/记一下|记一笔|记录|我/g, "").trim() || v, "600");
+      }, 800);
+      return;
+    }
+    askFlow(v);
+  };
+
+  // ---------- 确认弹窗（human-in-the-loop） ----------
+  var sheetResolve = null;
+
+  function openSheet(from, type, foods, kcal){
+    $("sheetFrom").textContent = from;
+    $("fType").textContent = type;
+    $("fFoods").value = foods;
+    $("fKcal").value = kcal;
+    $("scrim").classList.add("on");
+    $("homeInput").blur();
+    $("chatInput").blur();
+  }
+  window.openSheet = openSheet;
+
+  window.closeSheet = function(){
+    $("scrim").classList.remove("on");
+    if (sheetResolve){ sheetResolve(false); sheetResolve = null; }
+  };
+
+  window.confirmSheet = function(){
+    var type = $("fType").textContent;
+    var foods = $("fFoods").value.trim();
+    var kcal = $("fKcal").value.trim();
+    $("scrim").classList.remove("on");
+
+    if ($("s-chat").classList.contains("on")){
+      addTool("已记录 " + type + " · 约 " + kcal + " kcal");
+      addAssistant("记好了。还差 " + Math.max(0, 1280 - parseInt(kcal, 10)) + " kcal，睡前加餐可以少一点。", true);
+    } else {
+      EVENTS.unshift({
+        type:"meal", label:type, dot:"var(--dot_meal)", time:now(),
+        main:foods, sum:"约 " + kcal + " kcal"
+      });
+      $("optEmpty").checked = false;
+      renderHome();
+    }
+    if (sheetResolve){ sheetResolve(true); sheetResolve = null; }
+  };
+
+  // ---------- 主界面发送 ----------
+  window.sendFromHome = function(){
+    var el = $("homeInput");
+    var v = el.value.trim();
+    if (!v) return;
+    el.value = "";
+    openSheet("来自速记", "饮食", v, "600");
+  };
+
+  // ---------- 计划 / 复盘 ----------
+  var PLAN_HTML =
+    '<div class="gapline"><span class="n">还差 1280 kcal</span>' +
+    '<button class="btn-text" onclick="regenerate()">刷新</button></div><div class="sep"></div>' +
+    '<div class="planitem"><div class="t">晚餐 · 约 650 kcal</div><div class="h">牛肉炒饭</div>' +
+    '<div class="d">牛肉 150g + 米饭 200g + 鸡蛋 1 个</div>' +
+    '<div class="a"><button class="btn-text" onclick="openSheet(\'来自建议\',\'饮食\',\'牛肉炒饭\',\'650\')">记一笔</button></div></div>' +
+    '<div class="sep indent"></div>' +
+    '<div class="planitem"><div class="t">加餐 · 约 400 kcal</div><div class="h">睡前蛋白粉 + 香蕉</div>' +
+    '<div class="d">蛋白粉 1 勺 + 香蕉 2 根</div>' +
+    '<div class="a"><button class="btn-text" onclick="openSheet(\'来自建议\',\'饮食\',\'蛋白粉 + 香蕉\',\'400\')">记一笔</button></div></div>' +
+    '<div class="sep"></div>' +
+    '<div style="padding:20px;font-size:15px;color:var(--text_1);line-height:24px">今日蛋白质偏低，晚餐优先补蛋白</div>' +
+    '<div class="disclaimer">估算值，非医疗建议</div>';
+
+  var REVIEW_HTML =
+    '<div class="stats3"><div><div class="n">2180</div><div class="l">摄入</div></div>' +
+    '<div><div class="n">1860</div><div class="l">消耗</div></div>' +
+    '<div><div class="n">58.2</div><div class="l">体重</div></div></div><div class="sep"></div>' +
+    '<div style="padding:20px;font-size:15px;color:var(--text_1);line-height:24px">' +
+    '今天热量盈余 320 kcal，达到增重目标。蛋白质摄入充足，蔬菜偏少，晚餐建议增加一份绿叶菜。</div>' +
+    '<div class="disclaimer">估算值，非医疗建议</div>';
+
+  function renderPlan(tab){ $("planBody").innerHTML = tab === "review" ? REVIEW_HTML : PLAN_HTML; }
+  window.renderPlan = renderPlan;
+  window.regenerate = function(){
+    var b = $("planBody");
+    b.style.opacity = ".4";
+    setTimeout(function(){ b.style.opacity = "1"; renderPlan(currentTab); }, 500);
+  };
+
+  var currentTab = "plan";
+  Array.prototype.forEach.call($("planTabs").children, function(t){
+    t.onclick = function(){
+      currentTab = t.getAttribute("data-t");
+      Array.prototype.forEach.call($("planTabs").children, function(x){ x.classList.remove("on"); });
+      t.classList.add("on");
+      renderPlan(currentTab);
+    };
+  });
+
+  // ---------- 设置：Provider ----------
+  var PRESETS = {
+    zhipu: {url:"https://open.bigmodel.cn/api/paas/v4", model:"glm-4.7-flash"},
+    deepseek: {url:"https://api.deepseek.com/v1", model:"deepseek-chat"},
+    openrouter: {url:"https://openrouter.ai/api/v1", model:"openrouter/auto"},
+    custom: {url:"", model:""}
+  };
+  window.applyProvider = function(){
+    var k = $("provider").value;
+    var p = PRESETS[k];
+    $("baseUrl").value = p.url;
+    $("modelName").value = p.model;
+    $("connResult").textContent = "";
+  };
+  window.testConn = function(){
+    var r = $("connResult");
+    var btn = document.querySelector("#s-settings .btn-primary");
+    btn.disabled = true;
+    btn.textContent = "测试中";
+    r.style.color = "var(--text_2)";
+    r.textContent = "连接中…";
+    setTimeout(function(){
+      btn.disabled = false;
+      btn.textContent = "测试连通性";
+      if ($("optLimit").checked){
+        r.style.color = "var(--negative)";
+        r.textContent = "失败 · HTTP 429（限流）。建议换个服务商或稍后重试";
+      } else {
+        r.style.color = "var(--positive)";
+        r.textContent = "连通 · 1.2s · 模型 " + $("modelName").value;
+      }
+    }, 1200);
+  };
+
+  // ---------- 通知栏 ----------
+  window.notifSend = function(){
+    var v = $("notifInput").value.trim();
+    var n = $("notif1");
+    n.classList.add("done");
+    n.querySelector(".c").textContent = "已记录 饮食 · 约 600 kcal" + (v ? "（" + v + "）" : "");
+  };
+  window.notifReset = function(){
+    var n = $("notif1");
+    n.classList.remove("done");
+    n.querySelector(".c").textContent = "今天还没记录 · 点此记录";
+    $("notifInput").value = "";
+  };
+
+  // ---------- 原型选项 ----------
+  $("optDark").onchange = function(){
+    document.documentElement.setAttribute("data-theme", this.checked ? "dark" : "light");
+  };
+  $("optEmpty").onchange = renderHome;
+
+  Array.prototype.forEach.call($("nav").children, function(li){
+    li.onclick = function(){ go(li.getAttribute("data-s")); };
+  });
+
+  // ---------- 时钟 ----------
+  function tick(){
+    var d = new Date();
+    $("clock").textContent = ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2);
+  }
+  tick();
+  setInterval(tick, 30000);
+
+  // ---------- 初始化 ----------
+  renderHome();
+  renderPlan("plan");
+  var opening = addAssistant(
+    "已摄入 1200 / 目标 2500\n还差 1300。晚饭建议吃牛肉炒饭（牛肉 150g + 米饭 200g + 鸡蛋），约 650 kcal。", true);
+  // 开场白必须排在快捷入口之前
+  var q = $("quick");
+  if (q) $("chatBody").insertBefore(opening, q);
+  var disc = document.createElement("div");
+  disc.className = "disclaimer";
+  disc.textContent = "估算值，非医疗建议";
+  $("chatBody").appendChild(disc);
+})();
+</script>
+</body>
+</html>

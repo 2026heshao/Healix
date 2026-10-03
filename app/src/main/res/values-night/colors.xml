@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 深色模式令牌。规范来源：Healix设计规范系统.md 第五章。 -->
+<resources>
+    <color name="bg">#131211</color>
+    <color name="surface">#1C1B1A</color>
+    <color name="text_1">#F2F0ED</color>
+    <color name="text_2">#A09C95</color>
+    <color name="text_3">#6E6A64</color>
+    <color name="line">#2E2C2A</color>
+    <color name="line_strong">#3A3735</color>
+    <color name="press">#252321</color>
+
+    <color name="accent">#D4703F</color>
+    <color name="accent_press">#C06134</color>
+    <color name="positive">#6E9E7C</color>
+    <color name="negative">#C4565A</color>
+
+    <!-- 深色下事件圆点统一提亮（此处按 HSL 提亮约 8% 明度后的值） -->
+    <color name="type_meal">#D4703F</color>
+    <color name="type_exercise">#557F94</color>
+    <color name="type_body">#8C7CA0</color>
+    <color name="type_sleep">#66748F</color>
+    <color name="type_illness">#C4565A</color>
+    <color name="type_other">#B0ACA4</color>
+
+    <color name="btn_disabled_bg">#3A3735</color>
+    <color name="scrim">#7A000000</color>
+</resources>

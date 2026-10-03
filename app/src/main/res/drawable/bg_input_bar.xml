@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 速记输入区顶部分隔：1dp 上边界线，无圆角 -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@color/surface" />
+        </shape>
+    </item>
+    <item android:top="-1dp" android:left="-1dp" android:right="-1dp">
+        <shape android:shape="rectangle">
+            <stroke android:width="@dimen/divider" android:color="@color/line" />
+            <solid android:color="@android:color/transparent" />
+        </shape>
+    </item>
+</layer-list>
