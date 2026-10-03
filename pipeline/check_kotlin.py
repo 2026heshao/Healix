@@ -612,6 +612,147 @@ def check_undefined_self_calls() -> None:
             )
 
 
+def check_settings_keys() -> None:
+    """settings 表键名的一致性检查。
+
+    ══════════════════════════════════════════════════════════════════════════
+    为什么必须有这条检查（2026-10-03 真实事故）
+    ══════════════════════════════════════════════════════════════════════════
+    设置页（写端）用 `base_url` / `model` / `retry_max` / `daily_quota`，
+    而事件仓库（读端）用 `provider_base_url` / `provider_model` /
+    `retry_max_retries` / `quota_daily_call_limit`。
+
+    两边都是**合法字符串字面量** —— kotlinc 不报错、KSP 不报错、单测覆盖不到。
+    唯一的表现是：设置页填好配置、点「测试连通性」也能过（因为测试走的是
+    写端自己的内存值），但用户真正「记一笔」时读端拿到 null，
+    直接 markFailed，**一次 HTTP 请求都没发出去**。
+
+    这类 bug 的排查成本极高（"测试能过、实际不能用"），
+    因此必须在静态检查层拦死。
+
+    检查策略：
+      1. 收集所有形如 `const val KEY_XXX = "some_key"` 的定义
+      2. 若同一个字面量值被多个 KEY_XXX 名字引用，且名字看起来是"同一语义的
+         不同拼法"（如 KEY_BASE_URL 与 KEY_PROVIDER_BASE_URL），报警
+      3. 更直接地：检查 `SettingsKeys` 是否是唯一赋值来源 ——
+         若某文件里出现裸字符串键名（不在 SettingsKeys.kt 内），报警
+
+    第 3 条是主检查，因为它能精确拦住"新写了一处裸字符串"。
+    """
+    settings_keys = JAVA / "com/healix/app/db/SettingsKeys.kt"
+    if not settings_keys.exists():
+        errors.append(
+            "找不到 app/src/main/java/com/healix/app/db/SettingsKeys.kt —— "
+            "settings 键名的唯一事实来源必须存在"
+        )
+        return
+
+    # SettingsKeys.kt 里声明的所有键名字面量（允许裸字符串）
+    sk_text = settings_keys.read_text(encoding="utf-8")
+    declared: dict[str, str] = {}  # 字面量 -> 常量名
+    for m in re.finditer(r'const val (\w+)\s*=\s*"([^"]+)"', sk_text):
+        declared[m.group(2)] = m.group(1)
+
+    # 反向索引：常量名 -> 字面量。b2 分支要用"常量名"比对，
+    # 而 declared 是以字面量为键的，必须另建一份，否则会查不到。
+    by_name: dict[str, str] = {v: k for k, v in declared.items()}
+
+    # 扫描所有其它 .kt，找出 settings 相关的裸字符串键名 / 第二套命名空间
+    known_keys = set(declared.keys())
+
+    # 「这个文件在操作 settings 表」的判定信号
+    touches_settings = re.compile(
+        r'settingsDao\(\)|SettingsDao|\bsettings\s*[:=]|settings\.(?:get|put|remove)'
+    )
+
+    for kt in sorted(JAVA.rglob("*.kt")):
+        if kt == settings_keys:
+            continue
+        text = kt.read_text(encoding="utf-8")
+
+        # (a) 直接以裸字符串访问 settings
+        for m in re.finditer(
+            r'(?:settingsDao\(\)\.(?:get|observe)|settings\.(?:get|put|remove))\s*\(\s*"([^"]+)"',
+            text,
+        ):
+            literal = m.group(1)
+            line = text[: m.start()].count("\n") + 1
+            if literal in declared:
+                errors.append(
+                    f"{rel(kt)}:{line}: settings 键名 \"{literal}\" 应改用 "
+                    f"SettingsKeys.{declared[literal]}，不要写裸字符串"
+                )
+            else:
+                errors.append(
+                    f"{rel(kt)}:{line}: settings 键名 \"{literal}\" 未在 SettingsKeys 中声明"
+                )
+
+        # (b) 声明了 KEY_* 常量，其值"看起来是 settings 键名"但与 SettingsKeys
+        #     的命名不一致 —— 这是**原始事故的精确形态**：
+        #     EventRepository 里 `const val KEY_BASE_URL = "provider_base_url"`，
+        #     而 SettingsKeys 里 `BASE_URL = "base_url"`。
+        #
+        #     判定条件（三选一即报警）：
+        #       b1. 字面量已是 SettingsKeys 声明的键名 → 明显是别名，报警
+        #       b2. 该文件确实在操作 settings 表，且常量名（去掉 KEY_ 前缀后）
+        #           与某个 SettingsKeys 常量名相同/高度相似，但字面量不同
+        #           → 同一语义被写成了两个不同的键名
+        #     只对"确实碰 settings 的文件"做 b2，避免误伤
+        #     RemoteInput key / EditText 字段名等无关的 KEY_* 常量。
+        for m in re.finditer(r'const val (KEY_\w+)\s*=\s*"([^"]+)"', text):
+            name, literal = m.group(1), m.group(2)
+            line = text[: m.start()].count("\n") + 1
+
+            if literal in known_keys:
+                if declared.get(literal) == name:
+                    continue  # 允许同名常量（如 SettingsActivity 的 KEY_BASE_URL 直接转发）
+                errors.append(
+                    f"{rel(kt)}:{line}: 定义了 settings 键常量 {name} = \"{literal}\"，"
+                    f"与 SettingsKeys.{declared[literal]} 指向同一键名但用了不同常量名"
+                    f"（键名分裂 bug 的典型形态，应写 `const val {name} = "
+                    f"SettingsKeys.{declared[literal]}`）"
+                )
+                continue
+
+            # b2：只在文件确实操作 settings 时才比对"语义相似名"
+            if not touches_settings.search(text):
+                continue
+
+            bare = name[len("KEY_"):]  # BASE_URL
+            sk_literal = by_name.get(bare)
+            if sk_literal is not None and sk_literal != literal:
+                errors.append(
+                    f"{rel(kt)}:{line}: 定义了 {name} = \"{literal}\"，"
+                    f"但 SettingsKeys.{bare} = \"{sk_literal}\" —— "
+                    f"同一语义有两个不同键名（读写两端会各读各的，"
+                    f"这是 2026-10-03 事故的根因）。应改为 "
+                    f"`const val {name} = SettingsKeys.{bare}`"
+                )
+
+
+def check_settings_keys_consistency() -> None:
+    """读写两端引用的 SettingsKeys 常量是否指向同一字面量。
+
+    纯逻辑推导，不依赖字符串扫描的完整性 —— 与 check_settings_keys 互补：
+    前者查"有没有绕过 SettingsKeys"，后者查"SettingsKeys 内部有没有重名冲突"。
+    """
+    settings_keys = JAVA / "com/healix/app/db/SettingsKeys.kt"
+    if not settings_keys.exists():
+        return
+    text = settings_keys.read_text(encoding="utf-8")
+
+    seen: dict[str, str] = {}
+    for m in re.finditer(r'const val (\w+)\s*=\s*"([^"]+)"', text):
+        name, literal = m.group(1), m.group(2)
+        if literal in seen:
+            errors.append(
+                f"SettingsKeys.kt: 键名字面量 \"{literal}\" 被 {seen[literal]} "
+                f"与 {name} 重复使用（同一值两个常量名，极易写混）"
+            )
+        else:
+            seen[literal] = name
+
+
 def check_manifest_classes() -> None:
     mf = ROOT / "app/src/main/AndroidManifest.xml"
     if not mf.exists():
@@ -683,6 +824,8 @@ def main() -> int:
     check_undefined_self_calls()
     check_manifest_classes()
     check_manifest_resources()
+    check_settings_keys()
+    check_settings_keys_consistency()
 
     print("=" * 64)
     print("Healix Kotlin/Room 静态检查")

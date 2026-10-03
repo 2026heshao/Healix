@@ -86,15 +86,42 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content" />
 
-            <!-- 测试连通性：本节唯一主按钮，宽度撑满 -->
+            <!--
+                接入 / 启用：本节第一主按钮。
+                「填了 → 接入 → 才生效」是用户的心智模型，必须有一个显式的落地点。
+                行为 = 写配置 + 校验完整性 + 发一次真实请求验证（见 runApply）。
+            -->
             <Button
-                android:id="@+id/btnTest"
+                android:id="@+id/btnApply"
                 style="@style/Widget.Healix.Button"
                 android:layout_width="match_parent"
                 android:layout_height="48dp"
                 android:layout_marginStart="@dimen/screen_margin"
                 android:layout_marginEnd="@dimen/screen_margin"
                 android:layout_marginTop="16dp"
+                android:text="@string/apply_provider" />
+
+            <!-- 接入状态：常驻显示当前是「已接入」还是「未接入」，不靠弹窗 -->
+            <TextView
+                android:id="@+id/applyStatus"
+                style="@style/Text.Secondary"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="@dimen/screen_margin"
+                android:layout_marginEnd="@dimen/screen_margin"
+                android:layout_marginTop="8dp"
+                tools:text="已接入 · 智谱 GLM · glm-4-flash"
+                tools:visibility="visible" />
+
+            <!-- 测试连通性：本节第二按钮，样式降一级为文字按钮（避免两个同权重主按钮） -->
+            <Button
+                android:id="@+id/btnTest"
+                style="@style/Widget.Healix.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="48dp"
+                android:layout_marginStart="@dimen/screen_margin"
+                android:layout_marginEnd="@dimen/screen_margin"
+                android:layout_marginTop="4dp"
                 android:text="@string/test_conn" />
 
             <!-- 测试结果就地显示，不弹 Toast（结果需要能被反复查看） -->

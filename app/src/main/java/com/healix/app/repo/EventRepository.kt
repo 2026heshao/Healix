@@ -3,6 +3,7 @@ package com.healix.app.repo
 import android.content.Context
 import com.healix.app.HealixApp
 import com.healix.app.db.EventEntity
+import com.healix.app.db.SettingsKeys
 import com.healix.app.security.SecretStore
 import com.healix.app.net.ChatRequest
 import com.healix.app.net.ChatResult
@@ -73,14 +74,23 @@ class EventRepository(private val context: Context) {
     }
 
     companion object {
-        /** settings 表的键名（非敏感项）。apiKey **不在**这里（C6）。 */
-        const val KEY_BASE_URL = "provider_base_url"
-        const val KEY_MODEL = "provider_model"
-        const val KEY_PROVIDER_NAME = "provider_name"
-        const val KEY_MAX_RETRIES = "retry_max_retries"
-        const val KEY_RETRY_BASE = "retry_base_seconds"
-        const val KEY_EXP_BACKOFF = "retry_exponential_backoff"
-        const val KEY_DAY_START_HOUR = "day_start_hour"
+        /**
+         * settings 表的键名（非敏感项）。apiKey **不在**这里（C6）。
+         *
+         * ⚠️ 2026-10-03 修复：这里过去用 `provider_base_url` / `provider_model` /
+         * `retry_max_retries`，与设置页写入的 `base_url` / `model` / `retry_max`
+         * **对不上** —— 导致 `loadProviderConfig()` 永远返回 null，
+         * 「记一笔」一次请求都发不出去（表现为"配置无法生效"）。
+         *
+         * 现在一律引用 [SettingsKeys]，与写端共用同一份常量。
+         */
+        const val KEY_BASE_URL = SettingsKeys.BASE_URL
+        const val KEY_MODEL = SettingsKeys.MODEL
+        const val KEY_PROVIDER_NAME = SettingsKeys.PROVIDER
+        const val KEY_MAX_RETRIES = SettingsKeys.RETRY
+        const val KEY_RETRY_BASE = SettingsKeys.RETRY_DELAY
+        const val KEY_EXP_BACKOFF = SettingsKeys.RETRY_EXP_BACKOFF
+        const val KEY_DAY_START_HOUR = SettingsKeys.DAY_START
 
         /** 抽取链默认重试参数（对齐 contract.md 第二节） */
         const val DEFAULT_MAX_RETRIES = 5

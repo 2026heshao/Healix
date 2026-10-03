@@ -156,12 +156,20 @@
         android:paddingEnd="@dimen/screen_margin"
         tools:text="还差 1280 kcal　查看今日建议 →" />
 
-    <!-- 无网络提示：顶部一条 13sp text_2，不遮挡内容 -->
+    <!--
+        状态提示条：同一位置承载两种语义（文案与点击行为由 MainActivity 按状态切换）
+          - 无网络（state_offline）：点了重试
+          - 未配置（no_provider_config）：点了去设置页
+        用 text_2 中性色 —— 这两种都是预期行为，不是错误，不该用 negative。
+    -->
     <TextView
         android:id="@+id/offlineBar"
         style="@style/Text.Secondary"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:background="?attr/selectableItemBackground"
+        android:clickable="true"
+        android:focusable="true"
         android:paddingStart="@dimen/screen_margin"
         android:paddingEnd="@dimen/screen_margin"
         android:paddingTop="6dp"

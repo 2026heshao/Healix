@@ -179,7 +179,8 @@ class PlanReviewViewModel(app: Application) : AndroidViewModel(app) {
     fun logSuggestion(item: PlanItemUi) {
         viewModelScope.launch(Dispatchers.IO) {
             val now = System.currentTimeMillis()
-            val dayStart = db.settingsDao().get("day_start_hour")?.toIntOrNull() ?: 4
+            val dayStart = db.settingsDao().get(com.healix.app.db.SettingsKeys.DAY_START)
+                ?.toIntOrNull() ?: 4
             val raw = "${item.title}（${item.detail}）"
 
             db.eventDao().insertIgnore(

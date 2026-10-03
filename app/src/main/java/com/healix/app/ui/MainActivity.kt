@@ -31,6 +31,15 @@ class MainActivity : AppCompatActivity() {
     private lateinit var adapter: EventAdapter
     private lateinit var vm: MainViewModel
 
+    /**
+     * 最近一次的 UI 状态。
+     *
+     * 用于让 offlineBar 的点击行为与当前语义匹配 —— 同一条提示条
+     * 承载"离线"和"未配置"两种语义，必须知道现在是哪一种才能决定
+     * 点了之后是"重试"还是"去设置页"。
+     */
+    private var lastUiState: MainUiState = MainUiState.Idle
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
@@ -63,6 +72,15 @@ class MainActivity : AppCompatActivity() {
             startActivity(Intent(this, PlanReviewActivity::class.java))
         }
         binding.nudgeBar.setOnClickListener { focusInput() }
+
+        // 状态提示条点击：按当前语义分流（离线 → 重试；未配置 → 去设置）
+        binding.offlineBar.setOnClickListener {
+            if (lastUiState == MainUiState.NotConfigured) {
+                startActivity(Intent(this, SettingsActivity::class.java))
+            } else {
+                vm.retryFailedPending()
+            }
+        }
 
         observe()
 
@@ -126,6 +144,7 @@ class MainActivity : AppCompatActivity() {
 
                 launch {
                     vm.uiState.collect { state ->
+                        lastUiState = state
                         when (state) {
                             MainUiState.Idle -> {
                                 binding.spinner.visibility = View.GONE
@@ -146,6 +165,15 @@ class MainActivity : AppCompatActivity() {
                             MainUiState.Offline -> {
                                 binding.spinner.visibility = View.GONE
                                 binding.stateLabel.visibility = View.GONE
+                                binding.offlineBar.text = getString(R.string.state_offline)
+                                binding.offlineBar.visibility = View.VISIBLE
+                            }
+                            MainUiState.NotConfigured -> {
+                                // 未配置 ≠ 离线。用同一条提示条，但文案与动作不同：
+                                // 点一下直接去设置页（而不是让用户自己找）
+                                binding.spinner.visibility = View.GONE
+                                binding.stateLabel.visibility = View.GONE
+                                binding.offlineBar.text = getString(R.string.no_provider_config)
                                 binding.offlineBar.visibility = View.VISIBLE
                             }
                         }

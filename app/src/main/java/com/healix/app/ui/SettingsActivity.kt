@@ -15,6 +15,7 @@ import androidx.core.widget.doAfterTextChanged
 import com.healix.app.HealixApp
 import com.healix.app.R
 import com.healix.app.databinding.ActivitySettingsBinding
+import com.healix.app.db.SettingsKeys
 import kotlinx.coroutines.launch
 
 /**
@@ -48,6 +49,7 @@ class SettingsActivity : AppCompatActivity() {
         setupRow(binding.rowModel, R.string.model_name) { editText(KEY_MODEL, R.string.model_name) }
         setupRow(binding.rowApiKey, R.string.api_key) { editApiKey() }
 
+        binding.btnApply.setOnClickListener { runApply() }
         binding.btnTest.setOnClickListener { runConnectivityTest() }
 
         // ── 调用限制 ──────────────────────────────────────────────
@@ -191,6 +193,41 @@ class SettingsActivity : AppCompatActivity() {
                 }
             }
         }
+        // 接入结果：与测试结果共用同一个展示位（避免两条状态文本打架）
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                vm.applyResult.collect { r ->
+                    if (r == null) return@collect
+                    binding.testResult.visibility = View.VISIBLE
+                    binding.testResult.text = r.text
+                    binding.testResult.setTextColor(
+                        androidx.core.content.ContextCompat.getColor(
+                            this@SettingsActivity,
+                            if (r.ok) R.color.positive else R.color.negative,
+                        )
+                    )
+                }
+            }
+        }
+        // 接入状态条：常驻显示「已接入 / 未接入」，不靠弹窗
+        // 同时订阅 values（取服务商/模型名）与 applied（取接入与否），
+        // 保证两者永远同帧一致 —— 分开读 .value 会出现"名字已更新但状态没更新"的撕裂。
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                kotlinx.coroutines.flow.combine(vm.values, vm.applied) { v, on -> v to on }
+                    .collect { (v, on) ->
+                        binding.applyStatus.text = if (on) {
+                            getString(
+                                R.string.apply_status_on,
+                                providerLabel(v.provider),
+                                v.model,
+                            )
+                        } else {
+                            getString(R.string.apply_status_off)
+                        }
+                    }
+            }
+        }
     }
 
     /**
@@ -213,7 +250,31 @@ class SettingsActivity : AppCompatActivity() {
         }
     }
 
-    // ── 测试连通性（设置页唯一主按钮） ─────────────────────────────
+    // ── 接入并启用（本节第一主按钮） ────────────────────────────────
+
+    /**
+     * 「接入并启用」：把用户填下的配置真正落到"可用"状态，并给出显式反馈。
+     *
+     * 与 [runConnectivityTest] 的差异只有一点，但对用户很关键：
+     * 接入是**声明式的**（"我确认要用这套配置"），测试是**探测式的**（"看看通不通"）。
+     * 两者共用一个结果展示位（testResult），避免设置页出现两条状态文本互相打架。
+     */
+    private fun runApply() {
+        binding.btnApply.isEnabled = false
+        binding.btnTest.isEnabled = false
+        binding.testResult.visibility = View.VISIBLE
+        binding.testResult.setTextColor(
+            androidx.core.content.ContextCompat.getColor(this, R.color.text_2)
+        )
+        binding.testResult.text = getString(R.string.apply_applying)
+
+        vm.applyProvider {
+            binding.btnApply.isEnabled = true
+            binding.btnTest.isEnabled = true
+        }
+    }
+
+    // ── 测试连通性 ────────────────────────────────────────────────
 
     private fun runConnectivityTest() {
         binding.btnTest.isEnabled = false
@@ -343,22 +404,27 @@ class SettingsActivity : AppCompatActivity() {
 
     companion object {
         const val MASK = "••••••••"
-        const val KEY_BASE_URL = "base_url"
-        const val KEY_MODEL = "model"
-        const val KEY_PROVIDER = "provider"
-        const val KEY_QUOTA = "daily_quota"
-        const val KEY_CHAT_QUOTA = "chat_quota"
-        const val KEY_RETRY = "retry_max"
-        const val KEY_RETRY_DELAY = "retry_base_seconds"
-        const val KEY_HEIGHT = "height_cm"
-        const val KEY_WEIGHT = "weight_kg"
-        const val KEY_AGE = "age"
-        const val KEY_ACTIVITY = "activity_factor"
-        const val KEY_TARGET_KCAL = "target_kcal"
-        const val KEY_DAY_START = "day_start_hour"
+
+        // ⚠️ 键名一律从 SettingsKeys 取 —— 那里是唯一事实来源。
+        //    2026-10-03 修过一次键名分裂 bug（见 SettingsKeys 头注释），
+        //    此处保留 `KEY_*` 前缀是为了不改动几十个调用点，
+        //    但值的来源必须收敛到 SettingsKeys。
+        const val KEY_BASE_URL = SettingsKeys.BASE_URL
+        const val KEY_MODEL = SettingsKeys.MODEL
+        const val KEY_PROVIDER = SettingsKeys.PROVIDER
+        const val KEY_QUOTA = SettingsKeys.EXTRACT_QUOTA
+        const val KEY_CHAT_QUOTA = SettingsKeys.CHAT_QUOTA
+        const val KEY_RETRY = SettingsKeys.RETRY
+        const val KEY_RETRY_DELAY = SettingsKeys.RETRY_DELAY
+        const val KEY_HEIGHT = SettingsKeys.HEIGHT
+        const val KEY_WEIGHT = SettingsKeys.WEIGHT
+        const val KEY_AGE = SettingsKeys.AGE
+        const val KEY_ACTIVITY = SettingsKeys.ACTIVITY
+        const val KEY_TARGET_KCAL = SettingsKeys.TARGET_KCAL
+        const val KEY_DAY_START = SettingsKeys.DAY_START
 
         /** 用户背景（自由文本）。空 = 未填写，AI prompt 走无背景的原路径。 */
-        const val KEY_BACKGROUND = "user_background"
+        const val KEY_BACKGROUND = SettingsKeys.BACKGROUND
 
         /**
          * 背景字数上限。

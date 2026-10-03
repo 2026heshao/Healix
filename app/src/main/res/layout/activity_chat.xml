@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
     对话页（设计规范系统 4.2）。
-    硬约束：无彩色气泡、无头像，身份只靠对齐区分。
+    消息区为左右气泡（用户靠右 text_1 实底 / 助理靠左 surface 底 + 描边），
+    气泡背景见 drawable/bg_bubble_user.xml 与 bg_bubble_assistant.xml。
+    仅用既有中性色，无阴影 —— 设计规范 v3 未被破坏。
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"

@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.healix.app.HealixApp
 import com.healix.app.db.ChatMessageEntity
+import com.healix.app.net.NetworkStatus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -67,7 +68,15 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
             val config = repo.loadProviderConfig()
             if (config == null) {
+                // 未配置：与网络无关，引导去设置页
                 persist("assistant", getApplication<Application>().getString(com.healix.app.R.string.no_provider_config))
+                _uiState.value = ChatUiState.Degraded
+                return@launch
+            }
+
+            // 断网：明确告知，而不是让请求白等 15 秒超时后再降级
+            if (!NetworkStatus.isOnline(getApplication())) {
+                persist("assistant", getApplication<Application>().getString(com.healix.app.R.string.state_offline))
                 _uiState.value = ChatUiState.Degraded
                 return@launch
             }

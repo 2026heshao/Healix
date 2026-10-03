@@ -19,8 +19,11 @@ import java.time.LocalDate
 /**
  * 对话页（设计规范系统 4.2）。
  *
- * **核心决策：不用彩色气泡。** 靠对齐方向 + 灰度区分身份，这是全 App 唯一允许
- * "两侧布局"的界面。工具调用状态用自然语言，禁止暴露工具名 / 技术名词。
+ * **交互决策：左右气泡。** 用户消息靠右（text_1 实底 + 白字），
+ * 助理消息靠左（surface 底 + 1dp 描边 + text_1 字）。
+ * 气泡只使用既有中性色，未引入新颜色 / 阴影 —— 详见 [ChatAdapter] 的变更记录。
+ *
+ * 工具调用状态用自然语言，禁止暴露工具名 / 技术名词。
  *
  * ⚠️ 本页当前实现的是 **对话 UI 骨架 + 消息持久化**（对应执行计划 S2）：
  * 能聊天、能出计划、消息持久化、杀进程重进历史还在。
@@ -121,7 +124,27 @@ class ChatActivity : AppCompatActivity() {
     }
 }
 
-/** 对话消息适配器。无头像、无气泡、无背景，只有对齐方向不同。 */
+/**
+ * 对话消息适配器：左右气泡。
+ *
+ * ══════════════════════════════════════════════════════════════════════════
+ * 设计变更记录（2026-10-03）
+ * ══════════════════════════════════════════════════════════════════════════
+ * 原实现是「无气泡，只靠对齐 + 灰度区分身份」（见旧版类注释的"核心决策"）。
+ * 用户反馈要**明确的左右气泡**，遂改为气泡形态。
+ *
+ * 变更**没有**破坏设计规范 v3，理由是气泡只用了既有中性色：
+ *   - 用户气泡：text_1 (#1A1918) 实底 + 白字
+ *   - 助理气泡：surface (#FFFFFF) 底 + 1dp line 描边 + text_1 字
+ * 没有引入任何新颜色、没有阴影、圆角仍是全局唯一值 8dp、
+ * accent 仍只出现在按钮/进度条上（不被气泡稀释）。
+ *
+ * 结构：外层 LinearLayout 负责"靠哪边 + 最大宽度"，内层 TextView 带气泡背景。
+ * 之所以套一层而不是直接给 TextView 设 background：
+ *   TextView 用 wrap_content + background 时，padding 会被算进宽度，
+ *   导致同一条消息在"短文本"和"长文本"下视觉边距不一致。
+ *   外层控制对齐、内层控制留白，职责分开更稳。
+ */
 class ChatAdapter : RecyclerView.Adapter<ChatAdapter.VH>() {
 
     private var items: List<ChatMessageEntity> = emptyList()
@@ -136,19 +159,31 @@ class ChatAdapter : RecyclerView.Adapter<ChatAdapter.VH>() {
         if (items[position].role == "user") TYPE_USER else TYPE_ASSISTANT
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
-        val tv = android.widget.TextView(parent.context).apply {
-            layoutParams = RecyclerView.LayoutParams(
+        val ctx = parent.context
+
+        val text = android.widget.TextView(ctx).apply {
+            layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
             )
-            // 15sp body，行高由 lineSpacingExtra 提供
             setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 15f)
-            setTextColor(androidx.core.content.ContextCompat.getColor(context, R.color.text_1))
-            setLineSpacing(dp(context, 6f), 1f)
-            // 保留换行
+            setLineSpacing(dp(ctx, 5f), 1f)
             setSingleLine(false)
+            // 气泡内的留白：水平 14dp、垂直 10dp
+            setPadding(dp(ctx, 14f).toInt(), dp(ctx, 10f).toInt(), dp(ctx, 14f).toInt(), dp(ctx, 10f).toInt())
         }
-        return VH(tv)
+
+        // 外层：限制最大宽度 78%，靠 gravity 决定左右
+        val row = android.widget.LinearLayout(ctx).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL
+            layoutParams = RecyclerView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            )
+            addView(text)
+        }
+
+        return VH(row, text)
     }
 
     override fun getItemCount(): Int = items.size
@@ -156,37 +191,55 @@ class ChatAdapter : RecyclerView.Adapter<ChatAdapter.VH>() {
     override fun onBindViewHolder(holder: VH, position: Int) {
         val m = items[position]
         val ctx = holder.text.context
-        val margin = dp(ctx, 20f).toInt()
-        val lp = holder.text.layoutParams as RecyclerView.LayoutParams
+        val isUser = m.role == "user"
 
         holder.text.text = m.content
 
-        if (m.role == "user") {
-            // 用户消息：右对齐，最宽 80%，右侧距边 20dp
-            holder.text.setTextAlignment(View.TEXT_ALIGNMENT_TEXT_END)
-            holder.text.gravity = android.view.Gravity.END
-            lp.marginStart = dp(ctx, 64f).toInt()
-            lp.marginEnd = margin
+        // ── 气泡外观 ────────────────────────────────────────────────
+        if (isUser) {
+            holder.text.setBackgroundResource(R.drawable.bg_bubble_user)
+            holder.text.setTextColor(
+                androidx.core.content.ContextCompat.getColor(ctx, R.color.btn_primary_text)
+            )
         } else {
-            // 助理消息：左对齐，左右边距 20dp
-            holder.text.setTextAlignment(View.TEXT_ALIGNMENT_TEXT_START)
-            holder.text.gravity = android.view.Gravity.START
-            lp.marginStart = margin
-            lp.marginEnd = dp(ctx, 64f).toInt()
+            holder.text.setBackgroundResource(R.drawable.bg_bubble_assistant)
+            holder.text.setTextColor(
+                androidx.core.content.ContextCompat.getColor(ctx, R.color.text_1)
+            )
         }
 
-        // 同角色 8dp，不同角色 20dp
-        val prevRole = if (position > 0) items[position - 1].role else null
-        lp.topMargin = if (prevRole == null || prevRole == m.role) dp(ctx, 8f).toInt() else dp(ctx, 20f).toInt()
-        holder.text.layoutParams = lp
+        // ── 外层对齐 + 最大宽度 78% ──────────────────────────────────
+        val screenW = ctx.resources.displayMetrics.widthPixels
+        val maxBubble = (screenW * 0.78f).toInt()
 
-        // 动态内容：助理消息出现时朗读（无障碍规范）
-        if (m.role != "user" && position == items.size - 1) {
+        val textLp = holder.text.layoutParams as android.widget.LinearLayout.LayoutParams
+        textLp.width = android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+        textLp.weight = 0f
+        holder.text.maxWidth = maxBubble
+        holder.text.layoutParams = textLp
+
+        val rowLp = holder.row.layoutParams as RecyclerView.LayoutParams
+        holder.row.gravity = if (isUser) android.view.Gravity.END else android.view.Gravity.START
+        val edgeMargin = dp(ctx, 20f).toInt()
+        rowLp.marginStart = edgeMargin
+        rowLp.marginEnd = edgeMargin
+
+        // 同角色 6dp（气泡本就分块，间距小些更连贯），不同角色 16dp
+        val prevRole = if (position > 0) items[position - 1].role else null
+        rowLp.topMargin =
+            if (prevRole == null || prevRole == m.role) dp(ctx, 6f).toInt() else dp(ctx, 16f).toInt()
+        holder.row.layoutParams = rowLp
+
+        // 无障碍：助理消息出现时朗读（保持原有行为）
+        if (!isUser && position == items.size - 1) {
             holder.text.announceForAccessibility(m.content)
         }
     }
 
-    class VH(val text: android.widget.TextView) : RecyclerView.ViewHolder(text)
+    class VH(
+        val row: android.widget.LinearLayout,
+        val text: android.widget.TextView,
+    ) : RecyclerView.ViewHolder(row)
 
     private companion object {
         const val TYPE_USER = 0

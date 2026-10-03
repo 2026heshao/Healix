@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.healix.app.HealixApp
+import com.healix.app.R
 import com.healix.app.db.SettingEntity
 import com.healix.app.net.ChatMessage
 import com.healix.app.net.ChatRequest
@@ -41,6 +42,14 @@ data class SettingsValues(
 
 data class TestResult(val ok: Boolean, val text: String)
 
+/**
+ * 接入结果。「接入并启用」按钮的落地点。
+ *
+ * 与 [TestResult] 分开：测试是"看看通不通"，接入是"确认这个配置被采用"。
+ * 两者文案与成功判据不同（接入还会把 provider 标记写库，便于 UI 常驻显示）。
+ */
+data class ApplyResult(val ok: Boolean, val text: String)
+
 class SettingsViewModel(app: Application) : AndroidViewModel(app) {
 
     private val container = HealixApp.from(app)
@@ -52,6 +61,20 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _testResult = MutableStateFlow<TestResult?>(null)
     val testResult: StateFlow<TestResult?> = _testResult.asStateFlow()
+
+    private val _applyResult = MutableStateFlow<ApplyResult?>(null)
+    val applyResult: StateFlow<ApplyResult?> = _applyResult.asStateFlow()
+
+    /**
+     * 是否已接入。
+     *
+     * 判据 = baseUrl + model + apiKey 三者齐备（即 [ProviderConfig.isUsable]）。
+     * 这里**只做本地判断，不发网络请求** —— 状态条是常驻 UI，
+     * 每次进设置页都发一次请求是不可接受的。
+     * 真实连通性由「测试连通性」按钮显式验证。
+     */
+    private val _applied = MutableStateFlow(false)
+    val applied: StateFlow<Boolean> = _applied.asStateFlow()
 
     init {
         viewModelScope.launch { reload() }
@@ -79,6 +102,13 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
             background = all[SettingsActivity.KEY_BACKGROUND].orEmpty(),
             debugSummary = "今日 ${quotas.usedToday()} 次 · 失败 ${quotas.failedToday()}",
         )
+
+        // 接入状态：三要素齐备即视为已接入（纯本地判断，不发请求）
+        val baseUrl = all[SettingsActivity.KEY_BASE_URL].orEmpty().trim()
+        val model = all[SettingsActivity.KEY_MODEL].orEmpty().trim()
+        val hasKey = container.secretStore?.hasApiKey() == true
+        _applied.value = baseUrl.isNotEmpty() && model.isNotEmpty() && hasKey &&
+            !baseUrl.startsWith("[待核实") && !model.startsWith("[待核实")
     }
 
     /** 读原始值（编辑对话框回显用）。apiKey 不走这里 —— 它永远不回显。 */
@@ -196,6 +226,89 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
                     TestResult(false, "连接失败 · $code${seconds}s · ${result.message}")
                 }
             }
+            onDone()
+        }
+    }
+
+    /**
+     * 「接入并启用」。
+     *
+     * ══════════════════════════════════════════════════════════════════════════
+     * 与「测试连通性」的区别（这是用户明确提出的诉求）
+     * ══════════════════════════════════════════════════════════════════════════
+     * 用户的原话是「AI 模型没有真实的接入按钮，配置无法生效」。拆开看是两件事：
+     *
+     *   a) **缺一个显式的落地点** —— 填完四个框后没有任何"确认采用"的动作，
+     *      用户不知道配置到底生效没有。这是**心智模型**问题。
+     *   b) **配置真的没生效** —— 那是 settings 键名分裂 bug（见 SettingsKeys
+     *      头注释），已修。修完后 a) 仍然存在：界面上依旧没有"已接入"的反馈。
+     *
+     * 本方法同时解决 a)：
+     *   1. 校验三要素齐备，缺哪项就明确点名（不说"配置无效"这种废话）
+     *   2. 显式把 provider 预设 key 落库 —— 让"接入"产生一条可追溯的写入
+     *   3. 立刻发一次真实请求验证（只重试 1 次，快速给结论）
+     *   4. 成功 → 状态条变「已接入 · 服务商 · 模型名」；失败 → 保留原状态并说明原因
+     *
+     * 失败**不回滚**已写入的配置：用户可能只是当下网络不好，
+     * 配置本身留着更方便，重试一次即可。
+     */
+    fun applyProvider(onDone: () -> Unit = {}) {
+        viewModelScope.launch {
+            val app = getApplication<Application>()
+            val v = _values.value
+            val key = container.secretStore?.apiKey()
+
+            // ── 第 1 步：逐项校验，缺什么就说什么 ──────────────────────
+            val missing = buildList {
+                if (v.baseUrl.isBlank()) add(app.getString(R.string.apply_name_base_url))
+                if (v.model.isBlank()) add(app.getString(R.string.apply_name_model))
+                if (key.isNullOrBlank()) add(app.getString(R.string.apply_name_key))
+            }
+            if (missing.isNotEmpty()) {
+                _applyResult.value = ApplyResult(
+                    ok = false,
+                    text = app.getString(R.string.apply_missing, missing.joinToString("、")),
+                )
+                onDone()
+                return@launch
+            }
+
+            if (v.baseUrl.startsWith("[待核实") || v.model.startsWith("[待核实")) {
+                _applyResult.value = ApplyResult(false, app.getString(R.string.apply_placeholder))
+                onDone()
+                return@launch
+            }
+
+            _applyResult.value = ApplyResult(true, app.getString(R.string.apply_applying))
+
+            // ── 第 2 步：真实请求验证（不重试，快速给结论）───────────────
+            val config = ProviderConfig(baseUrl = v.baseUrl, model = v.model, apiKey = key!!)
+            val provider = OpenAiCompatProvider(config)
+
+            val started = System.currentTimeMillis()
+            val result = withContext(Dispatchers.IO) {
+                provider.chat(
+                    ChatRequest(
+                        messages = listOf(ChatMessage(role = "user", content = "hi")),
+                        timeoutMs = 15_000L,
+                        maxRetries = 1,
+                    ),
+                )
+            }
+            val seconds = "%.1f".format((System.currentTimeMillis() - started) / 1000.0)
+
+            _applyResult.value = when (result) {
+                is ChatResult.Ok ->
+                    ApplyResult(true, app.getString(R.string.apply_ok, "${seconds}s"))
+
+                is ChatResult.Err -> {
+                    val code = result.httpCode?.let { "HTTP $it · " }.orEmpty()
+                    ApplyResult(false, app.getString(R.string.apply_fail, "$code${result.message}"))
+                }
+            }
+
+            // 无论成败都重算状态条（成功时 hasApiKey 可能刚变 true）
+            reload()
             onDone()
         }
     }

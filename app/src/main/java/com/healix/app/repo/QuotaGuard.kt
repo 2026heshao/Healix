@@ -4,6 +4,7 @@ import android.content.Context
 import com.healix.app.HealixApp
 import com.healix.app.db.LlmCallDao
 import com.healix.app.db.SettingsDao
+import com.healix.app.db.SettingsKeys
 import com.healix.app.parse.dayKeyOf
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -31,9 +32,16 @@ class QuotaGuard(private val context: Context) {
     private val settingsDao: SettingsDao = HealixApp.from(context).database.settingsDao()
 
     companion object {
-        /** settings 键名 */
-        const val KEY_DAILY_CALL_LIMIT = "quota_daily_call_limit"
-        const val KEY_DAILY_CHAT_LIMIT = "quota_daily_chat_limit"
+        /**
+         * settings 键名。
+         *
+         * ⚠️ 2026-10-03 修复：过去这里是 `quota_daily_call_limit` / `quota_daily_chat_limit`，
+         * 而设置页写入的是 `daily_quota` / `chat_quota` —— 键名分裂导致
+         * **用户在设置页改的配额从未生效过**（永远回落默认值 20 / 15）。
+         * 现在统一引用 [SettingsKeys]。
+         */
+        const val KEY_DAILY_CALL_LIMIT = SettingsKeys.EXTRACT_QUOTA
+        const val KEY_DAILY_CHAT_LIMIT = SettingsKeys.CHAT_QUOTA
 
         /** 默认值（功能补充 1.8：每日 AI 调用上限 20；9.2：对话 15） */
         const val DEFAULT_DAILY_CALL_LIMIT = 20

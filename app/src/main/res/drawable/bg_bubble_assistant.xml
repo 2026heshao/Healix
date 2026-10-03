@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    助理气泡：surface (#FFFFFF) 底 + 1dp line (#EAE8E4) 描边 + text_1 字。
+    圆角 8dp，无阴影。
+
+    为什么是"白底 + 细描边"而不是灰底：
+    bg 已经是 #FAFAF9，若助理气泡也用灰底，在浅色背景上几乎看不出边界，
+    气泡就白做了。用纯白 surface 反而比页面底色更亮，配合 1dp 描边
+    边界清晰，且仍然完全落在既有色板内（surface / line 都是设计令牌）。
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/surface" />
+    <stroke
+        android:width="@dimen/divider"
+        android:color="@color/line" />
+    <corners android:radius="@dimen/radius" />
+</shape>

@@ -43,7 +43,7 @@ internal data class TodaySummary(
         }
 
     companion object {
-        const val KEY_TARGET_KCAL = "target_kcal"
+        const val KEY_TARGET_KCAL = com.healix.app.db.SettingsKeys.TARGET_KCAL
         const val DEFAULT_TARGET_KCAL = 2500
 
         /**
@@ -56,8 +56,8 @@ internal data class TodaySummary(
             val app = HealixApp.from(context)
             val db = app.database
             val now = System.currentTimeMillis()
-            val dayStart = db.settingsDao().get("day_start_hour")?.toIntOrNull()
-                ?: DEFAULT_DAY_START_HOUR
+            val dayStart = db.settingsDao().get(com.healix.app.db.SettingsKeys.DAY_START)
+                ?.toIntOrNull() ?: DEFAULT_DAY_START_HOUR
             val dayKey = dayKeyOf(now, dayStart)
 
             val target = db.settingsDao().get(KEY_TARGET_KCAL)?.toIntOrNull()

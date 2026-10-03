@@ -49,9 +49,21 @@
     <string name="base_url">接口地址</string>
     <string name="model_name">模型名</string>
     <string name="api_key">API Key</string>
+    <string name="apply_provider">接入并启用</string>
     <string name="test_conn">测试连通性</string>
     <string name="conn_ok">连通 · %1$s</string>
     <string name="conn_fail">连接失败</string>
+    <!-- 接入状态条（常驻，不弹窗） -->
+    <string name="apply_status_on">已接入 · %1$s · %2$s</string>
+    <string name="apply_status_off">未接入 · 填好上面四项后点「接入并启用」</string>
+    <string name="apply_missing">还没填完：%1$s</string>
+    <string name="apply_name_base_url">接口地址</string>
+    <string name="apply_name_model">模型名</string>
+    <string name="apply_name_key">API Key</string>
+    <string name="apply_placeholder">当前是占位地址，请先填真实值</string>
+    <string name="apply_applying">接入中…</string>
+    <string name="apply_ok">接入成功 · %1$s</string>
+    <string name="apply_fail">接入失败 · %1$s</string>
     <string name="export_backup">导出备份</string>
 
     <!-- 通知 -->
