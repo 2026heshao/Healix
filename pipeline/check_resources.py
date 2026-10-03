@@ -181,6 +181,62 @@ def check_shell_line_endings() -> None:
             )
 
 
+def check_signal_copy() -> None:
+    """规范 §9.8：预警「双套文案」的硬约束。
+
+    首页状态行只有 1 行、状态页「身体」段只给 2 行，所以：
+      - `signal_short_*`（首页）≤ **24 汉字**
+      - `signal_full_*`（状态页）≤ **52 汉字**
+
+    同时 PRD §5.7 / §9.2 的禁用清单也要在文案层守住（Kotlin 侧
+    `check_no_gamification` 只扫代码，扫不到 strings.xml）：
+      - 疾病名 / 诊断 —— App 不做疾病推断
+      - 概率数字（"风险 30%"）—— 假装有统计依据
+      - "建议咨询医生"套话 —— 就医阈值文案除外（就医引导必须保留）
+      - 游戏化词汇
+
+    ⚠️ 只数字符串里的**汉字**，`%1$s` 占位符与数字标点不计入 —— 否则
+    带占位符的 T1/T2/T3 会被误判超长。
+    """
+    strings_xml = RES / "values/strings.xml"
+    if not strings_xml.exists():
+        return
+    text = strings_xml.read_text(encoding="utf-8")
+    pairs = re.findall(
+        r'<string name="(signal_(?:short|full)_\w+)">(.*?)</string>', text, re.S
+    )
+    if not pairs:
+        errors.append("strings.xml: 找不到任何 signal_short_* / signal_full_* 文案")
+        return
+
+    cjk = re.compile(r"[\u4e00-\u9fff]")
+    banned = {
+        "疾病名/诊断": ["糖尿病", "高血压", "抑郁症", "贫血", "甲亢", "综合征", "确诊"],
+        "咨询医生套话": ["建议咨询医生", "请咨询医生", "咨询专业医生"],
+        "游戏化": ["连续打卡", "streak", "归零", "勋章", "成就", "积分", "排行"],
+    }
+
+    for name, raw in pairs:
+        body = raw.strip()
+        # 去掉格式化占位符再数汉字
+        plain = re.sub(r"%[0-9]+\$[sd]", "", body)
+        n = len(cjk.findall(plain))
+        limit = 24 if "short" in name else 52
+        if n > limit:
+            errors.append(
+                f"strings.xml: {name} 有 {n} 个汉字，超过规范 §9.8 的 {limit} 上限 → {body}"
+            )
+        for category, words in banned.items():
+            for w in words:
+                if w in body:
+                    errors.append(
+                        f"strings.xml: {name} 命中禁用词[{category}]「{w}」→ {body}"
+                    )
+        # 概率数字：形如 `30%`（`%1$d` 占位符不会命中，因为 % 在前）
+        if re.search(r"\d\s*%", plain):
+            errors.append(f"strings.xml: {name} 含概率数字 → {body}")
+
+
 def main() -> int:
     if not RES.exists():
         print(f"找不到资源目录：{RES}")
@@ -190,6 +246,7 @@ def main() -> int:
     check_references()
     check_night_overrides()
     check_shell_line_endings()
+    check_signal_copy()
 
     print("=" * 64)
     print("Healix 资源静态检查")

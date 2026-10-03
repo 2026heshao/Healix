@@ -307,7 +307,13 @@ def check_projection_types(tables: dict[str, dict[str, str]]) -> None:
                 )
 
 
-BINDING_RE = re.compile(r'binding\.(\w+)')
+# ⚠️ 两个负向后顾都是被假阳性逼出来的（2026-10-03 本检查首次真正生效时暴露）：
+#   (?<![\w.]) 排除 `import com.healix.app.databinding.XxxBinding` ——
+#              包名里的 "databinding." 让 `binding.XxxBinding` 成了子串，每个 import
+#              都被当成一次属性访问，于是所有文件狂报。
+#   (?<!::)    排除 Kotlin 委托的标准写法 `if (::binding.isInitialized)` ——
+#              "isInitialized" 是语言关键字不是布局 id。
+BINDING_RE = re.compile(r'(?<![\w.])(?<!::)binding\.(\w+)')
 ID_RE = re.compile(r'@\+id/(\w+)')
 
 
@@ -322,6 +328,13 @@ def check_view_binding() -> None:
     注意：一个文件里可能 inflate 多个布局（列表项 row/item）。所以按
     `XxxBinding.inflate(...)` 找每个绑定对应的布局，收集该文件的 binding.*
     时取所有相关布局 id 的并集 —— 一对一映射会产出大量假阳性。
+
+    ⚠️ 2026-10-03 修复：本检查此前**从未生效过**。原因是把绑定类名
+    `ActivityMainBinding` 直接转 snake 得到 `activity_main_binding`，
+    而布局文件名是 `activity_main` —— 两者永不相等，于是每个文件都在
+    `if not used_layouts: continue` 处被静默跳过，注入坏例（`binding.zzz…`）
+    也照样报「无编译级错误」。检查器静默失效比不检查更糟：它给人「有防线」的错觉。
+    修法是先去掉 `Binding` 后缀再转 snake。
     """
     layouts: dict[str, set[str]] = {}
     for lf in (RES / "layout").glob("*.xml"):
@@ -331,11 +344,19 @@ def check_view_binding() -> None:
 
     for kt in sorted(JAVA.rglob("*.kt")):
         text = kt.read_text(encoding="utf-8")
-        # 找文件里 inflate 过的所有布局
+        # ⚠️ 用去注释后的文本，否则注释里举例写的 binding.xxx 会被当成真代码
+        #    （strip_comments 的由来就是这么被逼出来的，见其 docstring）。
+        code = strip_comments(text)
+        # 找文件里 inflate / bind 过的所有布局，以及作为参数类型声明的绑定
+        # （adapter 的 `class X(private val binding: ItemEventBinding)` 没有
+        #  inflate 调用，只认 inflate 会漏掉它手里的 binding.xxx）。
         used_layouts: set[str] = set()
-        for m in re.finditer(r'(\w+Binding)\.(?:inflate|bind)\b', text):
-            bind = m.group(1)
-            snake = re.sub(r'(?<!^)(?=[A-Z])', '_', bind).lower()
+        for m in re.finditer(
+            r'(\w+Binding)\.(?:inflate|bind)\b|:\s*(\w+Binding)\b', code
+        ):
+            bind = m.group(1) or m.group(2)
+            stem = bind[: -len("Binding")] if bind.endswith("Binding") else bind
+            snake = re.sub(r'(?<!^)(?=[A-Z])', '_', stem).lower()
             if snake in layouts:
                 used_layouts.add(snake)
         if not used_layouts:
@@ -343,7 +364,7 @@ def check_view_binding() -> None:
         declared: set[str] = set()
         for s in used_layouts:
             declared |= layouts[s]
-        used = set(BINDING_RE.findall(text))
+        used = set(BINDING_RE.findall(code))
         for u in sorted(used - declared):
             errors.append(
                 f"{rel(kt)}: binding.{u} 在已 inflate 的布局 "
@@ -612,6 +633,57 @@ def check_undefined_self_calls() -> None:
             )
 
 
+def check_no_gamification() -> None:
+    """禁止把"连续"变成**可累积、可失去的机制**（PRD 硬规则 `R5` / 规范 §9.12）。
+
+    ══════════════════════════════════════════════════════════════════════════
+    为什么必须针对"机制"而不是字面词
+    ══════════════════════════════════════════════════════════════════════════
+    「连续 3 天睡不到 6 小时」**是允许的** —— 它只是描述数据本身，
+    是健康提示；被禁止的是 streak 那一套：可累积、会归零、给奖励、能排行。
+
+    因此这里**不能简单 grep "连续"** —— 那会把文案与规则条件全部误报成违规，
+    检查器一有误报就没人看了。只拦下面这些**只有游戏化机制才会出现的标识符**：
+
+      机制名：streak / consecutiveDays / 连续天数 / 连续打卡 / 打卡天数 / 打卡日历
+      惩罚项：归零 / reset streak
+      奖励项：勋章 / 成就 / 积分 / 等级 / 评分环 / 热力图 / 排行 / 排行榜
+
+    依据（PRD §10.2）：UCL 研究显示 streak 断掉后用户连行为一起放弃；
+    二元思维者首次失败后放弃率 3.2 倍。"MyFitnessPal 连续 100 天，错过一天就归零"
+    是用户原话里最典型的流失原因。
+    """
+    # ⚠️ 只放"只有游戏化才会用"的词。像 `level`（body_signals 的 info/notice/alert
+    #    也叫 level）、`score`（调试页有得分语义风险）这类通用词**故意不放**，
+    #    否则必然误报 —— 宁可少拦，也不留会误报的检查。
+    forbidden = [
+        "streak",
+        "Streak",
+        "consecutiveDay",
+        "打卡",
+        "归零",
+        "勋章",
+        "成就",
+        "积分",
+        "评分环",
+        "热力图",
+        "排行榜",
+        "achievement",
+        "Achievement",
+    ]
+
+    for kt in sorted(JAVA.rglob("*.kt")):
+        for lineno, line in enumerate(code_lines(kt.read_text(encoding="utf-8")), 1):
+            for word in forbidden:
+                if word in line:
+                    errors.append(
+                        f"{rel(kt)}:{lineno}: 出现 `{word}` —— 命中 PRD R5 禁用机制"
+                        f"（连续打卡 / 归零 / 勋章 / 成就 / 积分 / 排行）。"
+                        f"注意：「连续 3 天睡不到 6 小时」这类**描述数据**的文案是允许的，"
+                        f"禁止的是可累积、可失去的机制"
+                    )
+
+
 def check_settings_keys() -> None:
     """settings 表键名的一致性检查。
 
@@ -826,6 +898,7 @@ def main() -> int:
     check_manifest_resources()
     check_settings_keys()
     check_settings_keys_consistency()
+    check_no_gamification()
 
     print("=" * 64)
     print("Healix Kotlin/Room 静态检查")

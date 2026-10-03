@@ -8,6 +8,9 @@
 1. 无网络依赖、无第三方库，只依赖标准库 —— 保证可以在任何环境跑回归
 2. 所有规则以**纯函数**形式暴露，便于 20 条用例逐条验证
 3. 异常值一律收敛为占位值，绝不抛异常（模型输出永远不可信）
+4. 训练计划 prompt（[PROMPT_TRAINING]）使用**独立版本号** [PROMPT_VER_TRAINING]（PRD §8.1）。
+   它与抽取链互不影响：改动训练 prompt 不需要递增 [PROMPT_VER]，
+   抽取链回归基线不因此失效；反之亦然。
 """
 
 from __future__ import annotations
@@ -491,11 +494,52 @@ def build_messages(raw_text: str) -> list[dict[str, str]]:
     ]
 
 
+# ---------------------------------------------------------------------------
+# 周训练计划 prompt（PRD §4.2 A2 / §8.1）
+# ---------------------------------------------------------------------------
+#
+# ⚠️ 版本号独立：`PROMPT_VER_TRAINING` 与抽取链的 `PROMPT_VER` **互不影响**。
+#    PRD §8.1 明确把训练计划 prompt 列为"新增，独立版本号" ——
+#    训练 prompt 迭代时不应触碰 `PROMPT_VER`，抽取链回归基线（21/22）继续有效。
+PROMPT_VER_TRAINING: Final[str] = "v1"
+
+PROMPT_TRAINING: Final[str] = """你是 Healix 的训练计划助手。根据用户的目标、本周已练肌群与恢复度，排出本周（周一至周日）7 天的训练安排。
+
+硬规则（逐条遵守，冲突时序号小的优先）：
+1. 结合「本周已练肌群」与「恢复度摘要」：同一肌群 48 小时内不重复安排；恢复度低于 50% 的肌群本周内不再安排。
+2. 若今日或昨日有生病记录 → 不安排任何训练，整周改为休息 + 补水 + 睡眠的安排。
+3. 若今日睡眠不足 6 小时 → 当天训练降低强度：每个动作减 1 组，或改为轻量有氧。
+4. 若本周训练次数已达到每周目标 → 多排休息日，不硬凑；绝不允许为了凑够次数而额外加练。
+5. 组次区间按目标给：增肌 每组 6-12 次；力量 每组 1-5 次；保持体能 每组 12-20 次。
+6. 禁止输出 1RM 估算、力量总分、综合评分或任何形式的打分。
+
+输出要求：
+- 只输出 JSON，不要任何解释文字，不要 markdown 代码围栏。
+- days 恰好 7 条，dow 依次为 1..7（1=周一，7=周日）。
+- 训练日 title 写部位/主题（如「推（胸/肩/三头）」），items 给 2-4 个动作，每个动作含 name / sets / reps，reps 用区间字符串（如 "8-10"）。
+- 休息日 title 固定写「休息」，items 为空数组 []。
+- focus 一句话概括本周重点；note 一句话提醒用户（可涉及恢复、睡眠或目标）。
+
+输出格式固定为：
+{"focus": "...", "days": [{"dow": 1, "title": "推（胸/肩/三头）", "items": [{"name": "杠铃卧推", "sets": 4, "reps": "8-10"}, {"name": "哑铃肩推", "sets": 3, "reps": "10-12"}]}, {"dow": 2, "title": "休息", "items": []}, {"dow": 3, "title": "拉（背/二头）", "items": [{"name": "引体", "sets": 4, "reps": "力竭"}]}, {"dow": 4, "title": "休息", "items": []}, {"dow": 5, "title": "腿", "items": [{"name": "深蹲", "sets": 4, "reps": "6-8"}]}, {"dow": 6, "title": "核心 + 有氧 20 分钟", "items": [{"name": "平板支撑", "sets": 3, "reps": "60秒"}]}, {"dow": 7, "title": "休息", "items": []}], "note": "本周重点：卧推比上周加 2.5kg"}
+"""
+
+
+def build_training_messages(user_context: str) -> list[dict[str, str]]:
+    """组装周训练计划的两条消息。`user_context` 由调用方聚合（目标 / 已练肌群 / 恢复度 / 生病与睡眠）。"""
+    return [
+        {"role": "system", "content": PROMPT_TRAINING},
+        {"role": "user", "content": user_context},
+    ]
+
+
 __all__ = [
     "PROMPT_VER",
+    "PROMPT_VER_TRAINING",
     "VALID_TYPES",
     "DEFAULT_DAY_START_HOUR",
     "PROMPT_EXTRACT",
+    "PROMPT_TRAINING",
     "clean_literal",
     "to_int",
     "to_float",
@@ -505,4 +549,5 @@ __all__ = [
     "extract_events_from_response",
     "day_key_of",
     "build_messages",
+    "build_training_messages",
 ]
