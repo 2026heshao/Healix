@@ -22,7 +22,7 @@ DB v2（11 表）、规则层（H1–H8 / T1–T3，0 次 AI 调用）、
 | 最近 CI | **#23 `5d8ae3dd` ✅ success**（#22 `d2b120c` ✅，含 P0+P1 主体） |
 | 本地预检 | 三连全绿（资源 / Kotlin **14 类** / 67 断言） |
 | Room schema | v1（7 表）+ **v2（11 表）均已入库** |
-| APK | CI #23 产物 `healix-debug-apk`（ZIP 外壳 7,168,052 B，内含 `app-debug.apk`）。⚠️ artifact 下载**必须带 PAT**（有效来源见第二节）；签名仍是每轮自签 → **覆盖装前先卸载旧版** |
+| APK | **已交付本地**：`build/Healix-v0.1.0-P0P1-debug.apk`（19,107,993 B，MD5 `3a8fba73bf1cc152927986bbcff6fb99`，versionName 0.1.0，取自 CI #23 产物）。签名每轮自签 → **覆盖装前先卸载旧版** |
 
 ---
 
@@ -422,10 +422,11 @@ $PY pipeline/pull_schemas.py <github_token> --run-id <id>
 
 ## 七、待办（下会话接手）
 
-### 立即（真机验收，APK = CI #23 产物 `healix-debug-apk`）
+### 立即（真机验收）
 
+> APK **已在本地**：`build/Healix-v0.1.0-P0P1-debug.apk`（MD5 `3a8fba73bf1cc152927986bbcff6fb99`）。
 > ⚠️ **装前先卸载旧版**（每轮签名证书不同，覆盖装必报签名冲突）。
-> 下载方式见第五节「下载 APK」—— 需向用户要 PAT。
+> 以后重取：`build/_gh_apk.py <PAT文件> <run_id>`（第五节）。
 
 **A. 上一轮遗留（run#19 三项修复，若尚未验收）**
 
