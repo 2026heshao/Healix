@@ -1,6 +1,6 @@
 # Healix 中断交接文档
 
-> 更新时间：2026-10-03 19:40
+> 更新时间：2026-10-03 22:55
 > 用途：让下一个会话能**无上下文**接手。
 > 一律只写客观事实，不做推测性美化。
 
@@ -8,34 +8,39 @@
 
 ## 一、当前状态（一句话）
 
-**CI 连续 10 轮全绿，已产出可安装 APK（18,676,819 B / 17.81 MB）。**
-本轮修复了用户报告的三项 bug，其中「配置不生效」与「记一笔无法联网」是**同一个根因**
-（settings 键名读写分裂，见 3.9）；同时补全了接入按钮、灰阶气泡、离线状态。
-**当前交付 APK = run#19 产物**，签名 CN=Android Debug，**首次安装前请卸载旧版**（见 3.6）。
+**P0 + P1 全部落地，CI #22 / #23 连续两绿；远程 main == 本地 HEAD = `5d8ae3dd`。**
+App 从「增重热量记录器」升级为「目标驱动的多维度状态管理」：
+DB v2（11 表）、规则层（H1–H8 / T1–T3，0 次 AI 调用）、
+状态详情页、计划页训练 Tab、设置页三组（目标 / 提醒 / 隐私）全部可用。
 
 | 项 | 值 |
 |---|---|
-| 本地 HEAD | `0fee928` |
-| 远程 main | `38be9d7421cc` |
-| 远程 tree == 本地 tree | ✅ 是（`e1dabf14b152`） |
+| 本地 HEAD | `5d8ae3dd` |
+| 远程 main | `5d8ae3ddde4fb023cefd4338c6196e5a069bfa06` |
+| 远程 tree == 本地 tree | ✅ 是（`ff7a790c…`） |
 | 仓库 | https://github.com/2026heshao/Healix （Public） |
-| 最近 CI | **#19 `38be9d74` ✅ success** |
-| 本地预检 | 三连全绿（资源 / Kotlin **10 类** / 67 断言） |
-| APK | `app-debug.apk` / 桌面 `Healix-v0.1-测试版.apk`，MD5 `34a69af802450058254948206ee50e4c` |
-| APK 签名指纹 | SHA-256 `98:04:E1:F5:05:15:E9:79:96:2E:39:80:CA:42:1D:D2:D8:5F:65:83:2C:94:A1:9B:FF:B3:87:3C:AF:E3:A1:5C` |
+| 最近 CI | **#23 `5d8ae3dd` ✅ success**（#22 `d2b120c` ✅，含 P0+P1 主体） |
+| 本地预检 | 三连全绿（资源 / Kotlin **14 类** / 67 断言） |
+| Room schema | v1（7 表）+ **v2（11 表）均已入库** |
+| APK | CI #23 产物 `healix-debug-apk`（ZIP 外壳 7,168,052 B，内含 `app-debug.apk`）。⚠️ artifact 下载**必须带 PAT**（凭据已按纪律清理，需用户提供）；签名仍是每轮自签 → **覆盖装前先卸载旧版** |
 
 ---
 
 ## 二、凭据从哪里拿（不用再问用户）
 
-**GitHub PAT 存在知识库**：`D:\桌面\AI Port\my_kb\github\账号与仓库.md` 第 22 行。
-直接读该文件，不要向用户重复索要。
+> ⚠️ **2026-10-03 22:00 变更**：知识库里的旧 PAT（40 字符）已 **401 失效**，
+> 本轮用的是用户临时提供的新 PAT（93 字符），**用完已按纪律删除**，
+> 未存入任何文件。下次需要推送 / 拉 APK 时**向用户重新索要**即可。
 
-> ⚠️ 该 PAT 出现在知识库文档中，属长期凭据。用完不要写入任何代码或配置文件。
+GitHub PAT 历史存放位置：`D:\桌面\AI Port\my_kb\github\账号与仓库.md` 第 22 行
+（**已失效，仅作记录**）。
+
+> 凭据用完即删，不写入任何代码、配置或文档 —— 本轮曾发现 Temp 目录里
+> 残留 5 个内嵌明文 PAT 的一次性脚本，已全部清除。
 
 ---
 
-## 三、本轮（run#8 → run#15）完成的事
+## 三、本轮（run#8 → run#23）完成的事
 
 ### 3.1 run#8 根因修复（关键）
 
@@ -266,6 +271,70 @@ EncryptedSharedPreferences 存储键）。第一版无差别拦截，误报 11 �
 
 ---
 
+### 3.10 ★ P0 + P1 交付（run#20 → #23，2026-10-03）
+
+`功能扩展设计方案.md` 的 P0 + P1 全部落地。三个提交，共 **32 个文件 / 约 5,160 行新增**：
+
+| 提交 | 内容 | 规模 |
+|---|---|---|
+| `cfe4504` | **DB 升 v2**：`goals` / `training_plans` / `body_signals` / `reminders` 4 张表 + Migration + DAO | 5 文件 +290 |
+| `387429e` | **规则层**：聚合与求值分离，**0 次 AI 调用** | 4 文件 +622 |
+| `e7cab46` | **UI 层**：状态行 / 状态详情页 / 训练 Tab / 设置页三组 | 23 文件 +4,253 |
+
+**架构要点（改代码前先读）**：
+
+| 结构 | 位置 | 为什么 |
+|---|---|---|
+| 聚合与求值分离 | `rules/HealthAggregator.kt`（唯一碰 DB）→ `rules/HealthRules.kt`（纯函数） | 规则可离线单测、可复用；混在一起就没法测 |
+| 8 条习惯红线 H1–H8 + 3 条趋势 T1–T3 | `rules/HealthRules.kt`（`evaluate()`） | 优先级表 `priorityOf()` 在 80–85 行 |
+| 预警去重 | `body_signals` 的 `UNIQUE(rule_id, day_key)` | 防「每日唠叨」 |
+| 多维状态行**两态互斥** | `MainViewModel.kt:75–85` `sealed interface HomeStatus { Summary / Signal }` | 规范 §9.13，用户已拍板 |
+| 隐私开关三处同步 | `SettingsKeys.HIDE_KCAL / HIDE_WEIGHT` → 首页 / 状态页 / 对话系统提示 | 隐藏时**整块不显示**，不是 `***`（PRD §14.3） |
+| 目标兜底值唯一来源 | `db/GoalEntities.kt:102` `object GoalDefaults` | 见 3.10.2 |
+| 训练 prompt 契约 | `pipeline/contract.py` `PROMPT_TRAINING` ↔ `ui/TrainingPlanner.kt` **逐字节一致** | `check_prompt_parity()` 会拦 |
+
+**提交顺序即依赖顺序**：DB → 规则 → UI。
+
+#### 3.10.1 CI #21 failure（4 个编译错误，2 条根因）
+
+| 错误 | 根因 |
+|---|---|
+| `HealthAggregator.kt:111` Unresolved `minusDays` | `last7From` 是 **String**（`today.minusDays(6).toString()` 的结果），`String` 上没有 `minusDays`。日期减法必须在 `toString()` **之前**做 |
+| `StatusDetailViewModel.kt:27/29/38` Unresolved 三个 `DEFAULT_*` | **顶层 data class 的默认参数非限定引用了同文件 `companion` 的常量** —— 顶层声明的解析域不含那个 companion。这是"单行正则"型静态检查器**原理上抓不到**的作用域错误 |
+
+#### 3.10.2 目标兜底值收敛（顺带挖出）
+
+同一组「膳食指南推荐量」此前散落 **5 处、名字还各不相同**（`DEFAULT_TRAIN_SESSIONS` /
+`DEFAULT_SESSIONS_PER_WEEK` / `DEFAULT_GOAL_SESSIONS` / `DEFAULT_SESSIONS` / …）。
+已收敛到 `db/GoalEntities.kt` 的 **`object GoalDefaults`**（3 次/150 分/7.5h/1700ml/2500kcal），
+7 个文件改走它。
+⚠️ `HealthRules` 的 H7（<150 分钟/周）**刻意不复用** —— 临床阈值不随用户改目标而变。
+
+#### 3.10.3 新增检查器第 11–14 类（现共 14 类）
+
+| 类 | 作用 | 教训 |
+|---|---|---|
+| 11 `check_prompt_parity` | prompt 双处**逐字节**一致（此前只写在文档里，机器不验） | 契约不进 CI = 迟早分叉 |
+| 12 `check_signal_copy` | 预警双套文案长度（short ≤24 / full ≤52 汉字）+ 禁用词（疾病名/概率数字/游戏化） | 只数**汉字**，占位符不计入 |
+| 13 `check_object_scope` | object / companion 成员出宿主必须限定引用 | 首版被**无体** `object X : Y` 骗到（`find("{")` 越界抢了别的类的括号）→ `{` 必须与声明头同行 |
+| 14 `check_duplicate_constants` | 同名**且同值**的 const 跨文件重复（warning） | 刻意收紧：只是同名（各类 `TAG`）不算；转发别名不算 |
+
+全部已自证：注入坏例 → 精确报出 → 还原 → 零误报。
+
+#### 3.10.4 Room schema v2 入库
+
+CI #22 首绿后由 `pipeline/pull_schemas.py` 拉回
+`app/schemas/com.healix.app.db.AppDatabase/2.json`（11 表），
+与 `check_kotlin.py` 静态解析出的表清单**逐字一致** —— 两条独立路径互证。
+v1（7 表）/ v2（11 表）迁移凭据至此齐备。
+
+#### 3.10.5 凭据卫生
+
+推送 / 拉 artifact 用完的 PAT 已全部删除；Temp 里残留的
+5 个内嵌明文 PAT 的一次性脚本、以及旧 40 字符令牌 `_pat.txt` 一并清除。
+
+---
+
 ## 四、CI 战绩（本轮）
 
 | run | sha | 结果 |
@@ -280,7 +349,11 @@ EncryptedSharedPreferences 存储键）。第一版无差别拦截，误报 11 �
 | **#15** | a21bb63b | ✅ HANDOFF 同步 |
 | **#17** | ec3a649f | ✅ 新增 dump_manifest.py |
 | **#18** | 7ba26a91 | ✅ HANDOFF 补 3.8 |
-| **#19** | 38be9d74 | ✅ **当前交付 APK（三项 bug 修复）** |
+| **#19** | 38be9d74 | ✅ **交付 APK（三项 bug 修复）** |
+| **#20** | 8b89f85e | ✅ HANDOFF 补 3.9 + 状态同步 |
+| **#21** | d5dafb5a | ❌ failure（4 个编译错误，见 3.10.1） |
+| **#22** | d2b120c | ✅ **P0+P1 修复后首绿** |
+| **#23** | 5d8ae3dd | ✅ **当前（schema v2 入库）** |
 
 ---
 
@@ -299,17 +372,25 @@ C:\Users\LENOVO\.workbuddy\binaries\python\versions\3.13.12\python.exe
 ```bash
 PY="C:/Users/LENOVO/.workbuddy/binaries/python/versions/3.13.12/python.exe"
 cd "D:/桌面/AI Port/Healix"
-$PY pipeline/check_resources.py   # 资源静态检查
-$PY pipeline/check_kotlin.py      # Kotlin/Room 静态检查（现 8 类）
+$PY pipeline/check_resources.py   # 资源静态检查（5 类）
+$PY pipeline/check_kotlin.py      # Kotlin/Room 静态检查（现 **14 类**）
 $PY pipeline/tests/test_norm.py   # Python 合约自测（67 断言）
 ```
 
 ### 推送代码的方法（git push 走不通）
 
+> ⚠️ 2026-10-03 变更：工具已迁到 `build/`（被 .gitignore 忽略，不进仓库）。
+> 旧名 `pipeline/push_via_api.py` 已废弃。
+
 ```bash
-$PY pipeline/push_via_api.py <github_token>
-$PY pipeline/push_via_api.py <github_token> --dry-run   # 先看变更范围
+$PY build/_gh_publish.py <PAT文件路径>             # 增量推送，逐对象校验 SHA
+$PY build/_gh_fetch_chain.py <PAT文件路径>         # 远端历史分叉时补全祖先链
+$PY build/_gh_ci.py <PAT文件路径> <run_id> [关键词] # 取 CI job 日志（失败时定位用）
 ```
+
+`github.com` 直连 000 / 代理 502，但 `api.github.com`（200）与 `uploads.github.com`（302）通
+→ 走 Git Data API。**提交日期必须按 `<epoch> +0800` 复现**，否则远端会出现
+「同内容不同 SHA」的静默分叉（已踩过一次，修复过程见 `.workbuddy/memory/2026-10-03.md`）。
 
 ### 拉回 Room schema
 
@@ -320,10 +401,11 @@ $PY pipeline/pull_schemas.py <github_token> --run-id <id>
 
 ### 下载 APK
 
-`/tmp/healix_apk.py` 的思路（artifact 下载 + 无鉴权重定向），
-或直接改 run id 复用脚本。
+**没有现成脚本**（本轮的一次性脚本已清理）。思路：CI 产物 `healix-debug-apk`
+是 ZIP 外壳，**必须解包**才是 `app-debug.apk`。
 ⚠️ 两个坑：① artifact 端点 302 到 Azure Blob，**带 Authorization 跟随会 401**，
-必须剥掉该头（`NoAuthRedirect` 模式）；② 下载到的 ZIP 里才是真 APK，**必须解包**。
+必须剥掉该头（`NoAuthRedirect` 模式，可参考 `pipeline/pull_schemas.py` 的 `make_opener()`）；
+② 匿名**不可**下载（public 仓库实测 401），必须带 PAT。
 
 ---
 
@@ -340,41 +422,55 @@ $PY pipeline/pull_schemas.py <github_token> --run-id <id>
 
 ## 七、待办（下会话接手）
 
-### 立即
-1. **S1 真机验收**：装桌面 `Healix-v0.1-测试版.apk`（MD5 `34a69af8…`）到 Magic6 Pro
-   ⚠️ **首次安装 / 换轮次重装前先卸载旧版**（每轮签名证书不同，覆盖装必报签名冲突）
-   → 设置页选「智谱 GLM」→ 填 API Key → 点 **「接入并启用」**（新按钮）
-   → 应显示「接入成功」且状态条变「已接入 · 智谱 GLM · glm-4-flash」
-   → 再点「测试连通性」应显示「连通 · 1.2s」
-2. **验收本轮三项修复**（重点）：
-   - **① 配置生效**：按上面接入成功后，回主界面「记一笔」输入「午饭吃了牛肉面」
-     → 应能在记录列表看到类型/热量被填上（**修 bug 前这里必然失败**）
-   - **② 气泡**：进对话页发一句话 → 自己的消息应靠右的深色气泡，AI 回复靠左的白色描边气泡
-   - **③ 两种网络**：分别在 **Wi-Fi** 与 **关掉 Wi-Fi 用移动数据** 下各「记一笔」
-     → 都应成功。断网时应显示「无网络，已先记下，联网后自动补全」且**提示条可点**（点了批量重试）
-3. **验收背景项**：设置页「我的情况」填一段（如「乳糖不耐受，不吃香菜」）
-   → 去对话页问饮食建议 → 看 AI 是否遵守该约束
+### 立即（真机验收，APK = CI #23 产物 `healix-debug-apk`）
 
-### 未决项（原 16 项，现降至 8 项）
-3. **1 项版本号**：`androidx.security:security-crypto` 当前钉 `1.1.0-alpha06`，
-   需确认是否有正式版（`app/build.gradle` 约 103 行）
-4. **4 项真机行为**（MagicOS）：`specialUse` 前台服务处理 / 自启动拦截 /
-   后台启动限制 / RemoteInput 是否重复投递。见 `docs/待核实清单.md` 第三节
-5. **3 项功能完整度**：通知文案日界线一致性 / 多事件拆分后的撤销语义 /
-   `.5` 平局的舍入差异（均已在文档中标注为「MVP 接受」）
-6. **CI 签名未固定**：debug 构建每轮生成新自签证书 → 无法覆盖升级。
-   若要长期发测试包，需把 keystore 用 GitHub Secrets 注入
-   （`signingConfigs` 引用 `System.getenv`），当前**刻意未做**（避免凭据进 CI）
+> ⚠️ **装前先卸载旧版**（每轮签名证书不同，覆盖装必报签名冲突）。
+> 下载方式见第五节「下载 APK」—— 需向用户要 PAT。
 
-### 技术债
-7. **n06 用例波动**：多事件拆分含体重时模型输出不稳定
-   （v1 ✓ / v2 ✓ / v2b ✗，`58.2` 被吞成 `0.0`）。属模型不确定性非规则缺陷。
-   建议多跑 3 次取多数，或报告加稳定性指标
-8. **Agent 化（L2/L3）**：地基缺口补完后才动。见 `功能补充与套壳选型.md` 第八章
+**A. 上一轮遗留（run#19 三项修复，若尚未验收）**
+
+- **① 配置生效**：设置页选「智谱 GLM」→ 填 API Key → 「接入并启用」→ 状态条变
+  「已接入 · 智谱 GLM · glm-4-flash」→ 「测试连通性」显示「连通 · 1.2s」
+  → 回主界面「记一笔」输入「午饭吃了牛肉面」→ 记录列表应出现类型/热量
+- **② 气泡**：对话页自己的消息靠右深色、AI 靠左白色描边
+- **③ 两种网络**：Wi-Fi 与移动数据各「记一笔」都应成功；断网显示
+  「无网络，已先记下，联网后自动补全」且提示条可点（批量重试）
+
+**B. 本轮新增（P0+P1，按 `功能扩展设计方案.md` 验收标准逐条）**
+
+| # | 操作 | 预期 | 对应项 |
+|---|---|---|---|
+| 1 | 设置页 → 目标组 | 能改体重目标、每周训练次数；组顶有一次性「依据提示」（首次进入才显示） | `G1` |
+| 2 | 首页看大数字下方 | ≥3 个维度状态行（运动 N/M · 睡眠 Nh · 体重 Nkg）；无数据的维度**不显示**；热量大数字与进度条原样保留 | `G2` |
+| 3 | 点任一状态行 | 进状态详情页：7 日趋势图 + 信号列表；页内可切 运动/睡眠/体重/身体 | `G3` |
+| 4 | 连续 3 天记睡眠 <6h | 首页出现提示；**同一天内不重复**（`UNIQUE(rule_id, day_key)`） | `B1` |
+| 5 | 计划页 → 「训练」Tab | 「生成计划」→ 含具体动作 + 组次，不是「力量训练 30 分钟」；生成一次整周复用 | `A1`+`A2` |
+| 6 | 训练计划某天 → 「记一笔」 | 该日训练落库为 exercise 记录（**kcal = 0，不编造热量**）；按钮变「已记录」 | `A2` |
+| 7 | 设置页 → 隐私 → 打开「隐藏体重」 | 首页状态行、状态详情页、对话页系统提示 **三处整块消失**（不留空位、不显示 `***`）；状态页 BMI 引导**不受**该开关连带关闭 | `R7` |
+| 8 | 记一次不适，隔几天再记 | 状态页「身体」出现病程时间线「第 N 天」；**>3 天时出现就医引导**（安全条款 H8） | `B1`/`H8` |
+
+**未决项（原 8 项，仍开放）**：`security-crypto` 版本号 / 4 项 MagicOS 真机行为 /
+3 项功能完整度取舍 / CI 签名未固定 —— 详见 `docs/待核实清单.md`。
+
+**技术债（新增 2 条）**
+
+- 同名同值常量仍有 6 组跨文件重复（`DAY_MS` / `DEFAULT_DAY_START_HOUR` /
+  `PARSE_PENDING` / `PARSE_FAILED` / `TAB_BODY` / `TAB_EXERCISE`）——
+  `check_duplicate_constants` 会提示，**未收敛**（不在故障路径上，刻意缓办）
+- `GOAL_MODE_*`（SettingsViewModel）与 `PRIMARY_GOAL_*`（HealthAggregator）语义重复，
+  靠注释约束一致性，未做编译期关联
+
+**技术债（历史遗留）**
+
+- **n06 用例波动**：多事件拆分含体重时模型输出不稳定
+  （v1 ✓ / v2 ✓ / v2b ✗，`58.2` 被吞成 `0.0`）。属模型不确定性非规则缺陷。
+  建议多跑 3 次取多数，或报告加稳定性指标
+- **Agent 化（L2/L3）**：地基缺口补完后才动。见 `功能补充与套壳选型.md` 第八章
 
 ### ⚠️ 安全
 9. 智谱 GLM API Key（`871dbf24...`）曾出现在对话记录中 —— **建议重置**。
-   GitHub PAT 存于知识库，属长期凭据，注意不要外泄。
+   GitHub PAT 属长期凭据：**用完即删**，不要写入代码 / 配置 / 文档 /
+   Temp 目录的临时脚本（本轮已清理 5 个内嵌明文 PAT 的脚本残留）。
 
 ---
 
@@ -404,6 +500,16 @@ $PY pipeline/pull_schemas.py <github_token> --run-id <id>
     其它文件**禁止**写裸字符串或另起 `const val KEY_X = "字面量"`。
     `pipeline/check_kotlin.py` 的 `check_settings_keys()` 会在 CI 拦死。
     违反的后果是「测试能过、实际不能用」—— 极难排查。
+13. **★ 目标兜底值唯一来源**（2026-10-03 新增，见 3.10.2）：
+    一律引用 `db/GoalEntities.kt` 的 `object GoalDefaults`
+    （3 次/150 分/7.5h/1700ml/2500kcal），**任何文件不要再定义私有副本** ——
+    曾散落 5 处、名字各异，以 CI #21 编译错误的形式连本带利还回来。
+    `check_duplicate_constants()` 会提示同名同值的跨文件重复。
+    ⚠️ `HealthRules` 的 H7（<150 分/周）是临床阈值，**刻意**不复用该常量。
+14. **★ 顶层声明不得非限定引用 companion 成员**（CI #21 实证，见 3.10.1）：
+    顶层 data class / 顶层函数里用 companion 常量必须带宿主前缀
+    （`X.CONST` / `Owner.CONST`）—— 顶层声明的解析域不含别的类的 companion。
+    `check_object_scope()` 会在本地拦死；这类错误编译器必报、单行正则检查器必漏。
 
 ---
 
@@ -412,40 +518,57 @@ $PY pipeline/pull_schemas.py <github_token> --run-id <id>
 ```
 D:\桌面\AI Port\Healix\
 ├── pipeline\
-│   ├── contract.py          # ★ 契约唯一来源（PROMPT_EXTRACT / PROMPT_VER）
+│   ├── contract.py          # ★ 契约唯一来源（PROMPT_EXTRACT / PROMPT_TRAINING / 版本号）
 │   ├── provider.py          # ★ 预设（已核实真实值）
-│   ├── check_resources.py   # 资源静态检查（5 类）
-│   ├── check_kotlin.py      # Kotlin/Room 静态检查（**10 类**，本轮 +2）
-│   ├── push_via_api.py      # ★ Git Data API 推送
+│   ├── check_resources.py   # 资源静态检查（5 类，含预警文案合规）
+│   ├── check_kotlin.py      # Kotlin/Room 静态检查（**14 类**，3.10.3）
 │   ├── pull_schemas.py      # ★ 拉回 Room schema
 │   ├── dump_manifest.py     # ★ 无 SDK 反编译 APK 内 AXML 清单
 │   ├── run_regression.py    # 回归脚本
 │   └── tests\test_norm.py   # 67 项断言
+├── build\                   # ★ 发布工具链（.gitignore 忽略，不进仓库）
+│   ├── _gh_publish.py       # ★ Git Data API 推送（原 pipeline/push_via_api.py）
+│   ├── _gh_fetch_chain.py   # ★ 远端历史分叉时补全祖先链
+│   └── _gh_ci.py            # ★ 取 CI job 日志
 ├── app\src\main\java\com\healix\app\
 │   ├── db\
-│   │   ├── SettingsKeys.kt  # ★★ settings 键名唯一事实来源（本轮新增）
-│   │   └── (7 entity / 6 DAO)
+│   │   ├── SettingsKeys.kt  # ★★ settings 键名唯一事实来源
+│   │   ├── GoalEntities.kt  # ★★ GoalDefaults（目标兜底值唯一来源）+ 4 张新表
+│   │   ├── GoalDaos.kt      # goals / training_plans / body_signals / reminders 的 DAO
+│   │   └── AppDatabase.kt   # v2（11 表）+ MIGRATION_1_2（纯 DDL，禁 destructive）
+│   ├── rules\               # ★ 本轮新增（聚合与求值分离，0 次 AI 调用）
+│   │   ├── HealthAggregator.kt  # 唯一碰 DB 的聚合器
+│   │   ├── HealthRules.kt       # ★ 纯函数：H1–H8 / T1–T3
+│   │   ├── MuscleRecovery.kt    # 肌群恢复度（训练计划用）
+│   │   └── SignalText.kt        # 预警文案组装
 │   ├── net\
 │   │   ├── LlmProvider.kt   # ★ Provider 抽象 + 预设（已核实）
-│   │   └── NetworkStatus.kt # ★ Wi-Fi/移动数据可达性判断（本轮新增）
+│   │   └── NetworkStatus.kt # ★ Wi-Fi/移动数据可达性判断
 │   ├── parse\SchemaValidator.kt  # ★ 与 contract.py 同步
 │   ├── repo\
-│   │   ├── EventRepository.kt   # 串联 net → parse → db（本轮改键名）
-│   │   └── QuotaGuard.kt        # 配额护栏（本轮改键名）
+│   │   ├── EventRepository.kt   # 串联 net → parse → db
+│   │   └── QuotaGuard.kt        # 配额护栏
 │   └── ui\
-│       ├── ChatEngine.kt    # ★ systemPrompt 拼背景
-│       ├── ChatActivity.kt  # ★ 左右气泡（本轮重写适配器）
-│       ├── MainViewModel.kt # ★ Offline/NotConfigured 拆分（本轮）
-│       └── SettingsActivity.kt  # ★ 接入按钮 + 背景输入框
-├── app\src\main\res\drawable\
-│   ├── bg_bubble_user.xml       # ★ 用户气泡（本轮新增）
-│   └── bg_bubble_assistant.xml  # ★ 助理气泡（本轮新增）
-├── app\schemas\             # ★ Room schema v1（已入库）
-├── app-debug.apk            # ★ 可安装 APK（18,676,819 B，同 桌面/Healix-v0.1-测试版.apk）
+│       ├── MainViewModel.kt     # ★ HomeStatus 两态互斥状态行 + Offline 拆分
+│       ├── StatusDetailActivity.kt  # ★ 状态详情页（本轮新增，462 行）
+│       ├── StatusDetailViewModel.kt # ★ 四段 Section + 隐私同步（本轮新增）
+│       ├── TrainingPlanner.kt       # ★ 训练计划（PROMPT_TRAINING 侧，本轮新增）
+│       ├── PlanReviewActivity.kt    # ★ 计划页三 Tab：计划｜训练｜回顾
+│       ├── SettingsActivity.kt      # ★ 目标/提醒/隐私三组 + 接入按钮
+│       ├── TodaySummary.kt          # 多维聚合复用规则层
+│       ├── ChatEngine.kt    # ★ systemPrompt 拼背景 + 隐私同步
+│       └── ChatActivity.kt  # ★ 左右气泡
+├── app\src\main\res\layout\
+│   ├── activity_status_detail.xml   # ★ 状态详情页（本轮新增）
+│   ├── activity_plan_review.xml     # ★ 计划页（本轮扩展三 Tab）
+│   ├── item_training_day.xml        # ★ 周计划单日行（本轮新增）
+│   └── item_illness_timeline.xml    # ★ 病程时间线行（本轮新增）
+├── app\schemas\             # ★ Room schema v1 + v2（均已入库）
 ├── .github\workflows\
 │   ├── ci.yml               # 编译 + 单测 + 静态检查 + schema 产物
 │   └── release.yml
-├── docs\待核实清单.md        # 第二节已从「阻塞」改为「已核实」
+├── docs\待核实清单.md        # 未决项清单
+├── 功能扩展设计方案.md       # ★ P0+P1 交付记录见第十六章
 ├── .workbuddy\memory\2026-10-03.md   # 详细工作日志
 └── HANDOFF.md               # 本文件
 ```
@@ -456,11 +579,12 @@ D:\桌面\AI Port\Healix\
 
 1. **不要本机装工具链**（用户明确决策，已问过）
 2. **不要用裸 `python`**，用 managed 路径（见第五节）
-3. **推送一律走 `push_via_api.py`**，不要试 `git push`（会挂在网络）
+3. **推送一律走 `build/_gh_publish.py <PAT文件>`**，不要试 `git push`（会挂在网络）；
+   commit 日期必须按 `<epoch> +0800` 复现，否则远端静默分叉
 4. **改动后必跑三连预检**，再推
 5. **新增静态检查规则必须自证**（注入坏例 → 报出 → 还原 → 无误报）
-6. **新增检查必须先剥注释**
-7. **PAT 从知识库读**（第二节），不要重复问用户
+6. **新增检查必须先剥注释**；作用域类检查还要先 mask 字符串（原始字符串里有 `{}`）
+7. **PAT 需向用户索要**（知识库那条已 401 失效，见第二节），用完即删
 8. 用户偏好：**细节详尽、中文、每个结论给依据**；
    改 prompt 要说明变更点；提交信息要写「问题/根因/修复/验证」结构
 9. **有不明白的地方一定问用户，不可擅自做主**；
