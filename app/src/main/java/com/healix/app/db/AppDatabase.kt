@@ -4,7 +4,6 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
-import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 
 /**
@@ -31,9 +30,16 @@ import androidx.room.migration.Migration
     version = 1,
     exportSchema = true,
 )
-@TypeConverters(HealixConverters::class)
+// ⚠️ 这里**故意不加** @TypeConverters。
+//
+// 曾经加过一个空的 HealixConverters 类，KSP 直接报：
+//   Class is referenced as a converter but it does not have any converter methods.
+// 也就是说 Room 既不允许「签名重复的转换器」，也不允许「空转换器类」。
+//
+// 当前所有实体字段（Long/Int/Double/String/Long?）都是 Room 原生支持的类型，
+// 不需要任何自定义转换。将来真需要时再加类 + @TypeConverters，
+// 并确保每个方法都有独立的参数/返回类型组合。
 abstract class AppDatabase : RoomDatabase() {
-
     abstract fun eventDao(): EventDao
     abstract fun llmCallDao(): LlmCallDao
     abstract fun chatMessageDao(): ChatMessageDao
@@ -74,21 +80,3 @@ abstract class AppDatabase : RoomDatabase() {
         }
     }
 }
-
-/**
- * Room 类型转换器。
- *
- * ⚠️ 曾经的错误写法（已修）：
- *    这里放了两个签名完全相同的 `Long? -> Long?` 转换器：
- *      fun fromLongOrNull(value: Long?) = value
- *      fun toLongOrNull(value: Long?) = value
- *    Room/KSP 会报「重复的 TypeConverter」而编译失败。
- *    而且 `Long? -> Long?` 本身是恒等变换 —— Room 原生就支持 Long?，
- *    根本不需要转换器。
- *
- * 现在保留**空类**：实体字段已全部用 Room 原生支持的基础类型
- * （Long / Int / Double / String / Long?），无需任何自定义转换。
- * 之所以还留着这个类与 @TypeConverters 注解，是为了给后续扩展留个
- * 明确的位置；新增转换器时务必避免签名重复。
- */
-class HealixConverters

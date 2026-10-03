@@ -103,47 +103,88 @@ def collect_tables() -> dict[str, dict[str, str]]:
 
 
 def check_type_converters() -> None:
-    """@TypeConverter 方法签名重复 = KSP 直接报错。
+    """@TypeConverter 相关的两类编译错误。
 
-    只统计**确实带 @TypeConverter 注解**的方法 —— 否则会把同文件里
-    普通的重载 helper 也算进来（假阳性）。
+    1. 签名重复 —— KSP 报 duplicate converter
+    2. **空转换器类** —— 被 @TypeConverters(X::class) 引用但类里一个
+       @TypeConverter 方法都没有，KSP 报：
+         Class is referenced as a converter but it does not have any
+         converter methods.
+       （这是实测 CI 报错，我自己修 bug 时反而引入的回归。）
     """
-    conv = DB / "AppDatabase.kt"
-    if not conv.exists():
-        return
-    lines = conv.read_text(encoding="utf-8").splitlines()
-    sigs: dict[tuple[str, str], int] = {}
-    for idx, line in enumerate(lines):
-        if "fun " not in line:
-            continue
-        # 向上找最近的注解行（允许空行/注释）
-        annotated = False
-        k = idx - 1
-        while k >= 0:
-            prev = lines[k].strip()
-            if not prev or prev.startswith("//"):
-                k -= 1
+    found_any = False
+    for conv in sorted(DB.glob("*.kt")):
+        text = conv.read_text(encoding="utf-8")
+        lines = text.splitlines()
+
+        # --- 1. 重复签名 ---
+        sigs: dict[tuple[str, str], int] = {}
+        for idx, line in enumerate(lines):
+            if "fun " not in line:
                 continue
-            annotated = prev.startswith("@TypeConverter")
-            break
-        if not annotated:
-            continue
-        m = re.search(
-            r'fun\s+\w+\s*\(\s*\w+\s*:\s*([A-Za-z0-9_<>?]+)\s*\)\s*:\s*([A-Za-z0-9_<>?]+)',
-            line,
-        )
-        if not m:
-            continue
-        sig = (m.group(1), m.group(2))
-        if sig in sigs:
-            errors.append(
-                f"{rel(conv)}:{idx + 1}: @TypeConverter 参数/返回类型与第 "
-                f"{sigs[sig]} 行重复（{sig[0]} -> {sig[1]}），Room 会报重复转换器"
+            annotated = False
+            k = idx - 1
+            while k >= 0:
+                prev = lines[k].strip()
+                if not prev or prev.startswith("//"):
+                    k -= 1
+                    continue
+                annotated = prev.startswith("@TypeConverter")
+                break
+            if not annotated:
+                continue
+            found_any = True
+            m = re.search(
+                r'fun\s+\w+\s*\(\s*\w+\s*:\s*([A-Za-z0-9_<>?]+)\s*\)\s*:\s*([A-Za-z0-9_<>?]+)',
+                line,
             )
-        else:
-            sigs[sig] = idx + 1
+            if not m:
+                continue
+            sig = (m.group(1), m.group(2))
+            if sig in sigs:
+                errors.append(
+                    f"{rel(conv)}:{idx + 1}: @TypeConverter 参数/返回类型与第 "
+                    f"{sigs[sig]} 行重复（{sig[0]} -> {sig[1]}），Room 会报重复转换器"
+                )
+            else:
+                sigs[sig] = idx + 1
+
+        # --- 2. 空转换器类 ---
+        for cm in re.finditer(r'@TypeConverters\s*\(\s*(\w+)::class\s*\)', text):
+            cls = cm.group(1)
+            # 找该类定义体
+            dm = re.search(rf'\bclass\s+{re.escape(cls)}\b', text)
+            if not dm:
+                continue
+            body_start = dm.end()
+            # 粗略取到文件末（转换器类通常就在同文件末尾）
+            body = text[body_start:]
+            if "@TypeConverter" not in body:
+                line = text[: cm.start()].count("\n") + 1
+                errors.append(
+                    f"{rel(conv)}:{line}: @TypeConverters({cls}::class) 引用的 "
+                    f"`{cls}` 里没有任何 @TypeConverter 方法，KSP 会报 "
+                    f"'does not have any converter methods'"
+                )
+
+    # 反过来：定义了 @TypeConverter 但没有任何 @TypeConverters 引用 → 只是提示
+    if found_any:
+        for conv in sorted(DB.glob("*.kt")):
+            t = conv.read_text(encoding="utf-8")
+            if "@TypeConverter" in t and "@TypeConverters" not in t:
+                warnings.append(
+                    f"{rel(conv)}: 有 @TypeConverter 方法但没有 @TypeConverters "
+                    f"引用（可能是漏挂）"
+                )
 
 
+# 关于「行首裸 ! 」：
+#   曾试图加一条检查来复现 CI 里 BootReceiver.kt:50 的 Unexpected token。
+#   实测发现 `val enabled = ...` 换行后的 `!enabled` 在 Kotlin 中是合法写法
+#   （块的最后一条表达式），DebugActivity.kt 里 `when {}` 的 `!isOk ->`
+#   分支也完全合法。规则一写出来就产两处假阳性 —— 说明它本身站不住脚。
+#   宁可不要，也不给一个会误报的检查：**语法正确性交给编译器**（CI 会跑
+#   assembleDebug），这个脚本只负责编译器抓不到、或抓得太慢的语义类问题。
 # SQL 关键字，用于粗筛「查询里出现的标识符」
 SQL_KEYWORDS = {
     "select", "from", "where", "and", "or", "not", "null", "is", "in",

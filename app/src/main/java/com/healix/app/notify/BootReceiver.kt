@@ -47,7 +47,11 @@ class BootReceiver : BroadcastReceiver() {
     private fun isNotificationBlocked(context: Context): Boolean {
         return try {
             val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            !nm.areNotificationsEnabled()
+            // 实测 CI 编译报错的位置就在原来那行行首的 `!`（:50:13 Unexpected token）。
+            // 稳妥写法：先落到一个命名变量，再对该变量取反，语义一目了然，
+            // 也避开把 `!` 放在语句块行首的解析歧义。
+            val enabled = nm.areNotificationsEnabled()
+            !enabled
         } catch (e: Exception) {
             false
         }
