@@ -106,3 +106,15 @@ jobs:
           path: app/build/reports/tests/testDebugUnitTest/**
           if-no-files-found: warn
           retention-days: 7
+
+      # Room 导出的 schema JSON（exportSchema=true 时生成）。
+      # 迁移历史必须可追溯 → 需要提交入库，但本机无 JDK 跑不出，
+      # 故由 CI 产出后人工拉回本地提交（见 pipeline/pull_schemas.py）。
+      - name: 上传 Room schema
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: healix-room-schema
+          path: app/schemas/**
+          if-no-files-found: warn
+          retention-days: 30

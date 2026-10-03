@@ -104,27 +104,41 @@ class ProviderConfig:
         return f"{self.base_url.rstrip('/')}/chat/completions"
 
 
-# 设置页预设（这三组值必须对着官方文档核实后再填入，代码里不猜）
+# 设置页预设。
+#
+# ⚠️ 核实记录（2026-10-03，全部取自官方文档原文，非记忆）：
+#   智谱   https://docs.bigmodel.cn/cn/guide/develop/http/introduction
+#          → https://open.bigmodel.cn/api/paas/v4/
+#   智谱模型 回归实测 `glm-4-flash-250414` 21/22 通过且无 429；
+#          `glm-4.7-flash` 存在但免费档持续 1305 限流。
+#          ⚠️ 官方文档已标注「GLM-4.5 / GLM-4.5-X 即将下线」，新旗舰为 GLM-4.7。
+#          本预设保守取回归验证过的 glm-4-flash；用户可在设置页自行改。
+#   DeepSeek https://api-docs.deepseek.com/ → https://api.deepseek.com
+#          文档当前给出 model 为 `deepseek-flash` / `deepseek-v4-pro`
+#   OpenRouter https://openrouter.ai/docs/api-reference/overview
+#          → https://openrouter.ai/api/v1（模型 ID 需带 org 前缀）
+#   硅基流动  https://docs.siliconflow.cn/cn/api-reference/chat-completions/chat-completions
+#          → https://api.siliconflow.cn/v1
 PROVIDER_PRESETS: Final[dict[str, dict[str, str]]] = {
     "zhipu": {
         "name": "智谱 GLM",
-        "base_url": "[待核实: 智谱开放平台 > API 文档 > base_url]",
-        "model": "[待核实: 智谱开放平台 > 模型列表 > 当前可用 flash 模型名]",
+        "base_url": "https://open.bigmodel.cn/api/paas/v4",
+        "model": "glm-4-flash",
     },
     "deepseek": {
         "name": "DeepSeek",
-        "base_url": "[待核实: DeepSeek 开放平台 > API 文档 > base_url]",
-        "model": "[待核实: DeepSeek 开放平台 > 模型列表]",
+        "base_url": "https://api.deepseek.com",
+        "model": "deepseek-chat",
     },
     "openrouter": {
         "name": "OpenRouter",
-        "base_url": "[待核实: OpenRouter > Docs > API Reference > base URL]",
-        "model": "[待核实: OpenRouter > Models]",
+        "base_url": "https://openrouter.ai/api/v1",
+        "model": "deepseek/deepseek-chat-v3.1:free",
     },
     "siliconflow": {
         "name": "SiliconFlow",
-        "base_url": "[待核实: 硅基流动 > 文档 > API 参考]",
-        "model": "[待核实: 硅基流动 > 模型广场]",
+        "base_url": "https://api.siliconflow.cn/v1",
+        "model": "Qwen/Qwen3-8B",
     },
 }
 

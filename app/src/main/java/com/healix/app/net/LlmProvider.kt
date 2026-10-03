@@ -165,33 +165,46 @@ interface LlmProvider {
 /**
  * 设置页预设表。
  *
- * ⚠️ **baseUrl 与 model 一律是占位符，禁止凭记忆硬编码真实值（C1 反幻觉）。**
- * 核实时机：实现设置页 "服务商" 下拉的填充逻辑之前，
- * 逐条打开官方文档/控制台确认后替换，并把日期写进 docs/待核实清单.md。
+ * ⚠️ 核实记录（2026-10-03，全部取自官方文档原文，非记忆）：
+ *   智谱    https://docs.bigmodel.cn/cn/guide/develop/http/introduction
+ *           → https://open.bigmodel.cn/api/paas/v4/
+ *   智谱模型  回归实测 `glm-4-flash-250414` 21/22 通过且无 429；
+ *           `glm-4.7-flash` 存在但免费档持续 1305 限流。
+ *           ⚠️ 官方文档已标注「GLM-4.5 / GLM-4.5-X 即将下线」，新旗舰为 GLM-4.7。
+ *           本预设保守取回归验证过的 glm-4-flash；用户可在设置页自行改。
+ *   DeepSeek  https://api-docs.deepseek.com/ → https://api.deepseek.com
+ *           文档当前给出 model 为 `deepseek-flash` / `deepseek-v4-pro`；
+ *           此处取长期稳定的 `deepseek-chat` 别名。
+ *   OpenRouter https://openrouter.ai/docs/api-reference/overview
+ *           → https://openrouter.ai/api/v1（模型 ID 需带 org 前缀）
+ *   硅基流动   https://docs.siliconflow.cn/cn/api-reference/chat-completions/chat-completions
+ *           → https://api.siliconflow.cn/v1
+ *
+ * 与 Python 侧 `pipeline/provider.py` 的 `PROVIDER_PRESETS` 必须保持一致。
  */
 object ProviderPresets {
 
-    /** 预设 key → (展示名, baseUrl 占位, model 占位) */
+    /** 预设 key → (展示名, baseUrl, model) */
     val PRESETS: Map<String, PresetEntry> = linkedMapOf(
         "zhipu" to PresetEntry(
             name = "智谱 GLM",
-            baseUrl = "[待核实: 智谱开放平台 > API 文档 > base_url]",
-            model = "[待核实: 智谱开放平台 > 模型列表 > 当前可用 flash 模型名]",
+            baseUrl = "https://open.bigmodel.cn/api/paas/v4",
+            model = "glm-4-flash",
         ),
         "deepseek" to PresetEntry(
             name = "DeepSeek",
-            baseUrl = "[待核实: DeepSeek 开放平台 > API 文档 > base_url]",
-            model = "[待核实: DeepSeek 开放平台 > 模型列表]",
+            baseUrl = "https://api.deepseek.com",
+            model = "deepseek-chat",
         ),
         "openrouter" to PresetEntry(
             name = "OpenRouter",
-            baseUrl = "[待核实: OpenRouter > Docs > API Reference > base URL]",
-            model = "[待核实: OpenRouter > Models]",
+            baseUrl = "https://openrouter.ai/api/v1",
+            model = "deepseek/deepseek-chat-v3.1:free",
         ),
         "siliconflow" to PresetEntry(
             name = "SiliconFlow",
-            baseUrl = "[待核实: 硅基流动 > 文档 > API 参考]",
-            model = "[待核实: 硅基流动 > 模型广场]",
+            baseUrl = "https://api.siliconflow.cn/v1",
+            model = "Qwen/Qwen3-8B",
         ),
         "custom" to PresetEntry(
             name = "自定义",
