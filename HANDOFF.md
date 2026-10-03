@@ -1,6 +1,6 @@
 # Healix 中断交接文档
 
-> 更新时间：2026-10-03 19:05
+> 更新时间：2026-10-03 19:40
 > 用途：让下一个会话能**无上下文**接手。
 > 一律只写客观事实，不做推测性美化。
 
@@ -8,19 +8,21 @@
 
 ## 一、当前状态（一句话）
 
-**CI 连续 9 轮全绿，已产出可安装 APK（18,645,124 B / 17.78 MB）。**
-Provider 配置已全部核实填入；Room schema v1 已入库；用户新需求「我的情况」背景项已实现并通过编译。
-**当前交付 APK = run#14 产物**（含背景项），签名 CN=Android Debug，**首次安装前请卸载旧版**（见 3.6）。
+**CI 连续 10 轮全绿，已产出可安装 APK（18,676,819 B / 17.81 MB）。**
+本轮修复了用户报告的三项 bug，其中「配置不生效」与「记一笔无法联网」是**同一个根因**
+（settings 键名读写分裂，见 3.9）；同时补全了接入按钮、灰阶气泡、离线状态。
+**当前交付 APK = run#19 产物**，签名 CN=Android Debug，**首次安装前请卸载旧版**（见 3.6）。
 
 | 项 | 值 |
 |---|---|
-| 本地 HEAD | `d2d7f9e`（链：schema `db3bda6` → 背景项 `899347a` → HANDOFF ×3 → dump_manifest `d2d7f9e`） |
-| 远程 main | `ec3a649f73f0` |
-| 远程 tree == 本地 tree | ✅ 是（`ef122828b989`） |
+| 本地 HEAD | `0fee928` |
+| 远程 main | `38be9d7421cc` |
+| 远程 tree == 本地 tree | ✅ 是（`e1dabf14b152`） |
 | 仓库 | https://github.com/2026heshao/Healix （Public） |
-| 最近 CI | **#17 `ec3a649f` ✅ success**（交付 APK 仍是 **#14 `a48abc01`** 产物） |
-| 本地预检 | 三连全绿（资源 / Kotlin 8 类 / 67 断言） |
-| APK | `app-debug.apk` / 桌面 `Healix-v0.1-测试版.apk`，MD5 `7113fac0f543c9897974811bc62dcc37` |
+| 最近 CI | **#19 `38be9d74` ✅ success** |
+| 本地预检 | 三连全绿（资源 / Kotlin **10 类** / 67 断言） |
+| APK | `app-debug.apk` / 桌面 `Healix-v0.1-测试版.apk`，MD5 `34a69af802450058254948206ee50e4c` |
+| APK 签名指纹 | SHA-256 `98:04:E1:F5:05:15:E9:79:96:2E:39:80:CA:42:1D:D2:D8:5F:65:83:2C:94:A1:9B:FF:B3:87:3C:AF:E3:A1:5C` |
 
 ---
 
@@ -157,6 +159,113 @@ APK 内 **0 个**组件声明 `VIEW + BROWSABLE + http/https` → 无浏览器�
 
 ---
 
+### 3.9 三项用户报告的 Bug 修复（run#19）★
+
+用户报告原文：
+```
+1、AI模型没有真实的接入按钮，配置无法生效
+2、AI对话框要做左右气泡
+3、记一笔无法正常联网，要保证wife和移动数据都可正常接入
+```
+
+#### 3.9.1 ★ 根因：① 与 ③ 是**同一个 bug** —— settings 键名读写分裂
+
+**写端（SettingsActivity）与读端（EventRepository / QuotaGuard）用了两套不同键名：**
+
+| 设置项 | 写入键名 | 读取键名 | 状态 |
+|---|---|---|---|
+| 接口地址 | `base_url` | `provider_base_url` | ❌ |
+| 模型名 | `model` | `provider_model` | ❌ |
+| 重试次数 | `retry_max` | `retry_max_retries` | ❌ |
+| 服务商 | `provider` | `provider_name` | ❌ |
+| 每日调用上限 | `daily_quota` | `quota_daily_call_limit` | ❌ |
+| 每日对话上限 | `chat_quota` | `quota_daily_chat_limit` | ❌ |
+| 退避初始间隔 | `retry_base_seconds` | `retry_base_seconds` | ✅ |
+| 日界线 | `day_start_hour` | `day_start_hour` | ✅ |
+
+**后果链**：设置页写入 `base_url`/`model` → `loadProviderConfig()` 读 `provider_base_url`
+→ null → `submit()` 走 `markFailed("provider_not_configured")`
+→ **一次 HTTP 请求都没发出去**。
+
+⚠️ **最强误导线**：点「测试连通性」**能过** —— 它走 `testConnectivity()` 读的是
+`SettingsViewModel._values`（与写端同名），发的是真请求。
+「测试能过、实际不能用」使排查成本极高。
+
+**修复**：新增 `db/SettingsKeys.kt` 作为键名**唯一事实来源**，
+读写两端全部改为引用它（保留 `KEY_*` 公开名不动调用点）。
+选短名（`base_url`）为正式名，因为已被用户设备写进 SQLite —— 换长名等于让存量配置失效。
+
+#### 3.9.2 ① 接入按钮（心智模型补全）
+
+键名修好只是"配置真能生效"；用户说"没有真实的接入按钮"还包含**心智模型**问题：
+填完四个框后没有任何"确认采用"的动作与反馈。
+
+- 布局新增 `btnApply`（主按钮「接入并启用」）+ `applyStatus`（**常驻**状态条）
+- 原 `btnTest` 降级为**文字按钮**（避免两个同权重主按钮）
+- `SettingsViewModel.applyProvider()`：逐项校验（**缺哪项点名哪项**）→ 落库
+  → 发一次真实请求 → 状态条变「已接入 · 服务商 · 模型名」
+- `_applied` 在 `reload()` 里**纯本地**计算（不发请求）—— 状态条是常驻 UI，不能每次进页都发请求
+
+#### 3.9.3 ② 灰阶左右气泡
+
+原实现是「无气泡，只靠对齐 + 灰度」（类注释写着"核心决策：不用彩色气泡"）。
+用户要求明确气泡 → 已覆盖该决策。**但未破坏设计规范 v3**：只用了既有中性色。
+
+| 角色 | 背景 | 文字 | 对齐 |
+|---|---|---|---|
+| 用户 | `text_1` (#1A1918) 实底 | 白 (`btn_primary_text`) | 靠右 |
+| 助理 | `surface` (#FFFFFF) 底 + 1dp `line` 描边 | `text_1` | 靠左 |
+
+- 新增 `drawable/bg_bubble_user.xml` / `bg_bubble_assistant.xml`（圆角 8dp，无阴影）
+- `ChatAdapter` 重写：外层 `LinearLayout` 管对齐 + 78% 最大宽度，内层 `TextView` 带背景
+  - 外层/内层分工的原因：`TextView` 直接带 background + wrap_content 时，
+    padding 会算进宽度，导致长短文本视觉边距不一致
+- 间距：同角色 6dp / 不同角色 16dp
+
+#### 3.9.4 ③ 离线状态与网络可靠性
+
+**关键概念纠正**：`needsConfiguration` 曾被映射成 `MainUiState.Offline` —— **语义错配**。
+两者用户动作完全不同（填 key vs 检查网络）。且因键名 bug，每次提交都返回
+`needsConfiguration=true`，于是界面上**一直显示"离线"**。
+
+- 新增 `net/NetworkStatus.kt`：`isOnline()` 用 `INTERNET + VALIDATED` **双判据**
+  - ⚠️ **不区分传输类型**（不用 `TRANSPORT_WIFI` 过滤）→ Wi-Fi 与移动数据天然都覆盖。
+    这是"两种网络都能用"的**唯一关键点** —— 本 App 从未把请求绑定到特定网络
+    （无 `bindProcessToNetwork`），Android 默认就交给系统当前默认网络。
+  - 用 `VALIDATED` 而非仅 `INTERNET`：排除"连上 Wi-Fi 但没网"（captive portal / 假热点）
+- `MainUiState` 新增 `NotConfigured`，与 `Offline` 拆开
+- `stateOf()`：`needsConfiguration` → NotConfigured；`network:`/`timeout:` 前缀 → Offline
+- `MainViewModel.submit()`：**先落库再判网络** —— 用户目标是"记下来"不是"发 HTTP"，
+  先判网络就 return 会丢文字
+- `MainViewModel.retryFailedPending()`：批量重试
+  - ⚠️ 用 `events` Flow 过滤，**不能用 `listPending()`** ——
+    后者 SQL 只筛 `parse_status='pending'`，会**漏掉全部 failed 记录**，
+    而 failed 恰恰是用户最想重试的
+- `MainActivity`：`offlineBar` 可点，按 `lastUiState` 分流（离线→重试 / 未配置→设置页）
+- `ChatViewModel.send()`：加断网前置判断，避免白等 15 秒超时
+
+#### 3.9.5 新增静态检查第 9·10 类（防复发）★
+
+`pipeline/check_kotlin.py` 新增 `check_settings_keys()` + `check_settings_keys_consistency()`：
+
+1. **裸字符串访问 settings** → 报错
+2. **第二套 `KEY_*` 常量**（字面量已知 but 常量名不同）→ 直接报错
+3. **语义相似名**（`KEY_BASE_URL` vs `SettingsKeys.BASE_URL` 字面量不同）→ 报错
+4. `SettingsKeys` 内部字面量重名 → 报错
+
+**已验证有效**：把 `SettingsKeys.BASE_URL` 换回 `"provider_base_url"`，
+CI 立即报「同一语义有两个不同键名」并阻断（exit 1）。
+
+⚠️ **验证检查有效性时的踩坑**：不要写 `注入 && 跑检查; git checkout --` 这种链式命令 ——
+`git checkout` 会在检查前还原文件，造成"检查没生效"的假象（我因此误判了两轮）。
+正确做法：**先注入并 `grep` 确认文件已变，再单独跑检查**。
+
+⚠️ **设计取舍**：b2 分支只对"确实操作 settings 表的文件"生效 ——
+项目里还有大量**非 settings** 的 `KEY_*` 常量（RemoteInput key、EditText 字段名、
+EncryptedSharedPreferences 存储键）。第一版无差别拦截，误报 11 项，已收窄。
+
+---
+
 ## 四、CI 战绩（本轮）
 
 | run | sha | 结果 |
@@ -167,9 +276,11 @@ APK 内 **0 个**组件声明 `VIEW + BROWSABLE + http/https` → 无浏览器�
 | **#11** | 87e26220 | ✅ schema 入库 |
 | **#12** | ee53c7e3 | ✅ 背景项 |
 | **#13** | bcbeb7c3 | ✅ HANDOFF 更新 |
-| **#14** | a48abc01 | ✅ **当前交付 APK（含背景项）** |
+| **#14** | a48abc01 | ✅ 背景项 APK |
 | **#15** | a21bb63b | ✅ HANDOFF 同步 |
 | **#17** | ec3a649f | ✅ 新增 dump_manifest.py |
+| **#18** | 7ba26a91 | ✅ HANDOFF 补 3.8 |
+| **#19** | 38be9d74 | ✅ **当前交付 APK（三项 bug 修复）** |
 
 ---
 
@@ -230,11 +341,18 @@ $PY pipeline/pull_schemas.py <github_token> --run-id <id>
 ## 七、待办（下会话接手）
 
 ### 立即
-1. **S1 真机验收**：装桌面 `Healix-v0.1-测试版.apk`（MD5 `7113fac0…`）到 Magic6 Pro
+1. **S1 真机验收**：装桌面 `Healix-v0.1-测试版.apk`（MD5 `34a69af8…`）到 Magic6 Pro
    ⚠️ **首次安装 / 换轮次重装前先卸载旧版**（每轮签名证书不同，覆盖装必报签名冲突）
-   → 设置页选「智谱 GLM」→ 填 API Key → 点「测试连通性」
-   → 应显示「连通 · 1.2s」
-2. **验收背景项**：设置页「我的情况」填一段（如「乳糖不耐受，不吃香菜」）
+   → 设置页选「智谱 GLM」→ 填 API Key → 点 **「接入并启用」**（新按钮）
+   → 应显示「接入成功」且状态条变「已接入 · 智谱 GLM · glm-4-flash」
+   → 再点「测试连通性」应显示「连通 · 1.2s」
+2. **验收本轮三项修复**（重点）：
+   - **① 配置生效**：按上面接入成功后，回主界面「记一笔」输入「午饭吃了牛肉面」
+     → 应能在记录列表看到类型/热量被填上（**修 bug 前这里必然失败**）
+   - **② 气泡**：进对话页发一句话 → 自己的消息应靠右的深色气泡，AI 回复靠左的白色描边气泡
+   - **③ 两种网络**：分别在 **Wi-Fi** 与 **关掉 Wi-Fi 用移动数据** 下各「记一笔」
+     → 都应成功。断网时应显示「无网络，已先记下，联网后自动补全」且**提示条可点**（点了批量重试）
+3. **验收背景项**：设置页「我的情况」填一段（如「乳糖不耐受，不吃香菜」）
    → 去对话页问饮食建议 → 看 AI 是否遵守该约束
 
 ### 未决项（原 16 项，现降至 8 项）
@@ -276,8 +394,16 @@ $PY pipeline/pull_schemas.py <github_token> --run-id <id>
 8. **C6 安全**：API key 只存 EncryptedSharedPreferences，**绝不打印**
 9. **设计规范 v3**：1 强调色 / 无卡片 / 无阴影 / 无 emoji / 圆角仅 8dp /
    字重仅 400·500
+   ⚠️ **2026-10-03 变更**：对话页由「无气泡」改为**灰阶左右气泡**（用户明确要求）。
+   气泡只用既有中性色（`text_1` / `surface` / `line`），**未引入新颜色 / 阴影**，
+   规范其余部分仍然有效。详见 3.9.3。
 10. **换行符**：`gradlew` / `*.sh` 必须 LF（`.gitattributes` 已规定）
 11. **基础设施失败 ≠ 链路失败**：限流/超时/鉴权/网络不算解析缺陷
+12. **★ settings 键名纪律**（2026-10-03 事故后新增）：
+    任何 settings 键名必须只在 `db/SettingsKeys.kt` 定义，
+    其它文件**禁止**写裸字符串或另起 `const val KEY_X = "字面量"`。
+    `pipeline/check_kotlin.py` 的 `check_settings_keys()` 会在 CI 拦死。
+    违反的后果是「测试能过、实际不能用」—— 极难排查。
 
 ---
 
@@ -289,22 +415,33 @@ D:\桌面\AI Port\Healix\
 │   ├── contract.py          # ★ 契约唯一来源（PROMPT_EXTRACT / PROMPT_VER）
 │   ├── provider.py          # ★ 预设（已核实真实值）
 │   ├── check_resources.py   # 资源静态检查（5 类）
-│   ├── check_kotlin.py      # Kotlin/Room 静态检查（8 类）
+│   ├── check_kotlin.py      # Kotlin/Room 静态检查（**10 类**，本轮 +2）
 │   ├── push_via_api.py      # ★ Git Data API 推送
 │   ├── pull_schemas.py      # ★ 拉回 Room schema
-│   ├── dump_manifest.py     # ★ 无 SDK 反编译 APK 内 AXML 清单（新）
+│   ├── dump_manifest.py     # ★ 无 SDK 反编译 APK 内 AXML 清单
 │   ├── run_regression.py    # 回归脚本
 │   └── tests\test_norm.py   # 67 项断言
 ├── app\src\main\java\com\healix\app\
-│   ├── db\                  # Room（7 entity / 6 DAO）
-│   ├── net\LlmProvider.kt   # ★ Provider 抽象 + 预设（已核实）
+│   ├── db\
+│   │   ├── SettingsKeys.kt  # ★★ settings 键名唯一事实来源（本轮新增）
+│   │   └── (7 entity / 6 DAO)
+│   ├── net\
+│   │   ├── LlmProvider.kt   # ★ Provider 抽象 + 预设（已核实）
+│   │   └── NetworkStatus.kt # ★ Wi-Fi/移动数据可达性判断（本轮新增）
 │   ├── parse\SchemaValidator.kt  # ★ 与 contract.py 同步
-│   ├── repo\EventRepository.kt   # 串联 net → parse → db
+│   ├── repo\
+│   │   ├── EventRepository.kt   # 串联 net → parse → db（本轮改键名）
+│   │   └── QuotaGuard.kt        # 配额护栏（本轮改键名）
 │   └── ui\
-│       ├── ChatEngine.kt    # ★ systemPrompt 拼背景（本轮改）
-│       └── SettingsActivity.kt   # ★ 背景输入框（本轮改）
+│       ├── ChatEngine.kt    # ★ systemPrompt 拼背景
+│       ├── ChatActivity.kt  # ★ 左右气泡（本轮重写适配器）
+│       ├── MainViewModel.kt # ★ Offline/NotConfigured 拆分（本轮）
+│       └── SettingsActivity.kt  # ★ 接入按钮 + 背景输入框
+├── app\src\main\res\drawable\
+│   ├── bg_bubble_user.xml       # ★ 用户气泡（本轮新增）
+│   └── bg_bubble_assistant.xml  # ★ 助理气泡（本轮新增）
 ├── app\schemas\             # ★ Room schema v1（已入库）
-├── app-debug.apk            # ★ 可安装 APK（18,645,124 B，同 桌面/Healix-v0.1-测试版.apk）
+├── app-debug.apk            # ★ 可安装 APK（18,676,819 B，同 桌面/Healix-v0.1-测试版.apk）
 ├── .github\workflows\
 │   ├── ci.yml               # 编译 + 单测 + 静态检查 + schema 产物
 │   └── release.yml
