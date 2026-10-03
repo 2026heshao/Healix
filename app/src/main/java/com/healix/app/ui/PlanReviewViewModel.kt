@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.healix.app.HealixApp
 import com.healix.app.R
+import com.healix.app.db.GoalDefaults
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -47,7 +48,7 @@ data class TrainingUiState(
     /** ai | fallback —— fallback 时页顶显示「简化模式 · 本地生成」 */
     val source: String = TrainingPlanner.SOURCE_FALLBACK,
     val plan: TrainingPlan? = null,
-    val sessionsGoal: Int = TrainingPlanner.DEFAULT_SESSIONS,
+    val sessionsGoal: Int = GoalDefaults.TRAIN_SESSIONS_PER_WEEK,
     val goalLabel: String = "",
     /** 本周已记录的训练日 dow 集合（按钮据此变「已记录」）。 */
     val completed: Set<Int> = emptySet(),
@@ -114,7 +115,7 @@ class PlanReviewViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch(Dispatchers.IO) {
             val goal = runCatching { planner.goalLabel() }.getOrDefault("")
             val sessions = runCatching { planner.sessionsGoal() }
-                .getOrDefault(TrainingPlanner.DEFAULT_SESSIONS)
+                .getOrDefault(GoalDefaults.TRAIN_SESSIONS_PER_WEEK)
             val plan = runCatching { planner.loadOrGenerate(force = false) }.getOrNull()
             val completed = plan?.let {
                 runCatching { planner.completedDows(it) }.getOrDefault(emptySet())

@@ -5,6 +5,7 @@ import android.os.Handler
 import android.os.Looper
 import com.healix.app.HealixApp
 import com.healix.app.db.EventEntity
+import com.healix.app.db.GoalDefaults
 import com.healix.app.db.GoalMetrics
 import com.healix.app.db.SettingsKeys
 import com.healix.app.parse.DEFAULT_DAY_START_HOUR
@@ -125,10 +126,9 @@ internal data class TodaySummary(
 
     companion object {
         const val KEY_TARGET_KCAL = SettingsKeys.TARGET_KCAL
-        const val DEFAULT_TARGET_KCAL = 2500
 
-        /** 兜底：每周训练 3 次（《中国居民膳食指南(2022)》准则二，抗阻每周 2–3 天）。 */
-        const val DEFAULT_GOAL_SESSIONS = 3
+        // 兜底默认值（目标摄入 / 每周训练次数）已收敛到
+        // `com.healix.app.db.GoalDefaults` —— 跨文件唯一来源，不要在这里重定义。
 
         /** 生病记录间隔超过这个天数算新的一次病程（与 HealthAggregator 同口径）。 */
         private const val ILLNESS_GAP_DAYS = 2L
@@ -161,7 +161,7 @@ internal data class TodaySummary(
             val today = LocalDate.parse(dayKey)
 
             val target = db.settingsDao().get(KEY_TARGET_KCAL)?.toIntOrNull()
-                ?: DEFAULT_TARGET_KCAL
+                ?: GoalDefaults.TARGET_KCAL
 
             // 多维聚合直接复用规则层的聚合器 —— 一处口径，避免摘要与预警两套算法漂移
             val snap = HealthAggregator.snapshot(db, dayStart, target)
@@ -175,7 +175,7 @@ internal data class TodaySummary(
 
             val goalSessions = db.goalDao()
                 .getByMetric(GoalMetrics.SESSIONS_PER_WEEK)
-                ?.targetValue?.toInt() ?: DEFAULT_GOAL_SESSIONS
+                ?.targetValue?.toInt() ?: GoalDefaults.TRAIN_SESSIONS_PER_WEEK
 
             val hideKcal = db.settingsDao().get(SettingsKeys.HIDE_KCAL) == "true"
             val hideWeight = db.settingsDao().get(SettingsKeys.HIDE_WEIGHT) == "true"

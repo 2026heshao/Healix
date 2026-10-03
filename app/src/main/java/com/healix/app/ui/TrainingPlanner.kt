@@ -4,6 +4,7 @@ import android.content.Context
 import com.healix.app.HealixApp
 import com.healix.app.R
 import com.healix.app.db.EventEntity
+import com.healix.app.db.GoalDefaults
 import com.healix.app.db.GoalMetrics
 import com.healix.app.db.SettingsKeys
 import com.healix.app.db.TrainingPlanEntity
@@ -119,11 +120,12 @@ class TrainingPlanner(context: Context) {
     private val db = app.database
 
     companion object {
+        /** ai | fallback */
         const val SOURCE_AI = "ai"
         const val SOURCE_FALLBACK = "fallback"
 
-        /** 每周训练次数兜底目标（与设置页默认值一致，PRD §3.1）。 */
-        const val DEFAULT_SESSIONS = 3
+        // 每周训练次数兜底目标已收敛到 `GoalDefaults.TRAIN_SESSIONS_PER_WEEK`
+        // （跨文件唯一来源）。原 `DEFAULT_SESSIONS` 已删除，引用点改走 GoalDefaults。
 
         /** 主目标索引：0=增重，1=减重，其它=保持。与 HealthAggregator 口径一致。 */
         private const val GOAL_GAIN = 0
@@ -460,7 +462,7 @@ class TrainingPlanner(context: Context) {
     /** 每周训练次数目标（默认 3）。 */
     suspend fun sessionsGoal(): Int =
         db.goalDao().getByMetric(GoalMetrics.SESSIONS_PER_WEEK)
-            ?.targetValue?.toInt()?.takeIf { it > 0 } ?: DEFAULT_SESSIONS
+            ?.targetValue?.toInt()?.takeIf { it > 0 } ?: GoalDefaults.TRAIN_SESSIONS_PER_WEEK
 
     private suspend fun goalIndex(): Int =
         db.goalDao().getByMetric(GoalMetrics.PRIMARY)

@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.healix.app.HealixApp
 import com.healix.app.R
+import com.healix.app.db.GoalDefaults
 import com.healix.app.db.GoalEntity
 import com.healix.app.db.GoalMetrics
 import com.healix.app.db.ReminderEntity
@@ -148,28 +149,28 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
             GoalEntity(
                 type = "training",
                 metric = GoalMetrics.SESSIONS_PER_WEEK,
-                targetValue = DEFAULT_TRAIN_SESSIONS.toDouble(),
+                targetValue = GoalDefaults.TRAIN_SESSIONS_PER_WEEK.toDouble(),
                 createdAt = now,
                 updatedAt = now,
             ),
             GoalEntity(
                 type = "training",
                 metric = GoalMetrics.TRAIN_MINUTES_PER_WEEK,
-                targetValue = DEFAULT_TRAIN_MINUTES.toDouble(),
+                targetValue = GoalDefaults.TRAIN_MINUTES_PER_WEEK.toDouble(),
                 createdAt = now,
                 updatedAt = now,
             ),
             GoalEntity(
                 type = "sleep",
                 metric = GoalMetrics.SLEEP_H,
-                targetValue = DEFAULT_SLEEP_H,
+                targetValue = GoalDefaults.SLEEP_H,
                 createdAt = now,
                 updatedAt = now,
             ),
             GoalEntity(
                 type = "habit",
                 metric = GoalMetrics.WATER_ML,
-                targetValue = DEFAULT_WATER_ML.toDouble(),
+                targetValue = GoalDefaults.WATER_ML.toDouble(),
                 createdAt = now,
                 updatedAt = now,
             ),
@@ -553,10 +554,9 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
         const val GOAL_MODE_LOSS = 1
         const val GOAL_MODE_KEEP = 2
 
-        // 默认目标值，来源见 ensureGoalDefaultsIfEmpty() 的注释（膳食指南）。
-        private const val DEFAULT_TRAIN_SESSIONS = 3
-        private const val DEFAULT_TRAIN_MINUTES = 150
-        private const val DEFAULT_SLEEP_H = 7.5
-        private const val DEFAULT_WATER_ML = 1700
+        // ⚠️ 默认目标值（膳食指南推荐量）不在本文件定义 —— 唯一来源是
+        //    `com.healix.app.db.GoalDefaults`。这里曾有一份私有副本
+        //    （名为 DEFAULT_TRAIN_SESSIONS），与 StatusDetailViewModel 的同值常量
+        //    造成重复定义，已收敛。见 `db/GoalEntities.kt` 的 GoalDefaults 注释。
     }
 }

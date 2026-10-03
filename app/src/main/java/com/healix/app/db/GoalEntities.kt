@@ -75,3 +75,43 @@ object GoalMetrics {
     const val SLEEP_H = "sleep_h"
     const val WATER_ML = "water_ml"
 }
+
+/**
+ * 目标值的**兜底默认**（唯一事实来源，其它文件引用这里，不要重定义）。
+ *
+ * 与 [GoalMetrics] 的区别：`GoalMetrics` 是 `goal.metric` 的**键**，
+ * 这里是"用户没设过目标时用什么数"的**值**。两者必须分开 ——
+ * 键是协议（进 DB、不能改），值是产品默认（可随指南更新）。
+ *
+ * ══════════════════════════════════════════════════════════════════════════
+ * 为什么必须收敛到一处（2026-10-03 血泪）
+ * ══════════════════════════════════════════════════════════════════════════
+ * 此前同一组数在 `SettingsViewModel`（`DEFAULT_TRAIN_SESSIONS`）和
+ * `StatusDetailViewModel`（`DEFAULT_SESSIONS_PER_WEEK`）各写了一份 ——
+ * **值相同、名字不同**。除了日后必然会漂移，还直接引发了 CI #21 的编译失败：
+ * `ExerciseSection` / `SleepSection` 是**顶层 data class**，它们的默认参数里
+ * 非限定引用了 `StatusDetailViewModel.companion` 的常量，而顶层声明的解析域
+ * 里没有那个 companion → `Unresolved reference`。
+ *
+ * 收敛到顶层 `object` 后，任何位置都能用 `GoalDefaults.X` 限定访问，问题不再复现。
+ *
+ * 取值依据：膳食指南推荐量（运动 150 分钟/周、饮水 1700ml、睡眠 7.5h）。
+ * ⚠️ `HealthRules` 的 `H7`（< 150 分钟/周）**刻意不复用**这里的常量 ——
+ * 那是临床判断阈值，不随用户改目标而变；耦合会让用户把目标调小后 H7 就不再预警。
+ */
+object GoalDefaults {
+    /** 每周训练次数（次）。 */
+    const val TRAIN_SESSIONS_PER_WEEK: Int = 3
+
+    /** 每周训练时长（分钟）。 */
+    const val TRAIN_MINUTES_PER_WEEK: Int = 150
+
+    /** 每日睡眠（小时）。 */
+    const val SLEEP_H: Double = 7.5
+
+    /** 每日饮水（毫升）。 */
+    const val WATER_ML: Int = 1700
+
+    /** 每日目标摄入（千卡）。用户可在设置页覆盖（`SettingsKeys.TARGET_KCAL`）。 */
+    const val TARGET_KCAL: Int = 2500
+}

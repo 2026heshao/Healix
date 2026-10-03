@@ -7,6 +7,7 @@ import com.healix.app.HealixApp
 import com.healix.app.R
 import com.healix.app.db.BodySignalEntity
 import com.healix.app.db.EventEntity
+import com.healix.app.db.GoalDefaults
 import com.healix.app.db.GoalMetrics
 import com.healix.app.db.PresetEntity
 import com.healix.app.notify.EventText
@@ -133,8 +134,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun targetKcalFlow(): StateFlow<Int> =
         db.settingsDao().observe(KEY_TARGET_KCAL)
-            .map { it?.toIntOrNull() ?: DEFAULT_TARGET_KCAL }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DEFAULT_TARGET_KCAL)
+            .map { it?.toIntOrNull() ?: GoalDefaults.TARGET_KCAL }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), GoalDefaults.TARGET_KCAL)
 
     // ==================================================================
     // 多维状态行（设计规范系统 §9.2）
@@ -211,7 +212,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             db.eventDao().countByTypeInRange("exercise", monday, day)
         }.getOrDefault(0)
         val goalSessions = goals[GoalMetrics.SESSIONS_PER_WEEK]?.toInt()
-            ?: DEFAULT_TRAIN_SESSIONS
+            ?: GoalDefaults.TRAIN_SESSIONS_PER_WEEK
         items += app.getString(R.string.status_dim_training, done, goalSessions)
 
         // ② 睡眠 N.Nh —— 只取今日已记录的睡眠
@@ -492,13 +493,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         const val KEY_DAY_START = com.healix.app.db.SettingsKeys.DAY_START
         const val KEY_HIDE_KCAL = com.healix.app.db.SettingsKeys.HIDE_KCAL
         const val KEY_HIDE_WEIGHT = com.healix.app.db.SettingsKeys.HIDE_WEIGHT
-        const val DEFAULT_TARGET_KCAL = 2500
 
-        /**
-         * 每周训练次数的兜底目标：3 次。
-         * 依据《中国居民膳食指南(2022)》准则二「抗阻每周 2–3 天」，取上限
-         * —— 与设置页默认值一致。用户可在设置页覆盖（PRD §3.1 明确要求默认值不写死）。
-         */
-        const val DEFAULT_TRAIN_SESSIONS = 3
+        // 兜底默认值（目标摄入 2500 kcal、每周训练 3 次）已收敛到
+        // `com.healix.app.db.GoalDefaults` —— 跨文件唯一来源，不要在这里重定义。
+        // 顶层 data class 的默认参数解析不到本 companion，重定义会以
+        // `Unresolved reference` 在编译期炸掉（CI #21 实况）。
     }
 }

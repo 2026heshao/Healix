@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.healix.app.HealixApp
 import com.healix.app.db.BodySignalEntity
 import com.healix.app.db.EventEntity
+import com.healix.app.db.GoalDefaults
 import com.healix.app.db.GoalMetrics
 import com.healix.app.db.ReminderEntity
 import com.healix.app.db.SettingsKeys
@@ -24,9 +25,9 @@ import java.time.temporal.ChronoUnit
 /** 运动段。 */
 data class ExerciseSection(
     val sessionsDone: Int = 0,
-    val sessionsGoal: Int = DEFAULT_SESSIONS_PER_WEEK,
+    val sessionsGoal: Int = GoalDefaults.TRAIN_SESSIONS_PER_WEEK,
     val minutesDone: Int = 0,
-    val minutesGoal: Int = DEFAULT_TRAIN_MINUTES_PER_WEEK,
+    val minutesGoal: Int = GoalDefaults.TRAIN_MINUTES_PER_WEEK,
     /** 最近训练（近 30 天，倒序，最多 8 条）。 */
     val recent: List<EventEntity> = emptyList(),
 )
@@ -35,7 +36,7 @@ data class ExerciseSection(
 data class SleepSection(
     val values: List<Double> = emptyList(),
     val avg: Double = 0.0,
-    val goal: Double = DEFAULT_SLEEP_H,
+    val goal: Double = GoalDefaults.SLEEP_H,
     /** 本周均值 − 上周均值；null = 上周无数据，不显示对比句。 */
     val diffVsPrev: Double? = null,
 )
@@ -128,9 +129,9 @@ class StatusDetailViewModel(app: Application) : AndroidViewModel(app) {
         val minutesRow = db.goalDao().getByMetric(GoalMetrics.TRAIN_MINUTES_PER_WEEK)
         // 读不到目标 → 膳食指南推荐量 3 次 / 150 分钟兜底
         val sessionsGoal = sessionsRow?.targetValue?.toInt()?.takeIf { it > 0 }
-            ?: DEFAULT_SESSIONS_PER_WEEK
+            ?: GoalDefaults.TRAIN_SESSIONS_PER_WEEK
         val minutesGoal = minutesRow?.targetValue?.toInt()?.takeIf { it > 0 }
-            ?: DEFAULT_TRAIN_MINUTES_PER_WEEK
+            ?: GoalDefaults.TRAIN_MINUTES_PER_WEEK
 
         // 本周（ISO 周，周一起）
         val monday = today.with(java.time.DayOfWeek.MONDAY).toString()
@@ -180,7 +181,7 @@ class StatusDetailViewModel(app: Application) : AndroidViewModel(app) {
         val diff = if (curValues.isNotEmpty() && prevValues.isNotEmpty()) avgCur - avgPrev else null
 
         val goal = db.goalDao().getByMetric(GoalMetrics.SLEEP_H)?.targetValue?.takeIf { it > 0 }
-            ?: DEFAULT_SLEEP_H
+            ?: GoalDefaults.SLEEP_H
 
         return SleepSection(values = curValues, avg = avgCur, goal = goal, diffVsPrev = diff)
     }
@@ -306,10 +307,12 @@ class StatusDetailViewModel(app: Application) : AndroidViewModel(app) {
         const val SLEEP = "sleep"
         const val ILLNESS = "illness"
 
-        /** 膳食指南推荐量的兜底目标。 */
-        const val DEFAULT_SESSIONS_PER_WEEK = 3
-        const val DEFAULT_TRAIN_MINUTES_PER_WEEK = 150
-        const val DEFAULT_SLEEP_H = 7.5
+        /**
+         * 膳食指南推荐量的兜底目标已收敛到 `GoalDefaults`（跨文件唯一来源）。
+         * **不要**在这里重新定义 —— 顶层 data class 的非限定引用解析不到本 companion，
+         * 一旦重定义就会以 `Unresolved reference` 的形式在编译期炸掉（CI #21 实况）。
+         * 见 `db/GoalEntities.kt` 的 `GoalDefaults` 注释。
+         */
 
         /** 中国 BMI 偏低阈值（<18.5）。 */
         const val BMI_LOW = 18.5

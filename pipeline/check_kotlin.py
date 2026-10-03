@@ -19,6 +19,10 @@
   9. settings 键名不得写裸字符串，必须引用 SettingsKeys
  10. 游戏化词汇（streak / 打卡 / 归零 / 勋章 …）
  11. pipeline/contract.py ↔ Kotlin 的 prompt 必须**字节一致**
+ 12. `object` / `companion object` 成员的作用域 —— 出了宿主就必须限定引用
+     （2026-10-03 新增：CI #21 的 4 个错误里 3 个是这条，而前 11 条一条没报，
+      因为它们全是「单行正则」，不做作用域分析）
+ 13. 同名同值的 `const val` 跨文件重复定义（提示收敛）
 
 退出码：0 = 全通过；1 = 发现问题。
 """
@@ -940,6 +944,240 @@ def check_prompt_parity() -> None:
             )
 
 
+# ── object / companion 作用域 ────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════
+# 为什么需要「作用域分析」这一类检查（2026-10-03，CI #21 实况）
+# ══════════════════════════════════════════════════════════════════════════
+# CI #21 报的 4 个错误里有 3 个是同一条：
+#   StatusDetailViewModel.kt:27 Unresolved reference 'DEFAULT_SESSIONS_PER_WEEK'
+#
+# `ExerciseSection` / `SleepSection` 是文件**开头**的顶层 data class，
+# 默认参数里非限定引用了 `DEFAULT_SESSIONS_PER_WEEK`，而该常量定义在文件**末尾**
+# 的 `StatusDetailViewModel.companion` 里。顶层声明的解析域里没有那个 companion
+# → 编译不过。
+#
+# 本脚本当时已有 12 条检查，**一条都没报** —— 因为它们全是「单行正则」，
+# 不做作用域判断。这类错误编译器一抓一个准，而我们本地没有编译器
+# （无 JDK/SDK），所以必须自己补上。
+#
+# 规则：`object` 成员的**简单名**只在其宿主作用域内可非限定使用：
+#   - `companion object` → 宿主 = 它所属的那个 class 体（含其中的嵌套类）
+#   - 具名 `object X`    → 宿主 = 它自己的体
+# 出了宿主作用域必须写 `X.member` / `Owner.member`，否则 Unresolved reference。
+#
+# 已知**不覆盖**的情形（刻意，避免误报）：
+#   - 跨文件：`B.kt` 里非限定写 `A.kt` 中 object 的成员。要做对必须知道全工程
+#     所有标识符（局部变量、参数、lambda 形参…），代价与假阳性都不划算。
+#     这种错误编译器必报，且现有 check_undefined_self_calls 已覆盖一部分。
+# ══════════════════════════════════════════════════════════════════════════
+
+VAL_DECL_RE = re.compile(r'\b(?:const\s+)?val\s+(\w+)')
+VAR_DECL_RE = re.compile(r'\bvar\s+(\w+)')
+FUN_DECL_RE = re.compile(r'\bfun\s+(?:<[^>]*>\s*)?(\w+)\s*\(')
+TYPE_DECL_RE = re.compile(
+    r'\b(?:data\s+|sealed\s+|enum\s+|annotation\s+|value\s+)?'
+    r'(?:class|interface|object)\s+(\w+)'
+)
+OBJ_DECL_RE = re.compile(r'\b(companion\s+object|object)\s*(\w+)?')
+IMPORT_RE = re.compile(r'^import\s+([\w.]+)(?:\s+as\s+(\w+))?\s*$', re.M)
+# 使用点前面若是声明关键字，说明这是**声明**而不是引用，跳过
+DECL_BEFORE_RE = re.compile(r'(?:val|var|fun|class|object|interface|typealias)\s+$')
+
+
+def _iter_code_chars(text: str):
+    """产出 (下标, 字符)，**跳过**字符串字面量与注释内部。
+
+    ⚠️ 不能复用 strip_comments：`PROMPT_EXTRACT` 是**多行原始字符串**，
+    里面含 JSON 示例的 `{` `}` 与可能的 `//`。直接对原文做括号配平，
+    字符串里的花括号会把结构算歪；而 strip_comments 又会误删原始字符串里的 `//`。
+    这里统一把「非代码字符」涂白，配平与正则只看代码。
+    """
+    i, n = 0, len(text)
+    while i < n:
+        if text.startswith("//", i):
+            j = text.find("\n", i)
+            i = n if j < 0 else j
+            continue
+        if text.startswith("/*", i):
+            j = text.find("*/", i + 2)
+            i = n if j < 0 else j + 2
+            continue
+        if text.startswith('"""', i):
+            j = text.find('"""', i + 3)
+            i = n if j < 0 else j + 3
+            continue
+        ch = text[i]
+        if ch in ('"', "'"):
+            i += 1
+            while i < n and text[i] != ch:
+                if text[i] == "\\":
+                    i += 1
+                i += 1
+            i += 1
+            continue
+        yield i, ch
+        i += 1
+
+
+def mask_noncode(text: str) -> str:
+    """把字符串/注释内容换成空格（保留换行与下标），只留代码。"""
+    out = ["\n" if c == "\n" else " " for c in text]
+    for i, ch in _iter_code_chars(text):
+        out[i] = ch
+    return "".join(out)
+
+
+def _depths_and_pairs(masked: str) -> tuple[list[int], dict[int, int]]:
+    """返回 (每个下标的括号深度, {open 下标: close 下标})。
+
+    深度的定义：某下标处**已打开但未闭合**的 `{` 个数。
+    于是「某个 `{` 的直接内容」深度 = 该 `{` 处的深度 + 1。
+    """
+    dep = [0] * (len(masked) + 1)
+    pairs: dict[int, int] = {}
+    stack: list[int] = []
+    d = 0
+    for i, ch in enumerate(masked):
+        if ch == "{":
+            dep[i] = d
+            stack.append(i)
+            d += 1
+        elif ch == "}":
+            d -= 1
+            dep[i] = d
+            if stack:
+                pairs[stack.pop()] = i
+        else:
+            dep[i] = d
+    dep[len(masked)] = d
+    return dep, pairs
+
+
+def check_object_scope() -> None:
+    """非限定引用 `object` / `companion object` 的成员 = Unresolved reference。"""
+    for kt in sorted(JAVA.rglob("*.kt")):
+        text = kt.read_text(encoding="utf-8")
+        masked = mask_noncode(text)
+        dep, pairs = _depths_and_pairs(masked)
+
+        imports = IMPORT_RE.findall(masked)
+        if any(sym == "*" for sym, _alias in imports):
+            # 通配 import 下无法判断某个简单名从哪来 → 整文件跳过（宁少报）
+            continue
+        imported = set()
+        for sym, alias in imports:
+            imported.add(alias or sym.rsplit(".", 1)[-1])
+
+        # 文件级（深度 0）声明 —— 顶层声明的简单名在整个文件都可见
+        file_level: set[str] = set()
+        for rx in (VAL_DECL_RE, VAR_DECL_RE, FUN_DECL_RE, TYPE_DECL_RE):
+            for m in rx.finditer(masked):
+                if dep[m.start()] == 0:
+                    file_level.add(m.group(1))
+
+        # 收集 (成员名, 允许非限定使用的作用域区间, 宿主类别, 声明行号)
+        scopes: list[tuple[str, int, int, str, int]] = []
+        for m in OBJ_DECL_RE.finditer(masked):
+            is_companion = m.group(1).startswith("companion")
+            obj_name = m.group(2)
+            if not is_companion and not obj_name:
+                continue  # 匿名对象 `object : Runnable { }` —— 跳过
+            # ⚠️ `{` 必须与声明头**同一行**。
+            #    否则「无体」的声明会越界抢括号 —— 实测误报：
+            #    `object Idle : NetworkStatus`（无体）抢到了几十行后
+            #    `sealed interface HomeStatus {` 的 `{`，于是 HomeStatus 的
+            #    `data class Summary(val text: String)` 被当成 Idle 的成员，
+            #    再在全文件报「非限定引用 text」3 处假阳性。
+            #    无体的 object 本来就没有成员，跳过它不损失覆盖率。
+            nl = masked.find("\n", m.end())
+            b = masked.find("{", m.end())
+            if b < 0 or (nl >= 0 and b > nl):
+                continue
+            if b not in pairs:
+                continue
+            body_close = pairs[b]
+            body_depth = dep[b] + 1
+
+            if is_companion:
+                # 宿主 = 最近一个「在上一级深度打开」的 `{`，即所属 class 的体
+                owner = None
+                for o in sorted(pairs):
+                    if o < b and dep[o] == dep[b] - 1 and pairs[o] > b:
+                        owner = o
+                if owner is None:
+                    continue
+                lo, hi = owner, pairs[owner]
+                host = f"{obj_name or ''}companion object"
+            else:
+                lo, hi = b, body_close
+                host = f"object {obj_name}"
+
+            # 只取**体直接一层**的声明（函数体内的局部变量不算成员）
+            for rx in (VAL_DECL_RE, VAR_DECL_RE, FUN_DECL_RE):
+                for mm in rx.finditer(masked, b + 1, body_close):
+                    if dep[mm.start()] == body_depth:
+                        scopes.append(
+                            (mm.group(1), lo, hi, host,
+                             masked[:mm.start()].count("\n") + 1)
+                        )
+
+        if not scopes:
+            continue
+
+        seen: set[tuple[str, int]] = set()
+        for name, lo, hi, host, decl_line in scopes:
+            if name in file_level or name in imported:
+                continue
+            use_re = re.compile(rf'(?<![\w.])(?<!::){re.escape(name)}\b')
+            for um in use_re.finditer(masked):
+                p = um.start()
+                if lo <= p <= hi:
+                    continue
+                if DECL_BEFORE_RE.search(masked[max(0, p - 12): p]):
+                    continue  # 这是同名声明本身，不是引用
+                line = masked[:p].count("\n") + 1
+                if (name, line) in seen:
+                    continue
+                seen.add((name, line))
+                errors.append(
+                    f"{rel(kt)}:{line}: 非限定引用了 `{name}`，但它声明在 "
+                    f"{host}（第 {decl_line} 行）里，而此处已出宿主作用域 —— "
+                    f"必须写 `Owner.{name}` / `X.{name}`，否则编译报 "
+                    f"Unresolved reference（CI #21 的 3 个错误就是这一条）"
+                )
+
+
+def check_duplicate_constants() -> None:
+    """**同名且同值**的 `const val` 在多个文件重复定义 → 提示收敛到一处。
+
+    2026-10-03：`DEFAULT_SLEEP_H = 7.5` 同时存在于 SettingsViewModel 与
+    StatusDetailViewModel；`DEFAULT_TARGET_KCAL = 2500` 甚至有 4 份
+    （HealthAggregator / MainViewModel / TodaySummary / 设置页）。这类重复是
+    「改了 A 忘了改 B」的温床 —— 本轮它就是**以编译错误的形式**连本带利还回来的。
+
+    判据**刻意收紧**为「同名 **且** 同值」：
+      - 只是同名（各类的 `TAG`）不算问题 —— 那些本来就该各自不同
+      - 值不是字面量（如 `const val KEY_X = SettingsKeys.X`）不算问题 ——
+        那是**故意**的转发别名，指向同一个来源
+    """
+    lit_re = re.compile(
+        r'\bconst val (\w+)\s*(?::\s*[\w<>?.\s]+)?=\s*'
+        r'("(?:[^"\\]|\\.)*"|[-+]?\d[\w.\s*+\-/]*?)\s*(?://[^\n]*)?$',
+        re.M,
+    )
+    found: dict[tuple[str, str], list[str]] = {}
+    for kt in sorted(JAVA.rglob("*.kt")):
+        for name, val in lit_re.findall(kt.read_text(encoding="utf-8")):
+            found.setdefault((name, val.strip()), []).append(rel(kt))
+    for (name, val), files in sorted(found.items()):
+        if len(files) > 1:
+            warnings.append(
+                f"`const val {name} = {val}` 在 {len(files)} 个文件重复定义"
+                f"（{', '.join(files)}）—— 建议收敛到唯一来源，"
+                f"否则改一处漏一处（本轮 CI 失败的同类根因）"
+            )
+
+
 def main() -> int:
     if not DB.exists():
         print(f"找不到 db 目录：{DB}")
@@ -960,6 +1198,8 @@ def main() -> int:
     check_settings_keys_consistency()
     check_no_gamification()
     check_prompt_parity()
+    check_object_scope()
+    check_duplicate_constants()
 
     print("=" * 64)
     print("Healix Kotlin/Room 静态检查")

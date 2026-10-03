@@ -5,6 +5,7 @@ import com.healix.app.HealixApp
 import com.healix.app.db.AppDatabase
 import com.healix.app.db.BodySignalEntity
 import com.healix.app.db.EventEntity
+import com.healix.app.db.GoalDefaults
 import com.healix.app.db.GoalMetrics
 import com.healix.app.db.SettingsKeys
 import com.healix.app.parse.DEFAULT_DAY_START_HOUR
@@ -52,8 +53,7 @@ object HealthAggregator {
     /** 聚合回看窗口（天）。取 30 是为了同时覆盖 T3 的「近 30 日」。 */
     private const val LOOKBACK_DAYS: Long = 29
 
-    /** 兜底目标摄入。与 MainViewModel / TodaySummary 的默认值保持一致。 */
-    private const val DEFAULT_TARGET_KCAL = 2500
+    // 兜底目标摄入已收敛到 `GoalDefaults.TARGET_KCAL`（跨文件唯一来源）。
 
     /**
      * 从 DB 聚合出规则层需要的全部输入。**纯读，不写任何东西。**
@@ -80,6 +80,11 @@ object HealthAggregator {
         val last3 = (2 downTo 0).map { today.minusDays(it.toLong()).toString() }
         val last7From = today.minusDays(6).toString()
         val prev7From = today.minusDays(13).toString()
+        // ⚠️ `last7From` 是**字符串**，减法必须在转字符串之前做 ——
+        //    `last7From.minusDays(1)` 是 `String.minusDays`，String 上没这个方法，
+        //    编译期直接 `Unresolved reference 'minusDays'`（CI #21 就栽在这行）。
+        //    单独算一个 prev7To，别在字符串上做日期运算。
+        val prev7To = today.minusDays(7).toString()
         val last14From = today.minusDays(13).toString()
 
         val byDay: Map<String, List<EventEntity>> = rows.groupBy { it.dayKey }
@@ -108,7 +113,7 @@ object HealthAggregator {
         // 近 7 日 / 前 7 日必须用**互斥的日期区间**取，不能靠"取前 N 个"去切 ——
         // 漏记的日子不占位，切片会串档。
         val sleepCur7 = dailySleepHours(rows, last7From, todayKey)
-        val sleepPrev7 = dailySleepHours(rows, prev7From, last7From.minusDays(1))
+        val sleepPrev7 = dailySleepHours(rows, prev7From, prev7To)
 
         val exerciseRows7 = rows.filter { it.type == "exercise" && it.dayKey >= last7From }
 
@@ -157,7 +162,7 @@ object HealthAggregator {
         val dayStart = db.settingsDao().get(SettingsKeys.DAY_START)
             ?.toIntOrNull()?.coerceIn(0, 12) ?: DEFAULT_DAY_START_HOUR
         val target = db.settingsDao().get(SettingsKeys.TARGET_KCAL)
-            ?.toIntOrNull() ?: DEFAULT_TARGET_KCAL
+            ?.toIntOrNull() ?: GoalDefaults.TARGET_KCAL
 
         val snap = snapshot(db, dayStart, target)
         val signals = HealthRules.evaluate(context, snap)
