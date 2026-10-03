@@ -8,17 +8,19 @@
 
 ## 一、当前状态（一句话）
 
-**CI 连续 4 轮全绿，项目首次构建成功并已产出可安装 APK（18,645,124 B / 17.78 MB）。**
+**CI 连续 5 轮全绿，项目首次构建成功并已产出可安装 APK（18,645,124 B / 17.78 MB）。**
 Provider 配置已全部核实填入；Room schema v1 已入库；用户新需求「我的情况」背景项已实现并通过编译。
+**当前交付 APK = run#14 产物**（含背景项），签名 CN=Android Debug，**首次安装前请卸载旧版**（见 3.6）。
 
 | 项 | 值 |
 |---|---|
-| 本地 HEAD | `899347a`（另有 schema 提交 `db3bda6`） |
-| 远程 main | `ee53c7e392c7` |
+| 本地 HEAD | `899347a`（另有 schema `db3bda6`、HANDOFF 修正 `8cddc2c`） |
+| 远程 main | `a48abc012e2e` |
 | 远程 tree == 本地 tree | ✅ 是 |
 | 仓库 | https://github.com/2026heshao/Healix （Public） |
-| 最近 CI | **#12 `ee53c7e3` ✅ success** |
+| 最近 CI | **#14 `a48abc01` ✅ success** |
 | 本地预检 | 三连全绿 |
+| APK | `app-debug.apk` / 桌面 `Healix-v0.1-测试版.apk`，MD5 `7113fac0f543c9897974811bc62dcc37` |
 
 ---
 
@@ -99,6 +101,34 @@ identityHash `7410531927b5aa61859d6711508fdef9`）。
 - 回填加 `!hasFocus()` 条件，否则 `vm.reload()` 会覆写用户正在敲的字
 - 背景为空时 prompt 整段省略，不留「（空）」噪声
 
+### 3.6 APK 交付与签名（run#14 复查结论）
+
+**artifact 是两层包裹**：CI 产物 `healix-debug-apk`（7,007,019 B）是 ZIP 外壳，
+里面才是真正的 `app-debug.apk`（18,645,124 B / 903 条目 / 9 个 dex）。
+**必须解包后再装**，直接装外壳会失败。
+
+**签名是 debug 自签**（不是 CI 复用固定 keystore）：
+
+| 项 | 值 |
+|---|---|
+| 签名方案 | APK Signature Scheme **v2**（无 v3、无 v1/JAR 签名） |
+| 证书主体 | `CN=Android Debug, O=Android, C=US` |
+| 有效期 | 2026-10-03 → 2056-09-25 |
+
+⚠️ **每次 CI 都重新生成一次自签证书**，因此每轮 APK 签名指纹都不同
+（run#12 证书 sha256 `0eb9536c…`，run#14 `3009b624…`）。
+后果：**覆盖安装会报「签名不一致」，必须先卸载旧版再装**。
+若要后续支持覆盖升级，需在 CI 侧固定 keystore（当前未做，属待办）。
+
+### 3.7 换行符漂移修复（CRLF → LF）
+
+`push_via_api.py` 每轮都告警「工作区与 git blob 不一致（5 个文件）」。
+根因：`core.autocrlf=true` 在 checkout 时写 CRLF，而 `.gitattributes`
+声明 `* text=auto eol=lf` 入库为 LF —— 两侧口径不一致，且推送脚本在
+读取时会**回退用 git blob**，存在部署到旧字节的隐患。
+修复：把磁盘侧 6 个含 CRLF 的文件（5 个源文件 + `regression_report.json`）
+统一改回 LF。验证：逐字节比对全部 OK，`git diff --numstat` 为空，三连全绿。
+
 ---
 
 ## 四、CI 战绩（本轮）
@@ -110,6 +140,8 @@ identityHash `7410531927b5aa61859d6711508fdef9`）。
 | **#10** | 4aceb0e7 | ✅ 新增 schema 产物 |
 | **#11** | 87e26220 | ✅ schema 入库 |
 | **#12** | ee53c7e3 | ✅ 背景项 |
+| **#13** | bcbeb7c3 | ✅ HANDOFF 更新 |
+| **#14** | a48abc01 | ✅ **当前交付 APK（含背景项）** |
 
 ---
 
@@ -151,6 +183,8 @@ $PY pipeline/pull_schemas.py <github_token> --run-id <id>
 
 `/tmp/healix_apk.py` 的思路（artifact 下载 + 无鉴权重定向），
 或直接改 run id 复用脚本。
+⚠️ 两个坑：① artifact 端点 302 到 Azure Blob，**带 Authorization 跟随会 401**，
+必须剥掉该头（`NoAuthRedirect` 模式）；② 下载到的 ZIP 里才是真 APK，**必须解包**。
 
 ---
 
@@ -168,7 +202,8 @@ $PY pipeline/pull_schemas.py <github_token> --run-id <id>
 ## 七、待办（下会话接手）
 
 ### 立即
-1. **S1 真机验收**：装 `app-debug.apk` 到 Magic6 Pro
+1. **S1 真机验收**：装桌面 `Healix-v0.1-测试版.apk`（MD5 `7113fac0…`）到 Magic6 Pro
+   ⚠️ **首次安装 / 换轮次重装前先卸载旧版**（每轮签名证书不同，覆盖装必报签名冲突）
    → 设置页选「智谱 GLM」→ 填 API Key → 点「测试连通性」
    → 应显示「连通 · 1.2s」
 2. **验收背景项**：设置页「我的情况」填一段（如「乳糖不耐受，不吃香菜」）
@@ -181,15 +216,18 @@ $PY pipeline/pull_schemas.py <github_token> --run-id <id>
    后台启动限制 / RemoteInput 是否重复投递。见 `docs/待核实清单.md` 第三节
 5. **3 项功能完整度**：通知文案日界线一致性 / 多事件拆分后的撤销语义 /
    `.5` 平局的舍入差异（均已在文档中标注为「MVP 接受」）
+6. **CI 签名未固定**：debug 构建每轮生成新自签证书 → 无法覆盖升级。
+   若要长期发测试包，需把 keystore 用 GitHub Secrets 注入
+   （`signingConfigs` 引用 `System.getenv`），当前**刻意未做**（避免凭据进 CI）
 
 ### 技术债
-6. **n06 用例波动**：多事件拆分含体重时模型输出不稳定
+7. **n06 用例波动**：多事件拆分含体重时模型输出不稳定
    （v1 ✓ / v2 ✓ / v2b ✗，`58.2` 被吞成 `0.0`）。属模型不确定性非规则缺陷。
    建议多跑 3 次取多数，或报告加稳定性指标
-7. **Agent 化（L2/L3）**：地基缺口补完后才动。见 `功能补充与套壳选型.md` 第八章
+8. **Agent 化（L2/L3）**：地基缺口补完后才动。见 `功能补充与套壳选型.md` 第八章
 
 ### ⚠️ 安全
-8. 智谱 GLM API Key（`871dbf24...`）曾出现在对话记录中 —— **建议重置**。
+9. 智谱 GLM API Key（`871dbf24...`）曾出现在对话记录中 —— **建议重置**。
    GitHub PAT 存于知识库，属长期凭据，注意不要外泄。
 
 ---
