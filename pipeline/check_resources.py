@@ -16,6 +16,7 @@ CI 首跑时 mergeDebugResources 报 `Found item String/type_meal more than one 
 from __future__ import annotations
 
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -121,6 +122,39 @@ def check_night_overrides() -> None:
                 )
 
 
+def check_shell_line_endings() -> None:
+    """gradlew / *.sh 必须是 LF。
+
+    Linux runner 上 `./gradlew` 若带 CRLF，内核会报
+    `bad interpreter: /bin/sh^M` —— 这是纯换行符问题，却要等 CI 跑起来
+    才炸。静态查一遍，1 秒内定位。
+
+    ⚠️ 这里**必须读 git blob 而不是工作区文件**。本机 core.autocrlf=true，
+    工作区里所有文件都是 CRLF，读工作区会把正常文件全判成错误（假阳性）。
+    git 存储的内容才是 CI 实际拿到的东西。
+    """
+    if not (ROOT / ".git").exists():
+        return  # 非 git 环境（如打包后的源码）跳过
+    targets = ["gradlew", *[p.name for p in ROOT.glob("*.sh")]]
+    for name in targets:
+        f = ROOT / name
+        if not f.exists():
+            continue
+        try:
+            data = subprocess.run(
+                ["git", "cat-file", "-p", f"HEAD:{name}"],
+                cwd=ROOT, capture_output=True, check=True,
+            ).stdout
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            data = f.read_bytes()
+        if b"\r\n" in data:
+            n = data.count(b"\r\n")
+            errors.append(
+                f"{name}: 在 git 中是 CRLF（{n} 处）—— Linux 上会报 "
+                f"'bad interpreter: /bin/sh^M'，应为 LF"
+            )
+
+
 def main() -> int:
     if not RES.exists():
         print(f"找不到资源目录：{RES}")
@@ -129,6 +163,7 @@ def main() -> int:
     check_duplicates()
     check_references()
     check_night_overrides()
+    check_shell_line_endings()
 
     print("=" * 64)
     print("Healix 资源静态检查")
