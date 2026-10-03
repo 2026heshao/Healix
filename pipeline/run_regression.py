@@ -119,10 +119,13 @@ def process_one(
     assert isinstance(result, Ok)
 
     # 第 4 步：后处理
-    events = C.extract_events_from_response(result.content)
+    # 用 or_fallback 版本：模型返回合法 JSON 但 events 为空时，产出 1 条 other 兜底，
+    # 而不是标 failed。理由见 contract.fallback_other_event 的 docstring。
+    events = C.extract_events_or_fallback(result.content)
+    fell_back = _is_pure_fallback(result.content, events)
 
-    if not events:
-        store.mark_failed(conn, cid, "schema_invalid: 无法从响应中解析出任何事件")
+    if fell_back:
+        # 记录一次降级埋点，便于观测模型退化频率（但不影响用例本身成败）
         store.log_llm_call(
             conn,
             purpose="extract",
@@ -130,21 +133,12 @@ def process_one(
             prompt_ver=C.PROMPT_VER,
             attempts=1,
             latency_ms=latency_ms,
-            status="schema_invalid",
+            status="degraded",
             http_code=200,
             input_tokens=result.usage.input_tokens,
             output_tokens=result.usage.output_tokens,
             error_head=result.content[:200],
         )
-        # 原文仍在库里（pending→failed），不丢数据
-        return {
-            "ok": False,
-            "cid": cid,
-            "events": [],
-            "error": "schema_invalid",
-            "raw_response": result.content[:200],
-            "latency_ms": latency_ms,
-        }
 
     # 第 5 步：入库。第一条复用 pending 行（覆盖更新），其余新增
     store.update_event_parsed(conn, cid, events[0], parse_status="done")
@@ -196,6 +190,40 @@ def _foods_contains(events: list[dict[str, Any]], needles: list[str]) -> bool:
     """检查所有事件的 foods 里是否出现全部关键字（模糊包含，容忍模型加字）。"""
     haystack = " ".join(" ".join(e.get("foods", [])) for e in events)
     return all(n in haystack for n in needles)
+
+
+def _classify_infra_error(err: str) -> str | None:
+    """把「调用失败」归类为基础设施问题（返回类型名）或链路问题（返回 None）。
+
+    基础设施失败 = 这次请求根本没拿到模型输出，链路代码无从被检验。
+    典型：免费档限流（智谱 1305 全局高峰 / 1302 账户速率）、请求超时、鉴权失败。
+
+    区分这两类是本脚本的诊断核心：一次高峰期限流能让 22/22 全挂，
+    但那不代表 Prompt 或后处理有任何缺陷。
+    """
+    low = err.lower()
+    # 智谱限流码：1305 模型访问量过大 / 1302 账户速率限制；通用 429
+    if ("rate_limit" in low or "1305" in low or "1302" in low
+            or "429" in low or "访问量过大" in err or "速率限制" in err):
+        return "限流"
+    if "timeout" in low or "timed out" in low or "超时" in err:
+        return "超时"
+    if ("auth" in low or "401" in low or "403" in low
+            or "unauthorized" in low or "invalid api key" in low):
+        return "鉴权失败"
+    if ("network" in low or "connection" in low or "dns" in low
+            or "ssl" in low or "connectionreset" in low):
+        return "网络错误"
+    return None
+
+
+def _is_pure_fallback(content: str, events: list[dict[str, Any]]) -> bool:
+    """判断这批 events 是否完全是兜底产物（模型没给出任何可用事件）。
+
+    条件：解析原始响应得到空列表，而我们用 fallback_other_event 顶上了 1 条。
+    用于打 degraded 埋点，观测模型退化频率。
+    """
+    return len(events) == 1 and not C.extract_events_from_response(content)
 
 
 def grade_case(case: dict[str, Any], events: list[dict[str, Any]]) -> tuple[bool, list[str]]:
@@ -334,6 +362,10 @@ def main() -> int:
 
     passed = 0
     failed: list[dict[str, Any]] = []
+    # 基础设施失败：限流 / 超时 / 认证 / 网络。这些**不是链路缺陷**，必须与
+    # 「模型正常返回但解析不符合预期」分开统计，否则一次限流就能把通过率打到 0%，
+    # 报告失去诊断价值（实测：glm-4.7-flash 限流导致 22 条全挂，全非链路问题）。
+    infra_failed: list[dict[str, Any]] = []
     latencies: list[int] = []
     total_in = total_out = 0
     multi_event_ok = 0
@@ -352,8 +384,18 @@ def main() -> int:
             multi_event_total += 1
 
         if not result["ok"]:
-            print(f"  ✗ {case['id']} [{case['tag']}] 调用失败: {result['error']}")
-            failed.append({"id": case["id"], "tag": case["tag"], "reasons": [result["error"]]})
+            err = result["error"]
+            # 归类：rate_limit / timeout / auth / 其他调用失败 → 基础设施
+            infra_kind = _classify_infra_error(err)
+            if infra_kind:
+                print(f"  ⚠ {case['id']} [{case['tag']}] {infra_kind}: {err[:90]}")
+                infra_failed.append({
+                    "id": case["id"], "tag": case["tag"],
+                    "kind": infra_kind, "error": err,
+                })
+            else:
+                print(f"  ✗ {case['id']} [{case['tag']}] 调用失败: {err}")
+                failed.append({"id": case["id"], "tag": case["tag"], "reasons": [err]})
             continue
 
         latencies.append(result["latency_ms"])
@@ -377,18 +419,39 @@ def main() -> int:
     total_in, total_out = int(usage_row["a"]), int(usage_row["b"])
 
     total = len(selected)
+    # 有效样本 = 真正拿到模型输出的用例（排除基础设施失败）
+    effective = total - len(infra_failed)
     rate = passed / total if total else 0.0
+    effective_rate = passed / effective if effective else 0.0
     p95 = sorted(latencies)[int(len(latencies) * 0.95)] if latencies else 0
 
     print("-" * 68)
     print(f"  通过      : {passed}/{total} = {rate:.1%}   （目标 ≥ {CASES_MOD.PASS_RATE_TARGET:.0%}）")
+    if infra_failed:
+        # 基础设施失败不计入「链路通过率」分母，否则指标失真
+        print(f"  有效样本  : {effective}/{total}（剔除 {len(infra_failed)} 条基础设施失败）")
+        print(f"  链路通过率: {passed}/{effective} = {effective_rate:.1%}   ← 这才是链路真实表现")
+        from collections import Counter as _C
+        kinds = _C(x["kind"] for x in infra_failed)
+        print(f"  基础设施失败分布: " + " / ".join(f"{k} {v}条" for k, v in kinds.most_common()))
     print(f"  多事件拆分 : {multi_event_ok}/{multi_event_total}")
     print(f"  P95 延迟  : {p95} ms")
     print(f"  平均延迟  : {sum(latencies) // len(latencies) if latencies else 0} ms")
     print(f"  token     : 入 {total_in} / 出 {total_out}")
     if failed:
-        print(f"  失败清单  : {', '.join(f['id'] for f in failed)}")
+        print(f"  链路失败清单: {', '.join(f['id'] for f in failed)}")
+    if infra_failed:
+        print(f"  基础设施失败: {', '.join(f['id'] for f in infra_failed)}")
     print("=" * 68)
+
+    # 退出码：只在「有效样本」上判定，避免限流误报失败
+    if effective == 0:
+        print("  ⚠ 有效样本为 0 —— 全部请求都未拿到模型输出，本次结果无诊断价值。")
+        print("    请检查网络 / 配额 / 模型名，换一个可用模型重跑。")
+    elif effective_rate < CASES_MOD.PASS_RATE_TARGET:
+        print(f"  ✗ 链路通过率 {effective_rate:.1%} 低于目标 {CASES_MOD.PASS_RATE_TARGET:.0%}，需排查。")
+    else:
+        print(f"  ✓ 链路通过率 {effective_rate:.1%} 达标。")
 
     report = {
         "prompt_ver": C.PROMPT_VER,

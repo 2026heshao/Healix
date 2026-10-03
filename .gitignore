@@ -44,7 +44,7 @@ pipeline/__pycache__/
 venv/
 
 # 回归测试运行日志：含 API 原始响应，不入库
-.regression_out.log
+.regression*.log
 *.regression.log
 
 # 工作区本地数据（记忆/会话缓存），属本机状态而非项目源码
