@@ -8,7 +8,7 @@
 
 ## 一、当前状态（一句话）
 
-**CI 连续 4 轮全绿，项目首次构建成功并已产出可安装 APK（7,007,018 B）。**
+**CI 连续 4 轮全绿，项目首次构建成功并已产出可安装 APK（18,645,124 B / 17.78 MB）。**
 Provider 配置已全部核实填入；Room schema v1 已入库；用户新需求「我的情况」背景项已实现并通过编译。
 
 | 项 | 值 |
@@ -237,7 +237,7 @@ D:\桌面\AI Port\Healix\
 │       ├── ChatEngine.kt    # ★ systemPrompt 拼背景（本轮改）
 │       └── SettingsActivity.kt   # ★ 背景输入框（本轮改）
 ├── app\schemas\             # ★ Room schema v1（已入库）
-├── app-debug.apk            # ★ 可安装 APK（7,007,018 B）
+├── app-debug.apk            # ★ 可安装 APK（18,645,124 B，同 桌面/Healix-v0.1-测试版.apk）
 ├── .github\workflows\
 │   ├── ci.yml               # 编译 + 单测 + 静态检查 + schema 产物
 │   └── release.yml
