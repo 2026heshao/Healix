@@ -235,7 +235,11 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun chooseProvider() {
-        val presets = vm.providerNames()
+        // ⚠️ setItems 只接受 Array<CharSequence>，不接受 List<String>。
+        //    vm.providerNames() 返回 List<String>，直接传会报
+        //    「None of the following candidates is applicable」，
+        //    并连锁导致后续 setNegativeButton 也解析失败（返回类型未定）。
+        val presets = vm.providerNames().toTypedArray()
         AlertDialog.Builder(this)
             .setTitle(R.string.provider)
             .setItems(presets) { _, which -> vm.selectProvider(which) }

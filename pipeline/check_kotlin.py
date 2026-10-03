@@ -15,6 +15,7 @@
   5. Activity/Sheet 里 binding.xxx 与布局 @+id/xxx 是否匹配
   6. Manifest 里 android:name 指向的类是否存在
   7. AndroidManifest 引用的 @xml/@mipmap/@style/@string 是否声明
+  8. `AlertDialog.Builder.setItems()` 首参传 List<String>（只接受 Array）
 
 退出码：0 = 全通过；1 = 发现问题。
 """
@@ -402,6 +403,77 @@ def check_shadowed_R() -> None:
                 )
 
 
+def check_set_items_argument() -> None:
+    """`AlertDialog.Builder.setItems(...)` 只接受 **Array<CharSequence>**，
+    不接受 List<String>。
+
+    实测 CI 报错（run#8）：
+      SettingsActivity.kt:241:14 None of the following candidates is applicable:
+      fun setItems(p0: Int, p1: DialogInterface.OnClickListener!)
+      fun setItems(p0: (Array<CharSequence!>..Array<out CharSequence!>?),
+                   p1: DialogInterface.OnClickListener!)
+      SettingsActivity.kt:241:34 Cannot infer type for this parameter.
+    `providerNames()` 返回 List<String> 直接传给 setItems → 候选全不适用；
+    链式调用后 `setNegativeButton` 也随之解析失败（返回类型未定）。
+
+    判据（**跨文件**收集，因为 `vm.providerNames()` 定义在 ViewModel 里）：
+      a) `.setItems( 标识符 )` 且该标识符在**全工程**由 `fun x(): List<String>` 定义
+      b) `.setItems( listOf(...) )`
+    另识别 `val x = vm.y()` 这种「先落变量再传入」的中转形态。
+    """
+    ret_list_re = re.compile(r'fun\s+(\w+)\s*\([^)]*\)\s*:\s*List<\s*String\s*>')
+    # 本地变量 = 某个返回 List<String> 的调用；`listOf(...)` 本身即 List
+    alias_re = re.compile(r'\bval\s+(\w+)\s*=\s*[\w.]*?(\w+)\s*\(')
+    # 已转成数组的变量（.toTypedArray() / .toArray(...)）—— 不再算 List
+    to_array_re = re.compile(r'\bval\s+(\w+)\s*=[^=]*\.to(?:Typed)?Array\s*\(')
+
+    list_funcs: set[str] = set()
+    for kt in sorted(JAVA.rglob("*.kt")):
+        list_funcs |= set(ret_list_re.findall(kt.read_text(encoding="utf-8")))
+    # 无参调用才会整体是 List；带参调用（如 put(k,v)）不算，除非是已知函数名。
+    # `listOf` 自身即构造 List，恒算。
+    list_funcs |= {"listOf", "mutableListOf", "listOfNotNull"}
+
+    call_re = re.compile(r'\.setItems\s*\(\s*([A-Za-z_]\w*|listOf\s*\()')
+
+    for kt in sorted(JAVA.rglob("*.kt")):
+        text = kt.read_text(encoding="utf-8")
+        # 本文件里「值为 List<String>」的局部变量名：来自已知函数、或 listOf 且无参
+        list_vars: set[str] = set()
+        for var, fn in alias_re.findall(text):
+            if fn in list_funcs:
+                # 判断是调用是否带参：listOf( 恒算；其它需 0 参
+                if fn in ("listOf", "mutableListOf", "listOfNotNull"):
+                    list_vars.add(var)
+                elif re.search(re.escape(fn) + r'\s*\(\s*\)', text):
+                    list_vars.add(var)
+        # 已经 toTypedArray() 的变量从嫌疑名单里剔除（同一名字被重新赋值为数组）
+        list_vars -= set(to_array_re.findall(text))
+        for lineno, line in enumerate(code_lines(text), 1):
+            m = call_re.search(line)
+            if not m:
+                continue
+            arg = m.group(1).strip()
+            bad = False
+            reason = ""
+            if arg.startswith("listOf"):
+                bad, reason = True, "`listOf(...)` 返回 List"
+            elif arg.endswith("()"):
+                fname = arg[:-2].split(".")[-1]
+                if fname in list_funcs:
+                    bad, reason = True, f"`{fname}()` 返回 List<String>"
+            elif arg in list_vars:
+                bad, reason = True, f"局部变量 `{arg}` 来自返回 List<String> 的调用"
+            if bad:
+                errors.append(
+                    f"{rel(kt)}:{lineno}: setItems() 首参传了 List<String>"
+                    f"（{reason}），它只接受 Array<CharSequence>。"
+                    f"改用 `.toTypedArray()`；否则会产生 "
+                    f"「None of the following candidates is applicable」"
+                    f"并连带使后续 setNegativeButton 解析失败"
+                )
+
+
 # 识别 `fun xxx(` / `suspend fun xxx(` 定义
 FUN_DEF_RE = re.compile(r'^\s*(?:@\w+\s+)*(?:internal\s+|private\s+|public\s+|protected\s+)?'
                         r'(suspend\s+)?fun\s+(?:<[^>]*>\s*)?(\w+)\s*\(')
@@ -606,6 +678,7 @@ def main() -> int:
     check_projection_types(tables)
     check_view_binding()
     check_shadowed_R()
+    check_set_items_argument()
     check_suspend_calls()
     check_undefined_self_calls()
     check_manifest_classes()
