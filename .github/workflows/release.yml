@@ -62,8 +62,14 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      # ⚠️ 必须显式列出 packages：不写时 setup-android@v3 会尝试安装已被移除的旧
+      #    `tools` 包，sdkmanager 报 "Failed to find package 'tools'" 退出 1。
+      #    与 ci.yml 保持同一份清单。
       - name: 配置 Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-35 build-tools;35.0.0 platform-tools'
+          accept-android-sdk-licenses: true
 
       - name: 缓存 Gradle
         uses: actions/cache@v4

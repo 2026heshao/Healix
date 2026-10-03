@@ -40,9 +40,17 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      # Android SDK 由 runner 预装，这一步负责接受 licenses 并配置 ANDROID_HOME
+      # Android SDK 由 runner 预装（ubuntu-latest 自带 ANDROID_HOME）。
+      #
+      # ⚠️ 必须显式列出 packages。不写 packages 时，setup-android@v3 会尝试安装
+      #    已被新版 SDK 仓库移除的旧 `tools` 包，导致 sdkmanager 报
+      #    "Failed to find package 'tools'" 并退出 1（实测 CI 首跑即挂在此步）。
+      #    只装我们真正需要的：platform 35（compileSdk）+ build-tools 35。
       - name: 配置 Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-35 build-tools;35.0.0 platform-tools'
+          accept-android-sdk-licenses: true
 
       # Gradle 缓存：key 跟 build.gradle 的 hash 走，依赖不变则命中
       - name: 缓存 Gradle
