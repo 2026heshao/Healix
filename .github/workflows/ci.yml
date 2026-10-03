@@ -73,6 +73,13 @@ jobs:
       - name: 资源静态检查
         run: python3 pipeline/check_resources.py
 
+      # Kotlin/Room 静态检查：本机不装 JDK，编译错误本地复现不了；
+      # 这一步把「编译器最常抓到的那几类问题」提前到秒级暴露
+      # （重复 @TypeConverter、SUM() 映射成 Int、悬空 binding.xxx、
+      #   Manifest 指向不存在的类/资源）。
+      - name: Kotlin/Room 静态检查
+        run: python3 pipeline/check_kotlin.py
+
       # Python 侧合约自测：67 项断言，纯离线，不依赖网络/API key
       - name: Python 合约自测
         run: python3 pipeline/tests/test_norm.py

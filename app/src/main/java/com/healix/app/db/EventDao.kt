@@ -1,5 +1,6 @@
 package com.healix.app.db
 
+import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
@@ -156,8 +157,17 @@ interface EventDao {
     suspend fun listAll(): List<EventEntity>
 }
 
+/**
+ * 按天聚合的投影（趋势页用）。
+ *
+ * ⚠️ 类型必须是 **Long**，不能是 Int：
+ *    SQLite 的 `SUM()` 返回 64 位 INTEGER，Room 对 POJO 投影做严格类型校验，
+ *    声明成 Int 会编译失败（这一点和标量返回不同 —— 标量返回 Room 允许隐式
+ *    窄化，POJO 字段不允许）。
+ *    调用方若需要 Int，自行做边界检查后转换，不要让 Room 替我们猜。
+ */
 data class DailyAggregate(
-    @androidx.room.ColumnInfo(name = "day_key") val dayKey: String,
-    @androidx.room.ColumnInfo(name = "kcal_in") val kcalIn: Int,
-    @androidx.room.ColumnInfo(name = "kcal_out") val kcalOut: Int,
+    @ColumnInfo(name = "day_key") val dayKey: String,
+    @ColumnInfo(name = "kcal_in") val kcalIn: Long,
+    @ColumnInfo(name = "kcal_out") val kcalOut: Long,
 )

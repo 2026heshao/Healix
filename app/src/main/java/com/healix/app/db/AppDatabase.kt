@@ -4,7 +4,6 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
-import androidx.room.TypeConverter
 import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 
@@ -76,11 +75,20 @@ abstract class AppDatabase : RoomDatabase() {
     }
 }
 
-/** Room 类型转换器。目前实体字段已用基础类型，保留扩展位。 */
-class HealixConverters {
-    @TypeConverter
-    fun fromLongOrNull(value: Long?): Long? = value
-
-    @TypeConverter
-    fun toLongOrNull(value: Long?): Long? = value
-}
+/**
+ * Room 类型转换器。
+ *
+ * ⚠️ 曾经的错误写法（已修）：
+ *    这里放了两个签名完全相同的 `Long? -> Long?` 转换器：
+ *      fun fromLongOrNull(value: Long?) = value
+ *      fun toLongOrNull(value: Long?) = value
+ *    Room/KSP 会报「重复的 TypeConverter」而编译失败。
+ *    而且 `Long? -> Long?` 本身是恒等变换 —— Room 原生就支持 Long?，
+ *    根本不需要转换器。
+ *
+ * 现在保留**空类**：实体字段已全部用 Room 原生支持的基础类型
+ * （Long / Int / Double / String / Long?），无需任何自定义转换。
+ * 之所以还留着这个类与 @TypeConverters 注解，是为了给后续扩展留个
+ * 明确的位置；新增转换器时务必避免签名重复。
+ */
+class HealixConverters
