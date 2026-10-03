@@ -30,8 +30,11 @@ internal object ChatEngine {
 
     /**
      * 单轮回复。**不抛异常** —— 失败时返回本地模板回答并标记 Degraded。
+     *
+     * `suspend`：内部要调 `provider.chat()`（挂起函数，网络 IO）。
+     * 调用方（ChatViewModel）本身已在协程里，直接调用即可。
      */
-    fun reply(
+    suspend fun reply(
         context: Context,
         config: ProviderConfig,
         sessionDate: String,

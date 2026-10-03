@@ -27,6 +27,28 @@ JAVA = ROOT / "app/src/main/java"
 errors: list[str] = []
 warnings: list[str] = []
 
+
+def strip_kotlin_comments(text: str) -> str:
+    """去掉 Kotlin 的 // 行注释与 /* */ 块注释。
+
+    注释是给人看的说明，里面常常出现示例代码（包括故意写错的反例）。
+    检查器若不剥注释，就会把说明文字当成真实代码 —— 这正是
+    「R.string.xxx」假阳性的来源。
+    """
+    text = re.sub(r'/\*.*?\*/', '', text, flags=re.S)
+    out = []
+    for line in text.splitlines():
+        in_str = False
+        cut = None
+        for i, ch in enumerate(line):
+            if ch == '"':
+                in_str = not in_str
+            elif not in_str and ch == '/' and i + 1 < len(line) and line[i + 1] == '/':
+                cut = i
+                break
+        out.append(line if cut is None else line[:cut])
+    return "\n".join(out)
+
 # ---------------------------------------------------------------------------
 # 1. 同一文件内重复定义
 # ---------------------------------------------------------------------------
@@ -96,7 +118,11 @@ def check_references() -> None:
 
     # --- Kotlin 引用 ---
     for kt in sorted(JAVA.rglob("*.kt")):
-        text = kt.read_text(encoding="utf-8")
+        # ⚠️ 必须先剥掉注释再扫。踩过的坑：在代码注释里举例写了
+        #    「于是 `R.string.xxx` 解析失败」，结果检查器把注释里的
+        #    `R.string.xxx` 当成真实引用，报「引用不存在的 R.string.xxx」。
+        #    检查器扫描注释 = 自己给自己造假阳性。
+        text = strip_kotlin_comments(kt.read_text(encoding="utf-8"))
         for kind in ("string", "color", "dimen", "layout", "drawable", "array"):
             for ref in set(re.findall(rf"R\.{kind}\.([A-Za-z0-9_]+)", text)):
                 if ref not in declared.get(kind, set()):

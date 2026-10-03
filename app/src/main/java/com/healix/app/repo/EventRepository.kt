@@ -6,6 +6,8 @@ import com.healix.app.db.EventEntity
 import com.healix.app.security.SecretStore
 import com.healix.app.net.ChatRequest
 import com.healix.app.net.ChatResult
+import com.healix.app.net.ErrKind
+import com.healix.app.net.LlmProvider
 import com.healix.app.net.OpenAiCompatProvider
 import com.healix.app.net.ProviderConfig
 import com.healix.app.parse.DEFAULT_DAY_START_HOUR
@@ -43,6 +45,32 @@ class EventRepository(private val context: Context) {
     private val llmCallDao = db.llmCallDao()
     private val settingsDao = db.settingsDao()
     private val secretStore: SecretStore? = HealixApp.from(context).secretStore
+
+    /**
+     * Provider 工厂。
+     *
+     * 当前只有一个 OpenAI 兼容实现（覆盖智谱/DeepSeek/OpenRouter/SiliconFlow），
+     * 所以工厂只是「用 config 造一个 OpenAiCompatProvider」。
+     * 之所以仍抽出这一层：调用点只写 `providerFactory.create(config)`，
+     * 将来接入非 OpenAI 兼容协议的厂商时，只需改工厂内部，调用点无感。
+     *
+     * 共享同一个 OkHttpClient（连接池复用）—— 每次新建 client 会浪费连接池
+     * 并泄漏线程，是 OkHttp 的经典误用。
+     */
+    private val sharedHttpClient: okhttp3.OkHttpClient by lazy {
+        okhttp3.OkHttpClient.Builder()
+            .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+            .writeTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+            .build()
+    }
+
+    private val providerFactory: ProviderFactory = ProviderFactory(sharedHttpClient)
+
+    /** 极简工厂。见 providerFactory 的注释说明它为何存在。 */
+    class ProviderFactory(private val client: okhttp3.OkHttpClient?) {
+        fun create(config: ProviderConfig): LlmProvider = OpenAiCompatProvider(config, client)
+    }
 
     companion object {
         /** settings 表的键名（非敏感项）。apiKey **不在**这里（C6）。 */
@@ -148,7 +176,7 @@ class EventRepository(private val context: Context) {
         }
 
         // ── 第 3 步：调云端（含退避重试）──────────────────────────────
-        val provider = OpenAiCompatProvider(config)
+        val provider = providerFactory.create(config)
         val request = ChatRequest(
             messages = buildExtractMessages(rawText),
             temperature = 0.3,
@@ -167,7 +195,9 @@ class EventRepository(private val context: Context) {
             val reason = "${result.kind.name.lowercase()}: ${result.message}"
             eventDao.markFailed(cid, reason.take(200), System.currentTimeMillis())
 
-            logCall(
+            recordCall(
+                purpose = PURPOSE_EXTRACT,
+                eventId = null,
                 model = config.model,
                 attempts = if (result.attempts > 0) result.attempts else request.maxRetries + 1,
                 latencyMs = latencyMs,
@@ -198,7 +228,9 @@ class EventRepository(private val context: Context) {
         val events = extractEvents(ok.content)
         if (events.isEmpty()) {
             eventDao.markFailed(cid, "schema_invalid: 无法从响应中解析出任何事件", System.currentTimeMillis())
-            logCall(
+            recordCall(
+                purpose = PURPOSE_EXTRACT,
+                eventId = null,
                 model = config.model,
                 attempts = 1,
                 latencyMs = latencyMs,
@@ -251,7 +283,9 @@ class EventRepository(private val context: Context) {
                 eventDao.insertIgnoreAll(extras)
             }
 
-            logCall(
+            recordCall(
+                purpose = PURPOSE_EXTRACT,
+                eventId = null,
                 model = config.model,
                 attempts = 1,
                 latencyMs = latencyMs,
@@ -344,7 +378,9 @@ class EventRepository(private val context: Context) {
 
             eventDao.fillParsed(
                 clientEventId = clientEventId,
-                type = TYPE_VALID.getOrDefault(type, "other"),
+                // TYPE_VALID 是 Set，没有 getOrDefault（那是 Map 的方法）。
+                // 用 if/else 显式表达「非法 type 统一回落 other」。
+                type = if (type in TYPE_VALID) type else "other",
                 timeHint = timeHint,
                 foods = foodsJson,
                 exercise = exercise,
@@ -499,7 +535,18 @@ class EventRepository(private val context: Context) {
                     updatedAt = System.currentTimeMillis(),
                 )
 
-                val extras = parsed.drop(1).map { it.toEntity(UUID.randomUUID().toString(), entity.ts, entity.rawText, entity.source) }
+                // ⚠️ toEntity 需要 dayStartHour 才能算对 day_key（4:00 日界线）。
+                //    这里必须显式传入，否则多事件拆分出的副事件会落到错误的「天」，
+                //    导致当日汇总对不上。
+                val extras = parsed.drop(1).map {
+                    it.toEntity(
+                        clientEventId = UUID.randomUUID().toString(),
+                        ts = entity.ts,
+                        rawText = entity.rawText,
+                        source = entity.source,
+                        dayStartHour = loadDayStartHour(),
+                    )
+                }
                 if (extras.isNotEmpty()) eventDao.insertIgnoreAll(extras)
 
                 recordCall(
@@ -582,23 +629,28 @@ class EventRepository(private val context: Context) {
     /**
      * 写埋点。**失败不能影响主流程** —— 埋点是观测手段，不是业务。
      * errorHead 已在 provider 层脱敏，这里只做长度保护。
+     *
+     * 参数名与 [com.healix.app.db.LlmCallEntity] 的列名逐一对应，
+     * 调用点全部用命名参数，避免顺序错位。
      */
-    private suspend fun logCall(
+    private suspend fun recordCall(
+        purpose: String,
+        eventId: Long?,
         model: String,
         attempts: Int,
         latencyMs: Long,
         status: String,
-        httpCode: Int?,
-        inputTokens: Int?,
-        outputTokens: Int?,
-        errorHead: String?,
+        httpCode: Int? = null,
+        inputTokens: Int? = null,
+        outputTokens: Int? = null,
+        errorHead: String? = null,
     ) {
         try {
             llmCallDao.insert(
                 com.healix.app.db.LlmCallEntity(
                     ts = System.currentTimeMillis(),
-                    purpose = PURPOSE_EXTRACT,
-                    eventId = null,
+                    purpose = purpose,
+                    eventId = eventId,
                     model = model,
                     promptVer = PROMPT_VER,
                     attempts = attempts,

@@ -78,24 +78,36 @@ object EventText {
      * 无可用信息时返回 null（UI 隐藏该行，不留空占位）。
      */
     fun summary(context: android.content.Context, event: com.healix.app.db.EventEntity): String? {
-        val R = com.healix.app.R
+        // ⚠️ 千万不要在这里写 `val R = com.healix.app.R`：
+        //    局部名字 R 会**遮蔽**掉生成的 R 类，于是 `R.string.xxx`
+        //    变成「在一个 Class 引用上取 string」——编译报
+        //      Classifier 'class R : Any' does not have a companion object,
+        //      so it cannot be used as an expression
+        //      Unresolved reference 'string'
+        //    （实测 CI 就是被这个坑挂住的。）
         return when (event.type) {
             "meal", "exercise" -> {
-                val base = if (event.kcal > 0) context.getString(R.string.summary_kcal, event.kcal) else null
+                val base = if (event.kcal > 0) {
+                    context.getString(com.healix.app.R.string.summary_kcal, event.kcal)
+                } else {
+                    null
+                }
                 when {
                     base != null && event.amount.isNotBlank() ->
-                        context.getString(R.string.summary_kcal_amount, event.kcal, event.amount)
+                        context.getString(
+                            com.healix.app.R.string.summary_kcal_amount, event.kcal, event.amount,
+                        )
                     base != null -> base
                     event.amount.isNotBlank() -> event.amount
                     else -> null
                 }
             }
             "body" -> if (event.weightKg > 0) {
-                context.getString(R.string.summary_weight, trimNumber(event.weightKg))
+                context.getString(com.healix.app.R.string.summary_weight, trimNumber(event.weightKg))
             } else null
 
             "sleep" -> if (event.sleepH > 0) {
-                context.getString(R.string.summary_sleep, trimNumber(event.sleepH))
+                context.getString(com.healix.app.R.string.summary_sleep, trimNumber(event.sleepH))
             } else null
 
             "illness" -> event.symptom.ifBlank { null }

@@ -350,6 +350,196 @@ def check_view_binding() -> None:
             )
 
 
+def strip_comments(text: str) -> str:
+    """去掉 // 行注释与 /* */ 块注释，避免把注释里的示例代码当成真代码。
+
+    ⚠️ 这条函数是被假阳性逼出来的：我在 EventText.kt 的注释里写了
+    「千万不要写 `val R = ...`」来说明坑，结果检查器把注释也扫了，
+    于是「已经修好的文件」继续报错。检查器扫注释 = 自己骗自己。
+    """
+    # 块注释
+    text = re.sub(r'/\*.*?\*/', '', text, flags=re.S)
+    # 行注释（避免误伤字符串里的 //，这里简单处理：只匹配行首或空白后的 //）
+    out = []
+    for line in text.splitlines():
+        # 找不在字符串里的 //：粗略做法 —— 先按引号切分
+        in_str = False
+        cut = None
+        i = 0
+        while i < len(line):
+            ch = line[i]
+            if ch == '"':
+                in_str = not in_str
+            elif not in_str and ch == '/' and i + 1 < len(line) and line[i + 1] == '/':
+                cut = i
+                break
+            i += 1
+        out.append(line if cut is None else line[:cut])
+    return "\n".join(out)
+
+
+def code_lines(text: str) -> list[str]:
+    """先去注释再分行 —— 所有基于行的检查都应使用这个。"""
+    return strip_comments(text).splitlines()
+
+
+def check_shadowed_R() -> None:
+    """禁止 `val R = com.healix.app.R` 这类遮蔽。
+
+    实测 CI 报错：
+      Classifier 'class R : Any' does not have a companion object,
+      so it cannot be used as an expression
+      Unresolved reference 'string'
+    根因就是局部 val 名叫 R，把生成的 R 类遮蔽了。R 是保留名，谁都不许当变量。
+    """
+    pattern = re.compile(r'\b(?:val|var)\s+R\s*=')
+    for kt in sorted(JAVA.rglob("*.kt")):
+        for lineno, line in enumerate(code_lines(kt.read_text(encoding="utf-8")), 1):
+            if pattern.search(line):
+                errors.append(
+                    f"{rel(kt)}:{lineno}: 用 `R` 当局部变量名，会遮蔽生成的 R 类，"
+                    f"导致 `R.string.xxx` 解析失败。改用其它名字"
+                )
+
+
+# 识别 `fun xxx(` / `suspend fun xxx(` 定义
+FUN_DEF_RE = re.compile(r'^\s*(?:@\w+\s+)*(?:internal\s+|private\s+|public\s+|protected\s+)?'
+                        r'(suspend\s+)?fun\s+(?:<[^>]*>\s*)?(\w+)\s*\(')
+
+
+def collect_suspend_functions() -> set[str]:
+    """全工程里 suspend 函数名 —— 但**排除**任何地方有非 suspend 同名定义的。
+
+    ⚠️ 假阳性教训：最初只收集「叫这个名字的 suspend 函数」，结果
+    `JSONObject.put()`、`PlanReviewViewModel.reload()`（本身是普通函数，
+    只是内部 launch 了协程）都被误报。原因是**同名不同签名的函数存在**。
+    折中：只要该名字在工程里出现过**非 suspend** 定义，就不作为判据。
+    """
+    suspend_names: set[str] = set()
+    plain_names: set[str] = set()
+    for kt in JAVA.rglob("*.kt"):
+        for line in code_lines(kt.read_text(encoding="utf-8")):
+            m = FUN_DEF_RE.match(line)
+            if not m:
+                continue
+            if m.group(1):
+                suspend_names.add(m.group(2))
+            else:
+                plain_names.add(m.group(2))
+    return suspend_names - plain_names
+
+
+def check_suspend_calls() -> None:
+    """在**非 suspend 函数体**里直接调用 suspend 函数 = 编译错误。
+
+    实测 CI 报错：
+      Suspend function 'suspend fun raw(key: String): String?' should be
+      called only from a coroutine or another suspend function
+    做法：逐文件、逐函数块地判断「当前函数是否 suspend」，
+    若否，则检查块内是否出现已知 suspend 函数名的调用。
+    这是启发式，对同名函数可能误报，因此放宽到「仅当函数名唯一且确实是
+    suspend 时才报」。
+    """
+    suspend_fns = collect_suspend_functions()
+    if not suspend_fns:
+        return
+
+    for kt in sorted(JAVA.rglob("*.kt")):
+        lines = code_lines(kt.read_text(encoding="utf-8"))
+        # 建立「每个函数体的行区间 + 是否 suspend」
+        stack: list[dict] = []
+        for idx, line in enumerate(lines):
+            m = FUN_DEF_RE.match(line)
+            if m:
+                # ⚠️ 只处理**有函数体**的函数（含 `{`）。
+                #    interface 里的 `fun x(): Y` 是声明，没有体 ——
+                #    之前把 DAO 接口的声明也当成函数体，导致 obverseSession
+                #    这类完全无关的相邻方法被误判为「调用了 suspend」。
+                if "{" not in line:
+                    continue
+                stack.append({
+                    "name": m.group(2),
+                    "suspend": bool(m.group(1)),
+                    "start": idx,
+                    "depth": line.count("{") - line.count("}"),
+                })
+                continue
+            if not stack:
+                continue
+            stripped = line.strip()
+            stack[-1]["depth"] += stripped.count("{") - stripped.count("}")
+            if stack[-1]["depth"] <= 0:
+                fn = stack.pop()
+                if fn["suspend"]:
+                    continue
+                body = "\n".join(lines[fn["start"]: idx + 1])
+                # 函数体内若已有协程作用域，调用可能是安全的 → 跳过
+                if re.search(r'\b(launch|withContext|async|runBlocking|suspendCoroutine)\b', body):
+                    continue
+                for sf in suspend_fns:
+                    if sf == fn["name"]:
+                        continue
+                    if re.search(rf'(?<![\w.]){re.escape(sf)}\s*\(', body):
+                        errors.append(
+                            f"{rel(kt)}:{fn['start'] + 1}: 非 suspend 函数 "
+                            f"`{fn['name']}` 里调用了 suspend 函数 `{sf}()`，"
+                            f"编译会报 should be called only from a coroutine"
+                        )
+
+
+def check_undefined_self_calls() -> None:
+    """类内调用了「本类里并不存在、也不是已知外部符号」的方法名。
+
+    专治实测踩到的那类错：写了 `recordCall(...)` 但类里定义的是 `logCall`。
+    只检查**无接收者**的调用 `foo(`（没有 `.` 前缀），这类必然是本类/
+    同文件的函数，最容易因为改名漏改而断链。
+    """
+    # 收集全工程已知的顶层/成员函数名（粗粒度，宁可少报）
+    known: set[str] = set()
+    for kt in JAVA.rglob("*.kt"):
+        text = kt.read_text(encoding="utf-8")
+        known |= set(re.findall(r'\bfun\s+(?:<[^>]*>\s*)?(\w+)\s*\(', text))
+    # Kotlin 标准库 / 常见内置，避免误报
+    builtins = {
+        "listOf", "mapOf", "setOf", "arrayOf", "buildList", "buildString",
+        "mutableListOf", "mutableMapOf", "mutableSetOf", "emptyList", "emptyMap",
+        "require", "check", "requireNotNull", "checkNotNull", "error",
+        "println", "print", "TODO", "lazy", "let", "run", "with", "apply", "also",
+        "synchronized", "runCatching", "repeat", "if", "for", "while", "when",
+        "super", "this", "return", "throw", "catch", "fun", "val", "var",
+        "getOrNull", "getValue", "getOrDefault", "toString", "hashCode",
+        "equals", "copy", "take", "takeLast", "drop", "filter", "map", "forEach",
+        "count", "first", "firstOrNull", "last", "lastOrNull", "any", "all",
+        "none", "isNotEmpty", "isEmpty", "isNotBlank", "isBlank", "trim",
+        "split", "joinToString", "sorted", "sortedBy", "toSet", "toList",
+        "toMutableList", "add", "addAll", "put", "remove", "insert", "update",
+        "find", "indexOf", "substring", "format", "toLong", "toDouble", "toInt",
+        "toFloat", "orEmpty", "uppercase", "lowercase", "capitalize", "contains",
+        "startsWith", "endsWith", "replace", "also", "apply", "let", "also",
+        "withContext", "launch", "async", "await", "delay", "suspendCoroutine",
+        "getString", "getColor", "setContentView", "findViewById", "setText",
+        "setOnClickListener", "setPadding", "setSelection", "inflate", "build",
+        "create", "start", "stop", "reload", "show", "dismiss", "log",
+        "startForeground", "stopSelf", "round", "abs", "max", "min", "mutableMapOf",
+        "onRetry", "notify", "cancel", "buildString", "getSystemService",
+    }
+    for kt in sorted(JAVA.rglob("*.kt")):
+        text = strip_comments(kt.read_text(encoding="utf-8"))
+        local = set(re.findall(r'\bfun\s+(?:<[^>]*>\s*)?(\w+)\s*\(', text))
+        for m in re.finditer(r'(?<![\w.])([a-z]\w{3,})\s*\(', text):
+            name = m.group(1)
+            if name in local or name in known or name in builtins:
+                continue
+            # 只报「看起来像本类方法」的：同一文件里已定义了同前缀的其它方法
+            if not any(f.startswith(name[:4]) for f in local):
+                continue
+            line = text[: m.start()].count("\n") + 1
+            warnings.append(
+                f"{rel(kt)}:{line}: 调用了 `{name}()`，但本文件内未定义该方法"
+                f"（可能改过名但漏改调用点）"
+            )
+
+
 def check_manifest_classes() -> None:
     mf = ROOT / "app/src/main/AndroidManifest.xml"
     if not mf.exists():
@@ -415,6 +605,9 @@ def main() -> int:
     check_dao_columns(tables)
     check_projection_types(tables)
     check_view_binding()
+    check_shadowed_R()
+    check_suspend_calls()
+    check_undefined_self_calls()
     check_manifest_classes()
     check_manifest_resources()
 

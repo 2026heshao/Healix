@@ -161,35 +161,44 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     // ── 编辑对话框（就地修改，不新开页面） ────────────────────────
+    //
+    // ⚠️ vm.raw(key) 是 suspend（要读 Room）。不能在 EditText.apply { } 里
+    //    直接调用 —— 那是普通 lambda，不是协程。必须在 lifecycleScope 里
+    //    先 await 拿到值，再构造对话框。下面三个函数统一按这个模式写。
 
     private fun editText(key: String, labelRes: Int) {
-        val input = EditText(this).apply {
-            setText(vm.raw(key).orEmpty())
-            inputType = InputType.TYPE_CLASS_TEXT
-            setSelection(text.length)
+        lifecycleScope.launch {
+            val current = vm.raw(key).orEmpty()
+            val input = EditText(this@SettingsActivity).apply {
+                setText(current)
+                inputType = InputType.TYPE_CLASS_TEXT
+                setSelection(text.length)
+            }
+            showDialog(labelRes, input) { vm.put(key, input.text.toString().trim()) }
         }
-        showDialog(labelRes, input) { vm.put(key, input.text.toString().trim()) }
     }
 
     private fun editInt(key: String, labelRes: Int) {
-        val input = EditText(this).apply {
-            setText(vm.raw(key).orEmpty())
-            inputType = InputType.TYPE_CLASS_NUMBER
-            setSelection(text.length)
-        }
-        showDialog(labelRes, input) {
-            vm.put(key, input.text.toString().trim())
+        lifecycleScope.launch {
+            val current = vm.raw(key).orEmpty()
+            val input = EditText(this@SettingsActivity).apply {
+                setText(current)
+                inputType = InputType.TYPE_CLASS_NUMBER
+                setSelection(text.length)
+            }
+            showDialog(labelRes, input) { vm.put(key, input.text.toString().trim()) }
         }
     }
 
     private fun editDecimal(key: String, labelRes: Int) {
-        val input = EditText(this).apply {
-            setText(vm.raw(key).orEmpty())
-            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
-            setSelection(text.length)
-        }
-        showDialog(labelRes, input) {
-            vm.put(key, input.text.toString().trim())
+        lifecycleScope.launch {
+            val current = vm.raw(key).orEmpty()
+            val input = EditText(this@SettingsActivity).apply {
+                setText(current)
+                inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
+                setSelection(text.length)
+            }
+            showDialog(labelRes, input) { vm.put(key, input.text.toString().trim()) }
         }
     }
 
@@ -215,8 +224,13 @@ class SettingsActivity : AppCompatActivity() {
         AlertDialog.Builder(this)
             .setTitle(labelRes)
             .setView(container)
-            .setPositiveButton(R.string.confirm) { _, _ -> onOk() }
-            .setNegativeButton(R.string.cancel, null)
+            // ⚠️ AlertDialog.Builder 没有「只传文案」的单参 setPositiveButton。
+            //    必须显式给 OnClickListener；不关心点击时传 null 会被 Kotlin
+            //    判为「无法推断用哪个重载」，要写成带类型的 lambda。
+            .setPositiveButton(R.string.confirm) { _: android.content.DialogInterface, _: Int ->
+                onOk()
+            }
+            .setNegativeButton(R.string.cancel, null as android.content.DialogInterface.OnClickListener?)
             .show()
     }
 
@@ -225,7 +239,7 @@ class SettingsActivity : AppCompatActivity() {
         AlertDialog.Builder(this)
             .setTitle(R.string.provider)
             .setItems(presets) { _, which -> vm.selectProvider(which) }
-            .setNegativeButton(R.string.cancel, null)
+            .setNegativeButton(R.string.cancel, null as android.content.DialogInterface.OnClickListener?)
             .show()
     }
 
@@ -234,7 +248,7 @@ class SettingsActivity : AppCompatActivity() {
         AlertDialog.Builder(this)
             .setTitle(R.string.setting_activity)
             .setItems(labels) { _, which -> vm.put(KEY_ACTIVITY, ACTIVITY_VALUES[which]) }
-            .setNegativeButton(R.string.cancel, null)
+            .setNegativeButton(R.string.cancel, null as android.content.DialogInterface.OnClickListener?)
             .show()
     }
 

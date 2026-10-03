@@ -47,6 +47,9 @@ venv/
 .regression*.log
 *.regression.log
 
+# CI 运行日志（排障时从 Actions 下载，属临时诊断产物）
+.ci*.log
+
 # 工作区本地数据（记忆/会话缓存），属本机状态而非项目源码
 .workbuddy/
 
