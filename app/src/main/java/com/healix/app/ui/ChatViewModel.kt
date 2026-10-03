@@ -78,6 +78,8 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 sessionDate = sessionDate,
                 userText = text,
                 history = db.chatMessageDao().recentForContext(sessionDate, 16),
+                // 背景每次现读：设置页可能刚改过，缓存会让改动不生效
+                background = db.settingsDao().get(SettingsActivity.KEY_BACKGROUND).orEmpty(),
             )
 
             persist("assistant", reply.text)

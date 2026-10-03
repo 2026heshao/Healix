@@ -34,6 +34,8 @@ data class SettingsValues(
     val activity: String = "1.2",
     val targetKcal: Int = 2500,
     val dayStart: Int = 4,
+    /** 用户背景（自由文本）。空 = 未填写，走原 prompt 路径。 */
+    val background: String = "",
     val debugSummary: String = "",
 )
 
@@ -74,6 +76,7 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
             activity = all[SettingsActivity.KEY_ACTIVITY] ?: "1.2",
             targetKcal = all[SettingsActivity.KEY_TARGET_KCAL]?.toIntOrNull() ?: 2500,
             dayStart = all[SettingsActivity.KEY_DAY_START]?.toIntOrNull() ?: 4,
+            background = all[SettingsActivity.KEY_BACKGROUND].orEmpty(),
             debugSummary = "今日 ${quotas.usedToday()} 次 · 失败 ${quotas.failedToday()}",
         )
     }
@@ -107,9 +110,12 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
     /**
      * 选预设服务商：自动填 baseUrl 与模型名。
      *
-     * ⚠️ 预设里当前是 `[待核实]` 占位符 —— 填进去后用户仍需到官方文档确认真实值。
-     * 这是刻意的：凭记忆硬编码平台地址比留空更危险（C1 反幻觉）。
+     * 预设已于 2026-10-03 对着官方文档核实并填入真实值（见 `LlmProvider.kt`
+     * 的 `ProviderPresets` 头注释与 `docs/待核实清单.md` 第二节）。
      * 选中"自定义"时不覆盖用户已填内容。
+     *
+     * `[待核实` 前缀的兜底判断保留 —— 若将来官方变更导致预设需回退为占位，
+     * 这条路径仍能给出明确提示而不是静默失败。
      */
     fun selectProvider(position: Int) {
         val entry = ProviderPresets.ordered().getOrNull(position) ?: return
@@ -126,7 +132,9 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
 
             reload()
 
-            _testResult.value = if (preset.baseUrl.startsWith("[待核实")) {
+            _testResult.value = if (preset.baseUrl.startsWith("[待核实") ||
+                preset.model.startsWith("[待核实")
+            ) {
                 TestResult(
                     ok = false,
                     text = "该服务的接口地址与模型名尚未核实，请对照官方文档填写后再测试",

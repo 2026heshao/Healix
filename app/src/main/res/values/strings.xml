@@ -122,6 +122,10 @@
     <string name="setting_activity">活动系数</string>
     <string name="setting_day_start">日界线</string>
     <string name="setting_target_kcal">每日目标摄入</string>
+    <string name="setting_background">我的情况</string>
+    <string name="setting_background_hint">写给自己看的背景。AI 出计划和建议时会参考它。</string>
+    <string name="setting_background_ph">例如：24 岁男，体重偏轻，目标是增重到 75kg；乳糖不耐受；不吃香菜；下午常犯困；每周三、五去健身房。</string>
+    <string name="setting_background_count">%1$d / %2$d</string>
     <string name="setting_daily_quota">每日调用上限</string>
     <string name="setting_chat_quota">每日对话上限</string>
     <string name="setting_retry">重试次数</string>

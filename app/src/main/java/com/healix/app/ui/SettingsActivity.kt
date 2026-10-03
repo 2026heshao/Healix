@@ -11,6 +11,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import androidx.core.widget.doAfterTextChanged
 import com.healix.app.HealixApp
 import com.healix.app.R
 import com.healix.app.databinding.ActivitySettingsBinding
@@ -28,6 +29,9 @@ class SettingsActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivitySettingsBinding
     private lateinit var vm: SettingsViewModel
+
+    /** 背景项：最近一次已落库的内容，用于避免重复写入。 */
+    private var lastSavedBackground: String = ""
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -60,6 +64,8 @@ class SettingsActivity : AppCompatActivity() {
         setupRow(binding.rowTargetKcal, R.string.setting_target_kcal) { editInt(KEY_TARGET_KCAL, R.string.setting_target_kcal) }
         setupRow(binding.rowDayStart, R.string.setting_day_start) { editInt(KEY_DAY_START, R.string.setting_day_start) }
 
+        setupBackground()
+
         // ── 数据 ─────────────────────────────────────────────────
         setupRow(binding.rowExport, R.string.export_backup) { vm.exportBackup(this) }
 
@@ -82,6 +88,58 @@ class SettingsActivity : AppCompatActivity() {
         row.root.setOnClickListener { onClick() }
     }
 
+    /**
+     * 背景项（自由文本，多行）。
+     *
+     * 与其它设置项的区别：它是一个**常驻输入框**而不是弹窗 ——
+     * 背景往往是几行零散信息，弹窗里写长文本体验差（且弹窗会被软键盘顶变形）。
+     *
+     * 保存时机：**失焦**（onFocusChange）+ **返回键退出前**（onPause 兜底）。
+     * 不做 TextWatcher 实时写库 —— 每次按键写一次 SQLite 是无谓的 IO。
+     *
+     * 上限 [BACKGROUND_MAX] 字：超过就硬截断。
+     * 截断必须在**输入时**做，不能只在保存时做 —— 否则用户看到 2500 字打进去、
+     * 存下来只剩 2000，属于静默丢数据（违反"不丢用户数据"的项目约束）。
+     */
+    private fun setupBackground() {
+        val edit = binding.editBackground
+
+        // 输入时即截断 + 实时更新字数（CharSequence 长度按 UTF-16，中文 1 字 = 1）
+        edit.filters = arrayOf(
+            android.text.InputFilter.LengthFilter(BACKGROUND_MAX)
+        )
+        edit.doAfterTextChanged { text ->
+            binding.backgroundCount.text = getString(
+                R.string.setting_background_count,
+                text?.length ?: 0,
+                BACKGROUND_MAX,
+            )
+        }
+        // 首帧先把计数显示为已有内容的长度（否则显示 0/N 与实际不符）
+        binding.backgroundCount.text = getString(
+            R.string.setting_background_count, edit.text.length, BACKGROUND_MAX,
+        )
+
+        // 失焦保存
+        edit.setOnFocusChangeListener { _, hasFocus ->
+            if (!hasFocus) saveBackground()
+        }
+    }
+
+    /** 把输入框内容落库。内容没变则不写（避免无谓 IO 与 StateFlow 抖动）。 */
+    private fun saveBackground() {
+        val text = binding.editBackground.text.toString().trim()
+        if (text == lastSavedBackground) return
+        lastSavedBackground = text
+        vm.put(KEY_BACKGROUND, text)
+    }
+
+    override fun onPause() {
+        // 兜底：用户直接按返回 / 切后台时不走失焦回调，这里补一次
+        super.onPause()
+        if (::binding.isInitialized) saveBackground()
+    }
+
     private fun observe() {
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -101,6 +159,16 @@ class SettingsActivity : AppCompatActivity() {
                     binding.rowTargetKcal.value.text = getString(R.string.plan_item_kcal, "", v.targetKcal).trimStart(' ', '·')
                     binding.rowDayStart.value.text = getString(R.string.unit_hour_clock, v.dayStart)
                     binding.rowDebugSummary.value.text = v.debugSummary
+
+                    // 背景：只在「用户没在编辑」时回填。
+                    // 否则 vm.reload() 触发的回填会把用户正在敲的字覆写掉。
+                    if (!binding.editBackground.hasFocus() &&
+                        binding.editBackground.text.toString() != v.background
+                    ) {
+                        binding.editBackground.setText(v.background)
+                        binding.editBackground.setSelection(v.background.length)
+                        lastSavedBackground = v.background
+                    }
                 }
             }
         }
@@ -288,6 +356,16 @@ class SettingsActivity : AppCompatActivity() {
         const val KEY_ACTIVITY = "activity_factor"
         const val KEY_TARGET_KCAL = "target_kcal"
         const val KEY_DAY_START = "day_start_hour"
+
+        /** 用户背景（自由文本）。空 = 未填写，AI prompt 走无背景的原路径。 */
+        const val KEY_BACKGROUND = "user_background"
+
+        /**
+         * 背景字数上限。
+         * 2000 字中文约 2000-2600 token，对免费档是可控的开销；
+         * 再长会挤占今日摘要与历史窗口的预算。
+         */
+        const val BACKGROUND_MAX = 2000
 
         /** 活动系数（总方案第五节 BMR 公式）。 */
         val ACTIVITY_VALUES = listOf("1.2", "1.375", "1.55", "1.725")

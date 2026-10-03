@@ -40,11 +40,13 @@ internal object ChatEngine {
         sessionDate: String,
         userText: String,
         history: List<ChatMessageEntity>,
+        /** 用户背景（设置页「我的情况」）。空串 = 未填写，prompt 里整段省略。 */
+        background: String = "",
     ): Reply {
         val provider = OpenAiCompatProvider(config)
 
         val messages = buildList {
-            add(ChatMessage(role = "system", content = systemPrompt(context, sessionDate)))
+            add(ChatMessage(role = "system", content = systemPrompt(context, sessionDate, background)))
             // 历史窗口：最近 16 条（9.2 上下文策略）
             history.takeLast(HISTORY_WINDOW).forEach { m ->
                 if (m.role == "user" || m.role == "assistant") {
@@ -88,11 +90,35 @@ internal object ChatEngine {
      * 关键点全在这里：先查后答、语气直接、不写免责套话、全程中文。
      * ⚠️ 当前版本尚未接入工具，因此第 1 条改写为"没有数据时明说没有"，
      * 避免提示模型去查不存在的工具而编造数字。S3 接入 query_* 后改回原表述。
+     *
+     * ## 关于 [background]（设置页「我的情况」）
+     *
+     * 拼在 system prompt **最前面**，理由：模型对 system 前段的内容权重更高，
+     * 且它是"解释后续所有规则的前提"（比如用户写了乳糖不耐，后面所有饮食
+     * 建议都应绕开乳制品）。
+     *
+     * **只进这一处 prompt** —— `PROMPT_EXTRACT`（抽取链）一字不改。
+     * 抽取链的任务是把口语转成 JSON，用户背景对"这句话说了什么"没有信息量，
+     * 塞进去反而会挤占 token 并可能诱导模型改写 foods 字段。
+     * 因此本项目不因背景项递增 `PROMPT_VER`，回归基线（21/22）继续有效。
      */
-    private fun systemPrompt(context: Context, sessionDate: String): String {
+    private fun systemPrompt(context: Context, sessionDate: String, background: String): String {
         val summary = TodaySummary.build(context).lines.joinToString("\n")
+
+        // 背景段：空则整段省略 —— 不留「我的情况：（空）」这种噪声，
+        // 那会让模型去猜测一个不存在的约束。
+        val backgroundBlock = if (background.isBlank()) {
+            ""
+        } else {
+            """
+关于这个人的已知情况（用户自己写的，视为可信前提）：
+$background
+
+""".trimStart('\n')
+        }
+
         return """
-你是一个想增重的用户的健康助理。今天是 $sessionDate。
+${backgroundBlock}你是一个想增重的用户的健康助理。今天是 $sessionDate。
 
 今天的已知数字（本地记录，可信）：
 $summary
@@ -105,6 +131,8 @@ $summary
 5. 给饮食建议时要给具体食物 + 分量，并标注预计热量。
 6. 热量数字都是估算值。
 7. 全程中文。回答控制在 4 句以内，不要分点罗列。
+8. 上面「已知情况」里写过的偏好、忌口、身体条件，必须作为硬约束遵守；
+   若某项要求与该情况冲突，直接指出冲突并给替代方案。
 """.trim()
     }
 

@@ -97,6 +97,23 @@
         <item name="android:maxLines">3</item>
     </style>
 
+    <!-- 设置页多行输入（背景项）。
+         与 SettingInput 的区别：**不设固定行高**、不右对齐 ——
+         背景是一段自由文本，右对齐会很难读；给一条 1dp 顶线做视觉锚点即可，
+         仍遵守「无卡片 / 无阴影 / 圆角仅 8dp / 无 emoji」的设计规范 v3。 -->
+    <style name="Widget.Healix.BlockInput" parent="">
+        <item name="android:background">@null</item>
+        <item name="android:textSize">15sp</item>
+        <item name="android:textColor">@color/text_1</item>
+        <item name="android:textColorHint">@color/text_3</item>
+        <item name="android:lineSpacingMultiplier">1.25</item>
+        <item name="android:paddingTop">10dp</item>
+        <item name="android:paddingBottom">10dp</item>
+        <item name="android:paddingStart">0dp</item>
+        <item name="android:paddingEnd">0dp</item>
+        <item name="android:inputType">textMultiLine|textCapSentences</item>
+    </style>
+
     <!-- 列表项（3.3）：无卡片，1dp 线分隔 -->
     <style name="Widget.Healix.ListRow" parent="">
         <item name="android:background">?attr/selectableItemBackground</item>
