@@ -152,6 +152,80 @@ interface EventDao {
     @Query("SELECT COUNT(*) FROM events WHERE type = 'illness' AND day_key = :dayKey AND deleted_at IS NULL")
     suspend fun countIllness(dayKey: String): Int
 
+    // ---- v4 扩展：跨日范围查询（规则层 / 状态详情页 / 训练页用，全部本地读，不调 AI） ----
+
+    /**
+     * 按类型取某一日区间内的全部记录，按日期与时间升序。
+     * 规则层聚合睡眠 / 运动 / 体重 / 生病时统一走这里，避免为每条规则各写一个 SQL。
+     */
+    @Query(
+        """
+        SELECT * FROM events
+        WHERE type = :type AND day_key BETWEEN :dayFrom AND :dayTo AND deleted_at IS NULL
+        ORDER BY day_key ASC, ts ASC
+        """
+    )
+    suspend fun listByTypeInRange(type: String, dayFrom: String, dayTo: String): List<EventEntity>
+
+    /** 取某一日区间内的全部记录（不限类型），升序。 */
+    @Query(
+        """
+        SELECT * FROM events
+        WHERE day_key BETWEEN :dayFrom AND :dayTo AND deleted_at IS NULL
+        ORDER BY day_key ASC, ts ASC
+        """
+    )
+    suspend fun listInRange(dayFrom: String, dayTo: String): List<EventEntity>
+
+    /**
+     * 某一日区间内**有记录的日子**（去重升序）。
+     * 用途：判断"近 3 日是否每天都有睡眠记录"，不能拿 3 条记录的日期当 3 天用。
+     */
+    @Query(
+        """
+        SELECT DISTINCT day_key FROM events
+        WHERE day_key BETWEEN :dayFrom AND :dayTo AND deleted_at IS NULL
+        ORDER BY day_key ASC
+        """
+    )
+    suspend fun daysWithRecords(dayFrom: String, dayTo: String): List<String>
+
+    /**
+     * 体重记录（按日升序）。趋势图与停滞判定都用它 ——
+     * 只取 `weight_kg > 0` 的行，0 是兜底值不是真实体重。
+     */
+    @Query(
+        """
+        SELECT * FROM events
+        WHERE type = 'body' AND weight_kg > 0 AND deleted_at IS NULL
+              AND day_key BETWEEN :dayFrom AND :dayTo
+        ORDER BY day_key ASC, ts ASC
+        """
+    )
+    suspend fun weightRowsInRange(dayFrom: String, dayTo: String): List<EventEntity>
+
+    /** 某类型在区间内的记录条数（H2 / H4 / T3 判定用）。 */
+    @Query(
+        """
+        SELECT COUNT(*) FROM events
+        WHERE type = :type AND day_key BETWEEN :dayFrom AND :dayTo AND deleted_at IS NULL
+        """
+    )
+    suspend fun countByTypeInRange(type: String, dayFrom: String, dayTo: String): Int
+
+    /** 区间内运动消耗合计（训练 Tab 的汇总行用）。 */
+    @Query(
+        """
+        SELECT COALESCE(SUM(kcal), 0) FROM events
+        WHERE type = 'exercise' AND day_key BETWEEN :dayFrom AND :dayTo AND deleted_at IS NULL
+        """
+    )
+    suspend fun sumExerciseKcalInRange(dayFrom: String, dayTo: String): Int
+
+    /** 按 client_event_id 删（撤销条用，物理删除：刚写入的记录撤销就是反悔，不留软删痕迹）。 */
+    @Query("DELETE FROM events WHERE client_event_id = :clientEventId")
+    suspend fun deleteByClientId(clientEventId: String)
+
     /** 导出备份用：取全部未删除记录（不分页，导出是低频操作）。 */
     @Query("SELECT * FROM events WHERE deleted_at IS NULL ORDER BY ts ASC")
     suspend fun listAll(): List<EventEntity>

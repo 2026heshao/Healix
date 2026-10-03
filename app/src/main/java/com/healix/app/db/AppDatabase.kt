@@ -5,6 +5,7 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 
 /**
  * Healix 本地数据库。
@@ -26,8 +27,12 @@ import androidx.room.migration.Migration
         DailyReviewEntity::class,
         PresetEntity::class,
         SettingEntity::class,
+        GoalEntity::class,
+        TrainingPlanEntity::class,
+        BodySignalEntity::class,
+        ReminderEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = true,
 )
 // ⚠️ 这里**故意不加** @TypeConverters。
@@ -46,6 +51,10 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun presetDao(): PresetDao
     abstract fun planDao(): PlanDao
     abstract fun settingsDao(): SettingsDao
+    abstract fun goalDao(): GoalDao
+    abstract fun trainingPlanDao(): TrainingPlanDao
+    abstract fun bodySignalDao(): BodySignalDao
+    abstract fun reminderDao(): ReminderDao
 
     companion object {
         private const val DB_NAME = "healix.db"
@@ -54,10 +63,44 @@ abstract class AppDatabase : RoomDatabase() {
         private var instance: AppDatabase? = null
 
         /**
-         * 所有历史 Migration。v1 尚无历史版本，数组为空；
-         * 每次升 version 必须往这里加一个 Migration 对象。
+         * v1 → v2：新增目标 / 周训练计划 / 身体信号 / 周期性提醒 4 张表。
+         *
+         * DDL 必须与 Room 依据实体生成的建表语句**逐字段一致**（Room 在
+         * 打开数据库时按 PRAGMA table_info 的 name/type/notNull/pk 位置比对，
+         * 不一致直接抛 IllegalStateException）。这里的每条 CREATE TABLE /
+         * CREATE INDEX 都照 `app/schemas/.../1.json` 的 createSql 格式书写：
+         * 标识符用反引号包裹、自增主键写 `INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL`、
+         * 可空列不加 NOT NULL、非自增主键在列定义后用 `PRIMARY KEY(...)` 声明。
+         *
+         * ⚠️ **迁移只做 DDL，不 seed 业务数据**（职责单一：只改结构）。
+         * 默认提醒不是结构的一部分，由 `SettingsViewModel.ensureReminderDefaultsIfEmpty()`
+         * 在空表时补齐（文案走 `R.string.reminder_*`，避免在 Kotlin 里硬编码中文）。
          */
-        val MIGRATIONS: Array<Migration> = arrayOf()
+        private val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `goals` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `type` TEXT NOT NULL, `metric` TEXT NOT NULL, `target_value` REAL NOT NULL, `start_value` REAL, `deadline` TEXT, `is_primary` INTEGER NOT NULL, `status` TEXT NOT NULL, `created_at` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL)"
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `training_plans` (`week_key` TEXT NOT NULL, `plan_json` TEXT, `content` TEXT, `generated_at` INTEGER NOT NULL, `source` TEXT NOT NULL, PRIMARY KEY(`week_key`))"
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `body_signals` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `rule_id` TEXT NOT NULL, `day_key` TEXT NOT NULL, `level` TEXT NOT NULL, `title` TEXT NOT NULL, `detail` TEXT, `acknowledged` INTEGER NOT NULL, `created_at` INTEGER NOT NULL)"
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_body_signals_rule_id_day_key` ON `body_signals` (`rule_id`, `day_key`)"
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `reminders` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL, `interval_days` INTEGER NOT NULL, `last_done_at` INTEGER, `next_due_at` INTEGER NOT NULL, `enabled` INTEGER NOT NULL, `created_at` INTEGER NOT NULL)"
+                )
+            }
+        }
+
+        /**
+         * 所有历史 Migration。v1 之前无历史版本；v2 起每升一次 version
+         * 必须往这里加一个 Migration 对象。
+         */
+        val MIGRATIONS: Array<Migration> = arrayOf(MIGRATION_1_2)
 
         fun get(context: Context): AppDatabase =
             instance ?: synchronized(this) {
