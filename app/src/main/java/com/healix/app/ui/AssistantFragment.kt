@@ -1,66 +1,81 @@
 package com.healix.app.ui
 
 import android.os.Bundle
+import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import androidx.appcompat.app.AppCompatActivity
+import androidx.fragment.app.Fragment
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.healix.app.HealixApp
 import com.healix.app.R
-import com.healix.app.databinding.ActivityChatBinding
+import com.healix.app.databinding.FragmentAssistantBinding
 import com.healix.app.db.ChatMessageEntity
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 
 /**
- * 对话页（设计规范系统 4.2）。
+ * 对话页（设计规范系统 4.2）。v8 需求 1/2：由 [ChatActivity] 迁为
+ * **常驻 Fragment**（`add` 一次 + `show/hide` 切换），底部 3 Tab 从此
+ * 不再有任何 Activity 窗口转场 —— 这是「Tab 点击即时响应」的根因修复。
  *
- * **交互决策：左右气泡。** 用户消息靠右（text_1 实底 + 白字），
- * 助理消息靠左（surface 底 + 1dp 描边 + text_1 字）。
- * 气泡只使用既有中性色，未引入新颜色 / 阴影 —— 详见 [ChatAdapter] 的变更记录。
+ * 迁移等价性说明（相对旧 ChatActivity 的逐点对照）：
+ * - `supportFragmentManager` → `childFragmentManager`（[ActionConfirmSheet]
+ *   等 BottomSheetDialogFragment 挂在本 Fragment 的子栈上）；
+ * - `TabBar.bind(this, TAB_ASSISTANT)` 删除 —— tabbar 唯一挂在宿主
+ *   [MainActivity] 布局里，由宿主统一切换与高亮；
+ * - `onResume` 的跨零点 / 跨时段刷新在 `show/hide` 下不会被触发
+ *   （Fragment 常驻 RESUMED），改由 [onHiddenChanged] 驱动 —— 见 [onVisible]；
+ * - `ChatViewModel` 从手动构造改为 `ViewModelProvider`（Activity 作用域），
+ *   旋转重建后不再丢会话与在途请求（旧实现在 Activity 里重建即丢）。
  *
- * 工具调用状态用自然语言，禁止暴露工具名 / 技术名词。
- *
- * ⚠️ 本页当前实现的是 **对话 UI 骨架 + 消息持久化**（对应执行计划 S2）：
- * 能聊天、能出计划、消息持久化、杀进程重进历史还在。
- * 工具调用（query_events / query_stats / propose_log）属于 S3–S4，
- * 由 HealthAgent + ToolRegistry 实现后接入 —— 见 readme 的 S3/S4 条目。
+ * **交互决策：左右气泡**（用户靠右 text_1 实底白字，助理靠左 surface 底描边），
+ * 只用既有中性色、无阴影、圆角仍为全局唯一 8dp —— 设计规范 v3 未被破坏。
  */
-class ChatActivity : AppCompatActivity() {
+class AssistantFragment : Fragment() {
 
-    private lateinit var binding: ActivityChatBinding
+    private var _binding: FragmentAssistantBinding? = null
+    private val binding get() = _binding!!
     private lateinit var adapter: ChatAdapter
-    private lateinit var vm: ChatViewModel
 
-    /** §5.3：快捷问答第 2 行的当前时段词。进入时取一次、onResume 重算；
-     *  点按回调读本字段，刷新后即用新文案发送（避免跨时段文案过期）。 */
+    /**
+     * Activity 作用域 VM：`ChatViewModel(app: Application)` 单参构造可被
+     * 默认 SavedStateViewModelFactory 解析，旋转重建不丢状态。
+     */
+    private val vm: ChatViewModel by lazy {
+        ViewModelProvider(requireActivity())[ChatViewModel::class.java]
+    }
+
+    /** §5.3：快捷问答第 2 行的当前时段词。点按回调读本字段，刷新后即用新文案发送。 */
     private var quickMealText: String = ""
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        binding = ActivityChatBinding.inflate(layoutInflater)
-        setContentView(binding.root)
+    /** 拟稿确认在 Tab 隐藏期间到达时先暂存，切回可见再弹（否则会盖在别的 Tab 上）。 */
+    private var pendingProposal: com.healix.app.agent.LogProposal? = null
 
-        vm = ChatViewModel(HealixApp.from(this))
+    override fun onCreateView(
+        inflater: LayoutInflater,
+        container: ViewGroup?,
+        savedInstanceState: Bundle?,
+    ): View {
+        _binding = FragmentAssistantBinding.inflate(inflater, container, false)
+        return binding.root
+    }
+
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
         adapter = ChatAdapter()
 
-        val lm = LinearLayoutManager(this).apply { stackFromEnd = true }
+        val lm = LinearLayoutManager(requireContext()).apply { stackFromEnd = true }
         binding.messageList.layoutManager = lm
         binding.messageList.adapter = adapter
 
         binding.sessionLabel.text = HealixDate.sessionLabel(LocalDate.now())
         binding.btnSend.setOnClickListener { send() }
-
-        // 微扩展 B：会话日期切换 —— 点顶部日期弹出会话菜单（今天/昨天/更早）
         binding.sessionLabel.setOnClickListener { anchor -> showSessionMenu(anchor) }
-
-        // v6（11.1）：助理是全局 3 Tab 的第二页 —— tabbar 高亮第二段，
-        // 「记录 / 我的」点击由 TabBar 处理（in_tab 转场返回主界面）。
-        TabBar.bind(this, TabBar.TAB_ASSISTANT)
 
         // v6（11.4）：快捷入口按压缩放反馈
         binding.quickToday.bindPressScale()
@@ -78,37 +93,39 @@ class ChatActivity : AppCompatActivity() {
         binding.quickDinner.setOnClickListener { send(quickMealText) }
         binding.quickWeek.setOnClickListener { send(getString(R.string.quick_week)) }
 
-        // 微扩展 D：模型调用失败时，提示条变成重试入口（文案见 observe() 的 retryAvailable 分支）
+        // 微扩展 D：模型调用失败时，提示条变成重试入口
         binding.simplifiedBar.setOnClickListener { vm.retryLast() }
 
         observe()
     }
 
     /**
-     * P0-B 跨零点顺延：回到前台时重算"今天"。
-     *
-     * VM 的 `isToday` 是 `stateIn` 缓存 —— 跨零点后不会自动重发，输入条会
-     * 一直停在"只读"态。这里调 [ChatViewModel.refreshToday]：若用户仍停留在
-     * "旧今天"视图，顺延到今天并触发 `_selectedDate` 重订阅；停在历史会话则不动。
-     * 顺带把顶部日期标签刷成当刻今天（历史态由 isToday 订阅分支负责换文案）。
-     *
-     * ⚠️ 只此一个 onResume —— Wave4 的 refreshQuickMeal()（§5.3）在本方法内追加，
-     * 不要新增第二个 onResume。
+     * 首次进入（Activity onResume 链）与从其它 Tab 切回共用这一个入口。
+     * `show/hide` 不会触发 onResume（Fragment 常驻 RESUMED），所以跨零点
+     * 顺延与时段词刷新必须挂在 [onHiddenChanged] 上。
      */
-    override fun onResume() {
-        super.onResume()
+    fun onVisible() {
         vm.refreshToday()
         if (vm.isToday.value) {
             binding.sessionLabel.text = HealixDate.sessionLabel(LocalDate.now())
         }
         // §5.3：跨时段停留后重算快捷问答第 2 行的时段词（不做定时器）
         refreshQuickMeal()
+        // Tab 隐藏期间到达的拟稿确认，在这里补弹
+        pendingProposal?.let { p ->
+            pendingProposal = null
+            showProposalSheet(p)
+        }
+    }
+
+    override fun onHiddenChanged(hidden: Boolean) {
+        super.onHiddenChanged(hidden)
+        if (!hidden) onVisible()
     }
 
     /**
-     * §5.3：快捷问答第 2 行时段词在进入时取一次，跨时段停留（如 13:50 进、
-     * 14:10 仍在）会过期。onResume 时重算并刷新文案；点按回调读 [quickMealText]
-     * 字段，刷新后即用新文案发送。
+     * §5.3：快捷问答第 2 行时段词在进入时取一次，跨时段停留会过期。
+     * 回前台/切回时重算并刷新文案；点按回调读 [quickMealText]。
      */
     private fun refreshQuickMeal() {
         val text = getString(timeBucketMealRes())
@@ -119,13 +136,12 @@ class ChatActivity : AppCompatActivity() {
 
     /**
      * 微扩展 B：会话日期菜单。列出所有有消息的日期（倒序），点选切换只读查看。
-     * 历史会话禁用输入与发送（发送永远写今天的会话，避免"在昨天的页面发出
-     * 一条出现在今天"的错位）。
+     * 历史会话禁用输入与发送（发送永远写今天的会话）。
      */
     private fun showSessionMenu(anchor: View) {
         val dates = vm.sessionDates.value
         if (dates.isEmpty()) return
-        val popup = androidx.appcompat.widget.PopupMenu(this, anchor)
+        val popup = androidx.appcompat.widget.PopupMenu(requireContext(), anchor)
         dates.forEach { date ->
             popup.menu.add(HealixDate.sessionLabel(java.time.LocalDate.parse(date))).setOnMenuItemClickListener {
                 vm.selectSession(date)
@@ -144,8 +160,8 @@ class ChatActivity : AppCompatActivity() {
     }
 
     private fun observe() {
-        lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.STARTED) {
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
 
                 launch {
                     vm.messages.collect { list ->
@@ -161,8 +177,7 @@ class ChatActivity : AppCompatActivity() {
                     }
                 }
 
-                // 微扩展 B：查看历史会话 = 只读。输入条/发送/预设条全部禁用，
-                // 顶部日期标签换成完整提示（点击菜单仍可切回今天）。
+                // 微扩展 B：查看历史会话 = 只读。输入条/发送/预设条全部禁用
                 launch {
                     vm.isToday.collect { today ->
                         binding.input.isEnabled = today
@@ -201,28 +216,27 @@ class ChatActivity : AppCompatActivity() {
                 // 微扩展 C：预设落库结果反馈
                 launch {
                     vm.presetToast.collect { text ->
-                        android.widget.Toast.makeText(this@ChatActivity, text,
+                        android.widget.Toast.makeText(requireContext(), text,
                             android.widget.Toast.LENGTH_SHORT).show()
                     }
                 }
 
-                // S3–S4：propose_log 拟稿确认 —— 确认后走完整抽取链（与「记一笔」同管道）
-                // §5.1：确认类弹窗改底色容器 ActionConfirmSheet（取代系统 AlertDialog）
+                // S3–S4：propose_log 拟稿确认。⚠️ Tab 隐藏期间到达要先暂存 ——
+                // 隐藏时弹窗会盖在别的 Tab 上；切回可见时由 [onVisible] 补弹。
                 launch {
                     vm.proposal.collect { proposal ->
-                        val sheet = ActionConfirmSheet.newInstance(
-                            getString(R.string.proposal_sheet_title),
-                            getString(R.string.proposal_confirm, proposal.rawText),
-                        )
-                        sheet.onConfirm = { vm.confirmProposal(proposal) }
-                        sheet.show(supportFragmentManager, ActionConfirmSheet.TAG)
+                        if (isHidden) {
+                            pendingProposal = proposal
+                        } else {
+                            showProposalSheet(proposal)
+                        }
                     }
                 }
 
                 // S3–S4：拟稿落库结果反馈
                 launch {
                     vm.proposalToast.collect { text ->
-                        android.widget.Toast.makeText(this@ChatActivity, text,
+                        android.widget.Toast.makeText(requireContext(), text,
                             android.widget.Toast.LENGTH_SHORT).show()
                     }
                 }
@@ -275,6 +289,16 @@ class ChatActivity : AppCompatActivity() {
         }
     }
 
+    /** S3–S4：弹拟稿确认（底色容器 ActionConfirmSheet，挂子FragmentManager）。 */
+    private fun showProposalSheet(proposal: com.healix.app.agent.LogProposal) {
+        val sheet = ActionConfirmSheet.newInstance(
+            getString(R.string.proposal_sheet_title),
+            getString(R.string.proposal_confirm, proposal.rawText),
+        )
+        sheet.onConfirm = { vm.confirmProposal(proposal) }
+        sheet.show(childFragmentManager, ActionConfirmSheet.TAG)
+    }
+
     /** 快捷问答三行：仅查看今天且当前会话为空时出现。 */
     private fun updateQuickGroup(hasMessages: Boolean) {
         val show = !hasMessages && vm.isToday.value
@@ -295,6 +319,11 @@ class ChatActivity : AppCompatActivity() {
             else -> R.string.quick_late_night
         }
     }
+
+    override fun onDestroyView() {
+        super.onDestroyView()
+        _binding = null
+    }
 }
 
 /**
@@ -313,7 +342,7 @@ class ChatActivity : AppCompatActivity() {
  * accent 仍只出现在按钮/进度条上（不被气泡稀释）。
  *
  * 结构：外层 LinearLayout 负责"靠哪边 + 最大宽度"，内层 TextView 带气泡背景。
- * 之所以套一层而不是直接给 TextView 设 background：
+ * 之所以套一层而不是直接给 TextView 设背景：
  *   TextView 用 wrap_content + background 时，padding 会被算进宽度，
  *   导致同一条消息在"短文本"和"长文本"下视觉边距不一致。
  *   外层控制对齐、内层控制留白，职责分开更稳。

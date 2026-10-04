@@ -2,6 +2,7 @@ package com.healix.app.ui
 
 import android.app.Activity
 import android.content.Intent
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
@@ -11,18 +12,24 @@ import androidx.core.view.WindowInsetsCompat
 import com.healix.app.R
 
 /**
- * 全局底部导航 3 Tab（设计规范 11.1，v6）。
+ * 全局底部导航 3 Tab（设计规范 11.1，v6；v8 需求 1/2 重写）。
  *
  * ══════════════════════════════════════════════════════════════════════════
- * 载体决策（原型 go() 的 Android 等价）
+ * 载体决策（v8：Tab 即时响应的根因修复）
  * ══════════════════════════════════════════════════════════════════════════
- * - 「记录」与「我的」同在 [MainActivity] 内以两个容器切换（pageHome / minePage），
- *   互切走 in_tab 转场（View 动画，同 Activity 内可靠重播）；
- * - 「助理」是独立的 [ChatActivity]（对话引擎与消息列表是独立栈），
- *   Tab 互切走 Activity 转场（in_tab / hold），视觉效果与原型一致；
- * - 二级页（状态详情/设置/知识库/调试/计划）不属于 TABS 白名单 ——
- *   tabbar 只存在于 Tab 页的布局里，二级页整体覆盖后自然"隐藏"，
- *   返回时恢复（原型 go() 白名单显隐的等价实现）。
+ * 三个 Tab **全部不再经过 Activity 窗口转场**：
+ * - 「记录」「我的」：同在 [MainActivity] 内以两个 View 容器切换（原本就零动画）；
+ * - 「助理」：v8 起是宿主内的常驻 [AssistantFragment]（`add` 一次 + `show/hide`），
+ *   旧的 `ChatActivity` 已删除 —— 此前 `chatTo()` 用
+ *   `startActivity(CLEAR_TOP|SINGLE_TOP)` 重启 MainActivity 并 `finish()`，
+ *   每次都吃一次窗口转场，这是「Tab 点击延迟偏高」的根因。
+ *
+ * **按下即高亮**：`ACTION_DOWN` 时立即 [select] 新 Tab 的文字色，
+ * 内容切换由抬起后的 `onTab` 回调完成 —— 与微信底部 Tab 的手感一致。
+ *
+ * - 二级页（状态详情/设置/知识库/调试/计划/个人信息/资源/预设）仍为 Activity，
+ *   经 [openSecondary] 进入；`tabbar` 只存在于 Tab 页布局里，二级页整体覆盖后
+ *   自然"隐藏"，返回时恢复（原型 go() 白名单显隐的等价实现）。
  *
  * include 布局：view_tabbar.xml（64dp，绝对定位盖底，不占 flex 流）。
  */
@@ -37,39 +44,33 @@ internal object TabBar {
     const val EXTRA_TAB = "tab"
 
     /**
-     * 绑定 tabbar：高亮 [active]，处理三段点击。
+     * 绑定 tabbar：高亮 [active]，三段点击都交给 [onTab]（宿主负责切 Fragment/View）。
      *
-     * [onRecord] / [onMine]：同 Activity 内的 Tab 页切换（MainActivity 传）。
-     * 缺省时 = 从助理页切回对应 Tab（finish / 带 extra 重开主界面）。
+     * 高亮在 `ACTION_DOWN` 立即生效；`setOnTouchListener` 返回 false，
+     * 不消费事件 —— 按压态、涟漪、点击照旧（v8 需求 2）。
      */
-    fun bind(
-        activity: Activity,
-        active: Int,
-        onRecord: (() -> Unit)? = null,
-        onMine: (() -> Unit)? = null,
-    ) {
+    fun bind(activity: Activity, active: Int, onTab: (Int) -> Unit) {
         val record = activity.findViewById<TextView>(R.id.tabRecord)
         val assistant = activity.findViewById<TextView>(R.id.tabAssistant)
         val mine = activity.findViewById<TextView>(R.id.tabMine)
 
         select(activity, active)
 
-        record.setOnClickListener { onRecord?.invoke() ?: chatTo(activity, TAB_RECORD) }
-        mine.setOnClickListener { onMine?.invoke() ?: chatTo(activity, TAB_MINE) }
-
-        // 已在助理页再点「助理」不动作（原型：同页重复 go() 不重播）
-        assistant.setOnClickListener {
-            if (activity !is ChatActivity) {
-                activity.startActivity(Intent(activity, ChatActivity::class.java))
-                activity.overridePendingTransition(R.anim.in_tab, R.anim.hold)
+        listOf(record to TAB_RECORD, assistant to TAB_ASSISTANT, mine to TAB_MINE)
+            .forEach { (view, tab) ->
+                view.setOnTouchListener { _, ev ->
+                    if (ev.actionMasked == MotionEvent.ACTION_DOWN) {
+                        // 按下即高亮：不等内容切换（内容切换有 IO/布局成本，色变没有）
+                        select(activity, tab)
+                    }
+                    false // 不消费：onClick 照常触发真正的内容切换
+                }
+                view.setOnClickListener { onTab(tab) }
             }
-        }
-
-        bindImeGuard(activity)
     }
 
     /**
-     * Tab 切换后重设高亮：MainActivity 的记录/我的在同一 Activity 内互切，
+     * Tab 切换后重设高亮：三个 Tab 的内容都在同一 Activity 里，
      * 切完必须同步 tabbar 三段颜色（bind 只在 onCreate 高亮一次，不够）。
      */
     fun select(activity: Activity, tab: Int) {
@@ -79,59 +80,49 @@ internal object TabBar {
     }
 
     /**
-     * 键盘守卫（11.6 交互遗留修复）：adjustResize 下键盘弹出时 WindowInsets
-     * 把整个内容区（含锚底的 tabbar）一起顶到键盘之上 —— tabbar 悬浮在键盘上
-     * 是真机最直观的破绽。
+     * 键盘守卫（11.6 交互遗留修复 + v8 Fragment 化改造）：adjustResize 下
+     * 键盘弹出时 WindowInsets 会把整个内容区（含锚底的 tabbar）一起顶到
+     * 键盘之上 —— tabbar 悬浮在键盘上是最直观的破绽。
      *
-     * 处理：ime 可见 → tabbar 隐藏，同时把输入条为让位 tabbar 而预留的
-     * 64dp 抬升（tab_raise marginBottom）归零，输入条贴住键盘顶；
+     * 处理：ime 可见 → tabbar 隐藏，同时把「当前 Tab 的输入条」为让位 tabbar
+     * 预留的 64dp 抬升（tab_raise marginBottom）归零，输入条贴住键盘顶；
      * ime 收起 → 全部还原。选 GONE 而非 translate 动画：与 adjustResize 的
      * 同帧重排叠加动画会闪烁，瞬时显隐反而干净。
      *
-     * 两处宿主（activity_main / activity_chat）都有 @+id/tabbar include 与
-     * @+id/input 输入条，且都在 onCreate 调 [bind] —— 逻辑放这一处，
-     * ChatActivity 侧零改动生效，两页行为必然一致。
+     * ⚠️ v8 关键变化：`@id/input` 现在**同时存在于**记录页 View 容器与
+     * [AssistantFragment] 两处。`hide()` 的 Fragment 视图仍 attach 在视图树上，
+     * 直接 `activity.findViewById(R.id.input)` 会命中**隐藏的那个**（结果不确定）。
+     * 所以由宿主经 [visibleInput] 提供当前可见 Tab 的输入条 —— 查询范围
+     * 限定在当前 Tab 内，结果确定。
      *
      * 限制：ime insets 精确上报需 API 30+（minSdk 29，目标机型 Magic6 Pro
-     * 为 API 34）；API 29 上拿不到 ime 可见性，行为退回现状（tabbar 随键盘上移）。
+     * 为 API 34）；API 29 上拿不到 ime 可见性，行为退回现状。
      */
-    private fun bindImeGuard(activity: Activity) {
+    fun bindImeGuard(activity: Activity, visibleInput: () -> View?) {
         val root = activity.findViewById<View>(android.R.id.content) ?: return
         val tabbar = activity.findViewById<View>(R.id.tabbar) ?: return
-        val input = activity.findViewById<View>(R.id.input) ?: return
-        val bar = input.parent as? ViewGroup ?: return
-        val lp = bar.layoutParams as? ViewGroup.MarginLayoutParams ?: return
-        val raisePx = lp.bottomMargin // 布局里的 tab_raise 抬升量
+        val raisePx = activity.resources.getDimensionPixelSize(R.dimen.tab_raise)
 
         ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
             val imeVisible = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom > 0
             tabbar.visibility = if (imeVisible) View.GONE else View.VISIBLE
-            lp.bottomMargin = if (imeVisible) 0 else raisePx
-            bar.layoutParams = lp // 重新赋值触发 requestLayout
+
+            // 输入条 parent 的 marginBottom 归零 / 还原；重复赋值会触发
+            // 无谓的 requestLayout，所以先比较再写。
+            val bar = visibleInput()?.parent as? ViewGroup
+            val lp = bar?.layoutParams as? ViewGroup.MarginLayoutParams
+            if (lp != null) {
+                val target = if (imeVisible) 0 else raisePx
+                if (lp.bottomMargin != target) {
+                    lp.bottomMargin = target
+                    bar.layoutParams = lp
+                }
+            }
             insets // 不消费，根布局 fitsSystemWindows 照常工作
         }
     }
 
-    /**
-     * 助理页 → 其它 Tab（记录 / 我的）。
-     *
-     * ⚠️ P0-A 修复（2026-10-05）：此前只对 TAB_MINE 带 `EXTRA_TAB`，TAB_RECORD
-     * 走裸 `finish()` —— MainActivity 恢复到"离开时所在的 Tab"（多为「我的」），
-     * 于是助理页点「记录」被弹回「我的」。现对**两个目标都**带 `EXTRA_TAB`，
-     * 下游 `MainActivity.onNewIntent`（已处理两种 extra）、`showTab` 同 Tab
-     * no-op 守卫、`onCreate` 冷启动兜底全部现成，无需再动。
-     */
-    private fun chatTo(activity: Activity, target: Int) {
-        activity.startActivity(
-            Intent(activity, MainActivity::class.java)
-                .putExtra(EXTRA_TAB, target)
-                .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
-        )
-        activity.finish()
-        activity.overridePendingTransition(R.anim.in_tab, R.anim.hold)
-    }
-
-    /** 二级页进入：统一 in_fwd 转场（11.2 前进）。 */
+    /** 二级页进入：统一 in_fwd 转场（11.2 前进）。二级页仍为 Activity（T03 Fragment 化）。 */
     fun openSecondary(activity: Activity, intent: Intent) {
         activity.startActivity(intent)
         activity.overridePendingTransition(R.anim.in_fwd, R.anim.out_fwd)

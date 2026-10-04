@@ -171,4 +171,36 @@ object SettingsKeys {
      *    空串 = 未填写，注入 prompt 时整段省略（与 [BACKGROUND] 同口径）。
      */
     const val GOAL_STATEMENT = "goal_statement"
+
+    // ── 目标设置引导（v8 需求 5）─────────────────────────────────────
+    /**
+     * 目标引导是否已完成。`"true"` = 已完成或已跳过；**键不存在 = 未完成**（弹引导）。
+     *
+     * 为什么必须加这个键：`ensureGoalDefaultsIfEmpty()` 会在 goals 空表时
+     * **无条件预置** 6 条默认目标 —— 这让"用户设过目标"与"系统灌的目标"
+     * 在数据上无法区分（判据只剩 `countActive() > 0`）。
+     * 引导弹窗的判据只能是本键，而不是 goals 表是否有行。
+     *
+     * ⚠️ 写入时机：
+     *   - **老用户升级首启**：在 `ensureGoalDefaultsIfEmpty()` **之前**判
+     *     `countActive() > 0`（此时表还是空的或已有旧数据）→ 有行即视为老用户，
+     *     补写 `"true"`（静默跳过，不弹引导打扰）；
+     *   - **全新安装**：goals 为空 → 引导弹窗出现，用户完成或跳过时写 `"true"`。
+     */
+    const val GOAL_SETUP_DONE = "goal_setup_done"
+
+    // ── 计划自动重排节流（v8 需求 7）─────────────────────────────────
+    /**
+     * 最近一次**自动** AI 重排所用日的 day_key（`yyyy-MM-dd`）。
+     *
+     * 语义：计划页去掉手动「更新」后，AI 重排改为后台自动触发 —— 但一次
+     * provider 往返恰好消耗 1 行 `llm_calls`（配额按行数计），**绝不能每次
+     * 进页面都调**。规则 = 同一 day_key 内最多自动触发 1 次；本键记录"上次
+     * 自动触发发生在哪一天"，与当前 day_key 不同才允许再触发。
+     *
+     * ⚠️ day_key 必须经 `parse/SchemaValidator.dayStartHourOf` + `dayKeyOf`
+     *    取得（日界线纪律），本键只做存储，不做任何日期计算。
+     *    键不存在 = 从未自动重排过（允许触发，还需同时满足其它门槛）。
+     */
+    const val PLAN_AUTO_SHUFFLE_DAY = "plan_auto_reshuffle_day"
 }

@@ -33,10 +33,10 @@ import kotlinx.coroutines.launch
  *
  * 核心原则：进入 300ms 后自动弹键盘并聚焦输入区 —— 这是"打开即记"的摩擦下限。
  *
- * v6：本 Activity 现在承载两个 Tab 页 ——
- * 「记录」（pageHome，原主界面）与「我的」（minePage，管理类功能归宿）。
- * Tab 互切走 in_tab 转场（同 Activity 内 View 动画，可靠重播）；
- * 「助理」为独立 ChatActivity，经全局 TabBar 切换；二级页统一 in_fwd/in_back。
+ * v8：单 Activity + 3 Tab 导航骨架。「助理」由独立 ChatActivity 迁为常驻
+ * Fragment（[AssistantFragment]，add 一次 + show/hide）——Tab 互切零窗口转场、
+ * 零 Activity 重建（需求 2「点 Tab 即响应」的根治）；「记录 / 我的」仍为
+ * 同 Activity 内 View 容器 + in_tab 动画（可靠重播）；二级页统一 in_fwd/in_back。
  */
 class MainActivity : AppCompatActivity() {
 
@@ -52,6 +52,14 @@ class MainActivity : AppCompatActivity() {
     private lateinit var swipe: SwipeController
 
     private lateinit var minePage: MinePage
+
+    /**
+     * 助理 Tab 的常驻 Fragment（v8 导航骨架）。
+     *
+     * 懒创建且**诞生即隐藏**（add + hide 同事务）——保证首次 show() 一定走
+     * [AssistantFragment.onHiddenChanged] → onVisible()，显示逻辑只有一条路径。
+     */
+    private var assistant: AssistantFragment? = null
 
     /**
      * 最近一次的 UI 状态。
@@ -133,25 +141,29 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // ── v6：全局 3 Tab（记录 / 助理 / 我的）──
+        // ── v6：全局 3 Tab（记录 / 助理 / 我的）；v8：助理改常驻 Fragment ──
         minePage = MinePage(this, binding.minePage.root)
         minePage.bind(
             onOpenStatus = { vm.acknowledgeSignals() },
         )
         currentTab = intent.getIntExtra(TabBar.EXTRA_TAB, TabBar.TAB_RECORD)
-        TabBar.bind(
-            this,
-            currentTab,
-            onRecord = { showTab(TabBar.TAB_RECORD) },
-            onMine = { showTab(TabBar.TAB_MINE) },
-        )
+        TabBar.bind(this, currentTab) { tab -> showTab(tab) }
+        // 键盘守卫：@id/input 在记录页 View 容器与助理 Fragment 里各有一份，
+        // hide() 的 Fragment 视图仍 attach，必须按当前 Tab 解析（TabBar.bindImeGuard 说明）
+        TabBar.bindImeGuard(this) {
+            if (currentTab == TabBar.TAB_ASSISTANT) {
+                assistant?.view?.findViewById(R.id.input)
+            } else {
+                binding.input
+            }
+        }
         showTabImmediate(currentTab)
 
-        // 系统返回键（Tab 页返回栈）：「我的」页按返回 = 切回记录 tab（原型 go()
+        // 系统返回键（Tab 页返回栈）：非记录 Tab 按返回 = 切回记录 tab（原型 go()
         // 语义：tab 平级、返回不退出）；已是记录 tab 才退出 App。
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                if (currentTab == TabBar.TAB_MINE) {
+                if (currentTab != TabBar.TAB_RECORD) {
                     showTab(TabBar.TAB_RECORD)
                 } else {
                     finish()
@@ -183,15 +195,15 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * 从助理页切「记录 / 我的」时，TabBar.chatTo 用 CLEAR_TOP|SINGLE_TOP 重开本页。
-     * 若本页已在栈顶（聊天前就是从主界面进的），系统走 onNewIntent 而非 onCreate ——
-     * 不在这里读 EXTRA_TAB，extra 就永远没人接，页面停在旧 Tab（实测 bug）。
+     * 通知 / 小工具等外部入口重开本页时走这里（本页已在栈顶）。
+     * v8 后助理为常驻 Fragment、TabBar 不再有 chatTo()，EXTRA_TAB 只来自
+     * 通知栏录入等外部入口（点通知直接落在指定 Tab）。
      */
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
         val tab = intent.getIntExtra(TabBar.EXTRA_TAB, -1)
-        if (tab == TabBar.TAB_RECORD || tab == TabBar.TAB_MINE) {
+        if (tab in TabBar.TAB_RECORD..TabBar.TAB_MINE) {
             showTab(tab)
         }
         // 桌面小工具「记一笔」：本页已在栈顶时走这里 —— 记录 tab 下补聚焦速记框
@@ -230,15 +242,48 @@ class MainActivity : AppCompatActivity() {
         currentTab = target
         // 同 Activity 内互切后 tabbar 高亮必须跟着走（bind 只在 onCreate 高亮一次）
         TabBar.select(this, target)
-        playInTab(if (target == TabBar.TAB_MINE) binding.minePage.root else binding.pageHome)
-        val outgoing = if (target == TabBar.TAB_MINE) binding.pageHome else binding.minePage.root
-        outgoing.visibility = View.GONE
+        val assistant = ensureAssistant()
+        supportFragmentManager.beginTransaction()
+            .apply { if (target == TabBar.TAB_ASSISTANT) show(assistant) else hide(assistant) }
+            .commitNow()
+        binding.assistantContainer.visibility =
+            if (target == TabBar.TAB_ASSISTANT) View.VISIBLE else View.GONE
+        if (target == TabBar.TAB_ASSISTANT) {
+            // 助理页盖在两个 View 容器之上：显式收起旧容器，避免边缘视图闪现
+            binding.pageHome.visibility = View.GONE
+            binding.minePage.root.visibility = View.GONE
+        } else {
+            playInTab(if (target == TabBar.TAB_MINE) binding.minePage.root else binding.pageHome)
+            val outgoing = if (target == TabBar.TAB_MINE) binding.pageHome else binding.minePage.root
+            outgoing.visibility = View.GONE
+        }
     }
 
     private fun showTabImmediate(target: Int) {
+        val assistant = ensureAssistant()
+        supportFragmentManager.beginTransaction()
+            .apply { if (target == TabBar.TAB_ASSISTANT) show(assistant) else hide(assistant) }
+            .commitNow()
+        binding.assistantContainer.visibility =
+            if (target == TabBar.TAB_ASSISTANT) View.VISIBLE else View.GONE
         binding.pageHome.visibility = if (target == TabBar.TAB_RECORD) View.VISIBLE else View.GONE
         binding.minePage.root.visibility =
             if (target == TabBar.TAB_MINE) View.VISIBLE else View.GONE
+    }
+
+    /**
+     * 助理 Fragment 懒创建：add 一次常驻，此后只 show/hide（永不重建、永不重建视图）。
+     * 诞生即 hide（[assistant] 注释）→ 每次首次 show 都触发 onVisible() 刷新。
+     */
+    private fun ensureAssistant(): AssistantFragment {
+        assistant?.let { return it }
+        val f = AssistantFragment()
+        supportFragmentManager.beginTransaction()
+            .add(R.id.assistantContainer, f, TAG_ASSISTANT)
+            .hide(f)
+            .commitNow()
+        assistant = f
+        return f
     }
 
     private fun playInTab(view: View) {
@@ -516,6 +561,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     companion object {
+        /** 助理 Fragment 的回退栈标签（ensureAssistant 的 add 标签）。 */
+        private const val TAG_ASSISTANT = "assistant"
+
         /**
          * 桌面小工具「记一笔」：打开本页并聚焦速记框（小工具侧 extra，
          * 见 HealixWidgetProvider.logIntent；冷启动由 onCreate 300ms 自动聚焦兜底）。

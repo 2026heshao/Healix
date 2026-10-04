@@ -369,6 +369,21 @@
         android:layout_height="match_parent" />
 
     <!--
+        ── Tab 页 3：助理（v8 需求 1/2）──
+        常驻 AssistantFragment 的容器：`add` 一次 + `show/hide` 切换，
+        不再经过 Activity 窗口转场（此前 chatTo() 重启 MainActivity 是
+        「Tab 点击延迟」的根因）。非当前 Tab 时整容器 GONE：
+        既省一帧测量，也让命中测试确定性地落到可见 Tab 上。
+        tabbar 仍在下方（XML 顺序靠后 = 更高的 z 序，盖住容器底部）。
+    -->
+    <FrameLayout
+        android:id="@+id/assistantContainer"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone"
+        tools:visibility="visible" />
+
+    <!--
         全局底部导航 3 Tab（v6 · 11.1）：64dp，绝对定位盖底，不占 flex 流。
         只在 Tab 页（记录/助理/我的）可见，进二级页时由 TabBar 隐藏。
     -->
