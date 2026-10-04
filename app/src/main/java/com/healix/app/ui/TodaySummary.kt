@@ -84,6 +84,17 @@ internal data class TodaySummary(
      */
     val lines: List<String>
         get() = buildList {
+            // 当前时间（F4）：本地时间 24 小时制两位补零，
+            // 让模型知道"现在几点"才能给分时段建议（如深夜免烹饪）
+            val nowTime = java.time.LocalTime.now()
+            add(
+                String.format(
+                    java.util.Locale.US,
+                    "- 现在是 %02d:%02d",
+                    nowTime.hour,
+                    nowTime.minute,
+                ),
+            )
             // 热量三行：隐藏热量时整段省略（不写"已隐藏"，那会被模型当成一种状态去讨论）
             if (!hideKcal) {
                 add("- 已摄入 $kcalIn kcal，目标 $target kcal，还差 ${if (gap > 0) gap else 0} kcal")

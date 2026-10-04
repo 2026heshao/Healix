@@ -67,6 +67,12 @@ class DebugActivity : AppCompatActivity() {
         }
     }
 
+    /** v6（11.2）：二级页返回统一 in_back —— 返回页从 -22% 滑入。 */
+    override fun finish() {
+        super.finish()
+        overridePendingTransition(R.anim.in_back, R.anim.out_back)
+    }
+
     private fun startOfToday(): Long =
         java.time.LocalDate.now().atStartOfDay(ZoneId.systemDefault())
             .toInstant().toEpochMilli()

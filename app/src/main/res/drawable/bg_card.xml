@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    卡片分组容器（设计规范 11.1「我的」页）。
+    ⚠️ 规范原文写圆角 16dp，但 §2.3 全局唯一圆角值是 8dp —— 以 §2.3 为准。
+    surface 底 + 1dp line 描边，无阴影。
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <solid android:color="@color/surface" />
+    <corners android:radius="@dimen/radius" />
+    <stroke
+        android:width="@dimen/divider"
+        android:color="@color/line" />
+</shape>

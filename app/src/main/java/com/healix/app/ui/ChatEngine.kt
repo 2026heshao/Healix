@@ -8,6 +8,7 @@ import com.healix.app.net.ChatRequest
 import com.healix.app.net.ChatResult
 import com.healix.app.net.OpenAiCompatProvider
 import com.healix.app.net.ProviderConfig
+import com.healix.app.rules.FoodPool
 
 /**
  * 对话引擎（单轮，无工具）。
@@ -42,11 +43,21 @@ internal object ChatEngine {
         history: List<ChatMessageEntity>,
         /** 用户背景（设置页「我的情况」）。空串 = 未填写，prompt 里整段省略。 */
         background: String = "",
+        /**
+         * 知识库命中片段（F12，规范 10.4 ②）。空串 = 未命中，prompt 里整段省略。
+         * 只进对话 prompt：`PROMPT_EXTRACT` 一字不改、`PROMPT_VER` 不递增。
+         */
+        knowledge: String = "",
     ): Reply {
         val provider = OpenAiCompatProvider(config)
 
         val messages = buildList {
-            add(ChatMessage(role = "system", content = systemPrompt(context, sessionDate, background)))
+            add(
+                ChatMessage(
+                    role = "system",
+                    content = systemPrompt(context, sessionDate, background, knowledge),
+                ),
+            )
             // 历史窗口：最近 16 条（9.2 上下文策略）
             history.takeLast(HISTORY_WINDOW).forEach { m ->
                 if (m.role == "user" || m.role == "assistant") {
@@ -112,10 +123,32 @@ internal object ChatEngine {
      * **只进这一处 prompt** —— `PROMPT_EXTRACT`（抽取链）一字不改。
      * 抽取链的任务是把口语转成 JSON，用户背景对"这句话说了什么"没有信息量，
      * 塞进去反而会挤占 token 并可能诱导模型改写 foods 字段。
+     *
+     * ## F6/F7/F8/F9（功能清单 2 P1）
+     * - [background] 现在由 ChatViewModel 组装：**硬约束段**（忌口/疼痛/器材，
+     *   带「【硬约束——必须遵守】」标记，规则 8 按段落实）+ **软背景段**
+     *   （场景/作息/补充说明）。空值整段省略。
+     * - 常吃食物池（F7）由 [FoodPool.build] 本地聚合，空清单整行省略。
+     * - 规则 5 补 F7 半句；新增规则 11（F9 疼痛硬规则）/ 12（F8 行动条三要素）；
+     *   隐私两条顺延为 13 / 14。
      */
-    private fun systemPrompt(context: Context, sessionDate: String, background: String): String {
+    private fun systemPrompt(
+        context: Context,
+        sessionDate: String,
+        background: String,
+        knowledge: String,
+    ): String {
         val summary = TodaySummary.build(context)
         val summaryText = summary.lines.joinToString("\n")
+
+        // 常吃食物池（F7）：近 30 天 meal foods 频次聚合，≥3 次进清单，
+        // 频率降序。空 = 记录太少，整行省略（不给模型一份假清单）。
+        val foodPool = FoodPool.build(context)
+        val foodPoolLine = if (foodPool.isEmpty()) {
+            ""
+        } else {
+            "这个人常吃/买得到的食物（按频率）：${foodPool.joinToString("、")}\n"
+        }
 
         // 背景段：空则整段省略 —— 不留「我的情况：（空）」这种噪声，
         // 那会让模型去猜测一个不存在的约束。
@@ -129,37 +162,54 @@ $background
 """.trimStart('\n')
         }
 
+        // 知识库段（F12，规范 10.4 ②）：拼在 backgroundBlock 之后、规则之前，
+        // 总量 ≤300 token（约 450 汉字，由 KnowledgeRepository.search 裁剪）。
+        // 空则整段省略 —— 未命中时不给模型任何关于知识库的提示（常态零噪声）。
+        val knowledgeBlock = if (knowledge.isBlank()) {
+            ""
+        } else {
+            """
+知识库摘录（来自用户上传的文档，视为可信资料）：
+$knowledge
+
+""".trimStart('\n')
+        }
+
         // 隐藏敏感指标时额外加一句硬约束：不是"别提 kcal 这个词"，
-        // 而是"这个人不想在对话里看到这些数字"（PRD §14.3）
+        // 而是"这个人不想在对话里看到这些数字"（PRD §14.3）。
+        // F6/F9 加入静态规则 11 / 12 后，隐私两条顺延为 13 / 14。
         val privacyNote = buildString {
             if (summary.hideKcal) {
-                append("\n11. 这个人不想看到热量数字，回答里不要出现任何 kcal 数值。")
+                append("\n13. 这个人不想看到热量数字，回答里不要出现任何 kcal 数值。")
             }
             if (summary.hideWeight) {
-                append("\n12. 这个人不想看到体重数字，回答里不要出现任何体重数值。")
+                append("\n14. 这个人不想看到体重数字，回答里不要出现任何体重数值。")
             }
         }
 
         return """
-${backgroundBlock}你是 Healix 的健康助理。这个人当前的主要目标是${summary.primaryGoalName}，
+${backgroundBlock}${knowledgeBlock}你是 Healix 的健康助理。这个人当前的主要目标是${summary.primaryGoalName}，
 同时也关心运动、睡眠和身体状况。今天是 $sessionDate。
 
 今天的已知数字（本地记录，可信）：
 $summaryText
 
-规则：
+${foodPoolLine}规则：
 1. 涉及数字（摄入、体重、运动量）只能引用上面给出的数字。上面的数字里没有的，直接说"今天还没记录这项"，禁止凭空报数或估算当日总量。
 2. 语气直接、不客套、不写"建议咨询医生"这类套话。
 3. 一次只追问一次，用户没答就按默认假设继续。
-4. 用户说"记一下…"时，告诉他自己在速记框或通知栏记一笔，不要声称你已经记录了。
-5. 给饮食建议时要给具体食物 + 分量，并标注预计热量。
+4. 不要在回复开头重复任何固定指引（比如"速记框里记一笔"）。用户让你记录时：能确定内容就确认记录；确定不了就问一句需要补什么。
+5. 给饮食建议时要给具体食物 + 分量，并标注预计热量。深夜（23 点后）优先建议免烹饪、易消化的选项，并说明原因。饮食建议优先从常吃清单里选；要推荐清单外的东西时，说明理由并选容易获得的。
 6. 热量数字都是估算值。
 7. 全程中文。回答控制在 4 句以内，不要分点罗列。
-8. 上面「已知情况」里写过的偏好、忌口、身体条件，必须作为硬约束遵守；
-   若某项要求与该情况冲突，直接指出冲突并给替代方案。
+8. 上面「硬约束——必须遵守」段里的忌口、疼痛部位、可用器材必须遵守：
+   饮食绕开忌口，运动避开疼痛部位、只用可用器材；
+   若用户的要求与硬约束冲突，直接指出冲突并给替代方案。
 9. 给运动建议时必须写清动作名称 + 组数 × 次数（或时长），不要只写"力量训练 30 分钟"。
    今天或昨天有生病记录时，不要推训练，改推休息、补水、睡眠。
-10. 不做疾病推断、不给用药或剂量建议、不给任何健康评分。$privacyNote
+10. 不做疾病推断、不给用药或剂量建议、不给任何健康评分。
+11. 提到疼痛/不适的部位，所有运动建议必须避开该部位相关动作，并优先给恢复性建议（睡眠、补水）。
+12. 给「接下来该做什么」的建议时，每条带三要素：做什么（用对方手头的食物/器材）+ 大概多久 + 一句为什么是现在。$privacyNote
 """.trim()
     }
 

@@ -1,6 +1,7 @@
 package com.healix.app.ui
 
 import android.content.Intent
+import android.view.MotionEvent
 import android.view.View
 import android.view.inputmethod.InputMethodManager
 import android.os.Bundle
@@ -21,9 +22,14 @@ import com.healix.app.notify.EventText
 import kotlinx.coroutines.launch
 
 /**
- * 主界面（设计规范系统 4.1）。
+ * 主界面（设计规范系统 4.1 + 11.1 v6）。
  *
  * 核心原则：进入 300ms 后自动弹键盘并聚焦输入区 —— 这是"打开即记"的摩擦下限。
+ *
+ * v6：本 Activity 现在承载两个 Tab 页 ——
+ * 「记录」（pageHome，原主界面）与「我的」（minePage，管理类功能归宿）。
+ * Tab 互切走 in_tab 转场（同 Activity 内 View 动画，可靠重播）；
+ * 「助理」为独立 ChatActivity，经全局 TabBar 切换；二级页统一 in_fwd/in_back。
  */
 class MainActivity : AppCompatActivity() {
 
@@ -31,6 +37,14 @@ class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
     private lateinit var adapter: EventAdapter
     private lateinit var vm: MainViewModel
+
+    /** 当前 Tab（TabBar.TAB_RECORD / TAB_MINE）。 */
+    internal var currentTab: Int = TabBar.TAB_RECORD
+
+    /** 左滑手势控制器：全局单开（所有行共享 1 个实例）。 */
+    private lateinit var swipe: SwipeController
+
+    private lateinit var minePage: MinePage
 
     /**
      * 最近一次的 UI 状态。
@@ -48,12 +62,16 @@ class MainActivity : AppCompatActivity() {
 
         vm = MainViewModel(HealixApp.from(this))
 
+        swipe = SwipeController(this)
+
         adapter = EventAdapter(
             onEdit = { entity ->
                 EventEditSheet.newInstance(entity.clientEventId)
                     .show(supportFragmentManager, EventEditSheet.TAG)
             },
             onRetry = { entity -> vm.retry(entity) },
+            onDelete = { entity -> deleteWithUndo(entity) },
+            swipe = swipe,
         )
 
         binding.list.layoutManager = LinearLayoutManager(this)
@@ -64,13 +82,10 @@ class MainActivity : AppCompatActivity() {
 
         binding.btnSend.setOnClickListener { submit() }
         binding.btnSettings.setOnClickListener {
-            startActivity(Intent(this, SettingsActivity::class.java))
-        }
-        binding.tabAssistant.setOnClickListener {
-            startActivity(Intent(this, ChatActivity::class.java))
+            TabBar.openSecondary(this, Intent(this, SettingsActivity::class.java))
         }
         binding.planBar.setOnClickListener {
-            startActivity(Intent(this, PlanReviewActivity::class.java))
+            TabBar.openSecondary(this, Intent(this, PlanReviewActivity::class.java))
         }
         binding.nudgeBar.setOnClickListener { focusInput() }
 
@@ -78,7 +93,8 @@ class MainActivity : AppCompatActivity() {
         // 否则落在「运动」段 —— 入口决定默认段，用户不用再猜。
         binding.statusRow.setOnClickListener {
             val tab = if (binding.statusRow.tag == TAB_BODY) TAB_BODY else TAB_EXERCISE
-            startActivity(
+            TabBar.openSecondary(
+                this,
                 Intent(this, StatusDetailActivity::class.java)
                     .putExtra(StatusDetailActivity.EXTRA_DEFAULT_TAB, tab),
             )
@@ -89,16 +105,116 @@ class MainActivity : AppCompatActivity() {
         // 状态提示条点击：按当前语义分流（离线 → 重试；未配置 → 去设置）
         binding.offlineBar.setOnClickListener {
             if (lastUiState == MainUiState.NotConfigured) {
-                startActivity(Intent(this, SettingsActivity::class.java))
+                TabBar.openSecondary(this, Intent(this, SettingsActivity::class.java))
             } else {
                 vm.retryFailedPending()
             }
+        }
+
+        // ── v6：全局 3 Tab（记录 / 助理 / 我的）──
+        minePage = MinePage(this, binding.minePage.root)
+        minePage.bind(
+            onOpenStatus = { vm.acknowledgeSignals() },
+        )
+        currentTab = intent.getIntExtra(TabBar.EXTRA_TAB, TabBar.TAB_RECORD)
+        TabBar.bind(
+            this,
+            currentTab,
+            onRecord = { showTab(TabBar.TAB_RECORD) },
+            onMine = { showTab(TabBar.TAB_MINE) },
+        )
+        showTabImmediate(currentTab)
+
+        // 左滑"点其它区域自动回弹"：列表内按下非滑开行 → 收起（全局单开，11.3）
+        binding.list.addOnItemTouchListener(object : RecyclerView.SimpleOnItemTouchListener() {
+            override fun onInterceptTouchEvent(rv: RecyclerView, e: MotionEvent): Boolean {
+                if (e.actionMasked == MotionEvent.ACTION_DOWN) {
+                    val child = rv.findChildViewUnder(e.x, e.y)
+                    swipe.closeIfOutside(child)
+                }
+                return false
+            }
+        })
+
+        // 列表可视区外的按下（汇总区 / 顶栏等）也收起滑开的行
+        binding.root.setOnTouchListener { _, e ->
+            if (e.actionMasked == MotionEvent.ACTION_DOWN) swipe.closeIfOutside(null)
+            false // 不消费
         }
 
         observe()
 
         // 进入 300ms 后自动弹键盘（规范硬要求：打开即弹键盘、光标在输入框）
         binding.input.postDelayed({ focusInput() }, 300)
+    }
+
+    /**
+     * SAF 回传（v6 迁移）：导出备份入口已从设置页迁到「我的」页（11.1），
+     * 发起方变成 MainActivity —— 必须在这里转发给 ExportWriter，
+     * 否则用户选完路径后 pendingPayload 永远挂着、文件不会写入（静默失败）。
+     */
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        @Suppress("DEPRECATION")
+        super.onActivityResult(requestCode, resultCode, data)
+        if (ExportWriter.onActivityResult(this, requestCode, resultCode, data?.data)) {
+            val ok = resultCode == RESULT_OK
+            android.widget.Toast.makeText(
+                this,
+                getString(if (ok) R.string.export_success else R.string.export_failed),
+                android.widget.Toast.LENGTH_SHORT,
+            ).show()
+        }
+    }
+
+    /**
+     * Tab 平级切换（11.2 in_tab）：透明度 0→1 + translateY(8dp)→0。
+     * 原型 reflow 的 Android 等价：先取消旧动画、重置起始值再重播，
+     * 同页重复切换直接跳过（不重播）。
+     */
+    private fun showTab(target: Int) {
+        if (currentTab == target) return
+        currentTab = target
+        playInTab(if (target == TabBar.TAB_MINE) binding.minePage.root else binding.pageHome)
+        val outgoing = if (target == TabBar.TAB_MINE) binding.pageHome else binding.minePage.root
+        outgoing.visibility = View.GONE
+    }
+
+    private fun showTabImmediate(target: Int) {
+        binding.pageHome.visibility = if (target == TabBar.TAB_RECORD) View.VISIBLE else View.GONE
+        binding.minePage.root.visibility =
+            if (target == TabBar.TAB_MINE) View.VISIBLE else View.GONE
+    }
+
+    private fun playInTab(view: View) {
+        view.animate().cancel()
+        view.alpha = 0f
+        view.translationY = resources.getDimensionPixelSize(R.dimen.tab_shift).toFloat()
+        view.visibility = View.VISIBLE
+        view.animate()
+            .alpha(1f)
+            .translationY(0f)
+            .setDuration(TAB_ANIM_MS)
+            .withEndAction {
+                view.alpha = 1f
+                view.translationY = 0f
+            }
+            .start()
+    }
+
+    /**
+     * 左滑删除（11.3）：一步删除 → 复用撤销条（5 秒，与"已记录"同一容器同套机制）；
+     * 点「撤销」原位插回 —— 软删除恢复后 ts 不变，Room Flow 自动按原序回插。
+     */
+    private fun deleteWithUndo(e: EventEntity) {
+        vm.deleteEvent(e.clientEventId)
+        UndoBar.bind(
+            container = binding.undoBar,
+            leftText = binding.undoLeft,
+            action = binding.undoAction,
+            text = getString(R.string.undo_deleted, e.rawText.take(14)),
+            announce = null,
+            onUndo = { vm.restoreEvent(e.clientEventId) },
+        )
     }
 
     override fun onResume() {
@@ -208,9 +324,10 @@ class MainActivity : AppCompatActivity() {
 
                 launch { vm.presets.collect { renderPresets(it) } }
 
-                // 状态行：两态互斥渲染（规范 §9.2）
+                // 状态行：两态互斥渲染（规范 §9.2）；「我的」页副行同源同步
                 launch {
                     vm.homeStatus.collect { status ->
+                        minePage.bindStatus(this@MainActivity, status)
                         when (status) {
                             is HomeStatus.Signal -> {
                                 binding.statusRow.tag = TAB_BODY
@@ -301,6 +418,7 @@ class MainActivity : AppCompatActivity() {
                 as android.widget.TextView
             tv.text = preset.name
             tv.setOnClickListener { vm.logPreset(preset) }
+            tv.bindPressScale()
             binding.presetRow.addView(tv)
         }
     }
@@ -312,16 +430,25 @@ class MainActivity : AppCompatActivity() {
          */
         private const val TAB_EXERCISE = "exercise"
         private const val TAB_BODY = "body"
+
+        /** Tab 平级切换时长（规范 11.2，对应原型 --dur_normal）。 */
+        private const val TAB_ANIM_MS = 240L
     }
 }
 
 /**
  * 记录列表适配器。
  * 无卡片、无阴影、无彩色徽章 —— 靠 6px 圆点 + 1dp 分隔线组织信息。
+ *
+ * v6：每行包 swipewrap（item_event.xml），左滑露「编辑/删除」（11.3）；
+ * 按压缩放双反馈（11.4）。手势由共享的 [SwipeController] 统一裁决
+ * （全局单开 + 300ms click 屏蔽）。
  */
 class EventAdapter(
     private val onEdit: (EventEntity) -> Unit,
     private val onRetry: (EventEntity) -> Unit,
+    private val onDelete: (EventEntity) -> Unit,
+    private val swipe: SwipeController,
 ) : RecyclerView.Adapter<EventAdapter.VH>() {
 
     private var items: List<EventEntity> = emptyList()
@@ -358,6 +485,28 @@ class EventAdapter(
 
         fun bind(e: EventEntity) {
             val ctx = b.root.context
+
+            // ── v6 左滑：拖拽跟随 + 按压缩放，同一个触摸监听承载两种反馈 ──
+            b.swipeItem.setOnTouchListener { v, ev ->
+                when (ev.actionMasked) {
+                    MotionEvent.ACTION_DOWN ->
+                        v.animate().scaleX(PRESS_SCALE).scaleY(PRESS_SCALE).setDuration(120).start()
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL ->
+                        v.animate().scaleX(1f).scaleY(1f).setDuration(120).start()
+                }
+                swipe.onTouch(v, ev)
+                false // 不消费：点击 / 长按照旧
+            }
+            b.actEdit.setOnClickListener {
+                if (!swipe.clickAllowed()) return@setOnClickListener
+                swipe.closeAll()
+                onEdit(e)
+            }
+            b.actDelete.setOnClickListener {
+                if (!swipe.clickAllowed()) return@setOnClickListener
+                swipe.closeAll()
+                onDelete(e)
+            }
 
             // 类型 + 时间（第一行，13sp text_2）
             b.typeLabel.text = EventText.typeName(ctx, e.type)
@@ -411,8 +560,11 @@ class EventAdapter(
                 }
             }
 
-            // 整行可点 → 编辑（复用 ConfirmSheet）
-            b.root.setOnClickListener { onEdit(e) }
+            // 整行可点 → 编辑（复用 ConfirmSheet）。刚拖完的 300ms 内不触发（V4）。
+            b.swipeItem.setOnClickListener {
+                if (!swipe.clickAllowed()) return@setOnClickListener
+                onEdit(e)
+            }
 
             // 最后一行不画分隔线
             b.divider.visibility =
@@ -423,6 +575,9 @@ class EventAdapter(
     private companion object {
         const val PARSE_PENDING = "pending"
         const val PARSE_FAILED = "failed"
+
+        /** 按压缩放幅度（规范 11.4，原型 scale .985）。 */
+        const val PRESS_SCALE = 0.985f
     }
 }
 

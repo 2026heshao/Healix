@@ -2,9 +2,15 @@
 <!--
     ConfirmSheet（组件规范 3.5）：顶部圆角 8dp，把手 36×3dp，字段行高 52dp。
     底部右对齐：文字按钮「重新识别」+ 主按钮「确认」。
+    v6（11.5）：根容器换成 GrabberLayout —— 支持下拖关闭（超过 80dp 松手即关），
+    并排除 input/button 上的按下（防表单误拖）。
 -->
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<com.healix.app.ui.GrabberLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content">
+
+<LinearLayout
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:background="@drawable/bg_sheet"
@@ -104,3 +110,5 @@
         android:text="@string/delete" />
 
 </LinearLayout>
+
+</com.healix.app.ui.GrabberLayout>

@@ -123,6 +123,7 @@
     <!-- 计划 / 复盘 -->
     <string name="plan_item_kcal">%1$s · 约 %2$d kcal</string>
     <string name="plan_gap_label">还差 %1$d kcal</string>
+    <string name="plan_action_meta">%1$s · %2$s</string>
     <string name="review_stat_kcal_in">摄入</string>
     <string name="review_stat_kcal_out">消耗</string>
     <string name="review_stat_weight">体重</string>
@@ -130,6 +131,11 @@
     <!-- 设置补充 -->
     <string name="setting_height">身高</string>
     <string name="setting_weight">体重</string>
+    <string name="setting_current_weight">当前体重</string>
+    <string name="setting_weight_none">未记录</string>
+    <string name="setting_current_weight_value">%1$s kg · %2$s</string>
+    <string name="setting_weight_ago_today">今天</string>
+    <string name="setting_weight_ago_days">%1$d 天前</string>
     <string name="setting_age">年龄</string>
     <string name="setting_activity">活动系数</string>
     <string name="setting_day_start">日界线</string>
@@ -138,6 +144,24 @@
     <string name="setting_background_hint">写给自己看的背景。AI 出计划和建议时会参考它。</string>
     <string name="setting_background_ph">例如：24 岁男，体重偏轻，目标是增重到 75kg；乳糖不耐受；不吃香菜；下午常犯困；每周三、五去健身房。</string>
     <string name="setting_background_count">%1$d / %2$d</string>
+
+    <!-- 我的情况 · 结构化画像（F6，profile_ 前缀） -->
+    <string name="setting_profile_extra">补充说明</string>
+    <string name="setting_profile_allergens">忌口 / 过敏</string>
+    <string name="setting_profile_pain">疼痛 / 不适</string>
+    <string name="setting_profile_scene">就餐场景</string>
+    <string name="setting_profile_gear">可用器材</string>
+    <string name="setting_profile_sleep">作息</string>
+    <string name="setting_profile_sleep_value">%1$s 睡 · %2$s 起</string>
+    <string name="setting_profile_bed_label">就寝时间（如 00:30）</string>
+    <string name="setting_profile_wake_label">起床时间（如 7:30）</string>
+    <string name="setting_profile_scene_fixed">未固定</string>
+    <string-array name="profile_scenes">
+        <item>宿舍</item>
+        <item>食堂</item>
+        <item>外卖</item>
+        <item>自己做饭</item>
+    </string-array>
     <string name="setting_daily_quota">每日调用上限</string>
     <string name="setting_chat_quota">每日对话上限</string>
     <string name="setting_retry">重试次数</string>
@@ -368,4 +392,40 @@
     <string name="reminder_field_days">周期天数</string>
     <string name="reminder_field_last">上次日期</string>
     <string name="reminder_pick_days">周期</string>
+
+    <!-- ── PDF 知识库（F12，规范 10.6 新增资源清单：共 18 条，零新增 dimen/color/icon） ── -->
+    <string name="group_knowledge">知识库</string>
+    <string name="knowledge_title">知识库</string>
+    <string name="knowledge_entry_none">未添加</string>
+    <string name="knowledge_entry_count">%1$d 份文档</string>
+    <string name="knowledge_add">＋ 添加 PDF 文件</string>
+    <string name="knowledge_empty_title">还没有文档</string>
+    <string name="knowledge_empty_hint">上传训练计划、体检报告或科普资料，AI 回答时会引用里面的内容</string>
+    <string name="knowledge_pick">选择 PDF 文件</string>
+    <string name="knowledge_parsing">解析中</string>
+    <string name="knowledge_meta">%1$d 页 · %2$s</string>
+    <string name="knowledge_failed">解析失败 · 点此重试</string>
+    <string name="knowledge_scanned">扫描版 · 无法提取文字</string>
+    <string name="knowledge_too_large">文件超过 20 MB</string>
+    <string name="knowledge_open">打开原文</string>
+    <string name="knowledge_delete">删除文档</string>
+    <string name="knowledge_delete_hint">删除后 AI 将不再引用这份资料</string>
+    <string name="knowledge_source">来源：%1$s · 第 %2$d 页</string>
+    <string name="knowledge_size_mb">%1$.1f MB</string>
+
+    <!-- ══════════════════════════════════════════════════════════════════════
+        v6 交互重构（docs/Healix设计规范系统.md 第十一章）
+        ══════════════════════════════════════════════════════════════════════ -->
+
+    <!-- ── 底部导航 3 Tab（11.1）：全局 tabbar 第三段「我的」页 ── -->
+    <string name="tab_mine">我的</string>
+    <string name="mine_title">我的</string>
+    <string name="mine_group_overview">概览</string>
+    <string name="row_status_detail">状态详情</string>
+    <string name="mine_group_data">数据</string>
+    <string name="mine_group_app">应用</string>
+    <string name="row_notify_input">通知栏录入</string>
+
+    <!-- ── 左滑删除（11.3）：一步删除 + 5 秒撤销，文案口径与「已记录」一致 ── -->
+    <string name="undo_deleted">已删除「%1$s」</string>
 </resources>

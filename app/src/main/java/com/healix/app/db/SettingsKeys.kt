@@ -90,6 +90,30 @@ object SettingsKeys {
     /** 用户背景自由文本（「我的情况」）。空 = 未填写，prompt 走无背景路径。 */
     const val BACKGROUND = "user_background"
 
+    // ── 结构化画像（功能清单 2 F6；全部落 settings 表，不建 profile 表）───
+    /**
+     * 标签类画像值统一存 **JSON 数组字符串**（如 `["乳糖不耐","不吃香菜"]`），
+     * 标量类存原样字符串。空数组 `[]` / 空串 = 未填写，注入 prompt 时整段省略。
+     * 解析端一律防御性解析（解析失败按空处理，不抛异常）。
+     */
+    /** 忌口 / 过敏 / 不吃（JSON 数组）。硬约束段：饮食建议必须绕开。 */
+    const val PROFILE_ALLERGENS = "profile_allergens"
+
+    /** 疼痛 / 不适部位（JSON 数组）。硬约束段：运动建议必须避开（F9 硬规则）。 */
+    const val PROFILE_PAIN = "profile_pain"
+
+    /** 就餐场景（标量：宿舍 / 食堂 / 外卖 / 自己做饭）。软背景段。 */
+    const val PROFILE_SCENE = "profile_scene"
+
+    /** 可用器材（JSON 数组）。硬约束段：运动建议只用这些器材。 */
+    const val PROFILE_GEAR = "profile_gear"
+
+    /** 就寝时间（标量 `HH:mm`）。软背景段。 */
+    const val PROFILE_SLEEP_BED = "profile_sleep_bed"
+
+    /** 起床时间（标量 `HH:mm`）。软背景段。 */
+    const val PROFILE_SLEEP_WAKE = "profile_sleep_wake"
+
     // ── 隐私（设计规范系统 9.7 ④） ────────────────────────────────────
     /**
      * 隐藏热量数字。`"true"` / `"false"`，默认 `false`（不隐藏）。

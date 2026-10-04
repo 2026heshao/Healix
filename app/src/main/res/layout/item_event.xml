@@ -1,10 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    记录列表项（组件规范 3.3）。
+    记录列表项（组件规范 3.3 + 11.3 v6 左滑操作）。
     · 饮食                        12:30
       中午吃了牛肉面加鸡蛋
       约 600 kcal
     ──────────────────────────  1dp 线（左缩进 20dp）
+
+    v6：行外包 swipewrap —— 下层常驻「编辑」（text_3 底）/「删除」（negative 底）
+    两枚 72dp 按钮，行左滑露出；拖拽/吸附/回弹逻辑在 SwipeRows.kt。
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
@@ -12,11 +15,46 @@
     android:layout_height="wrap_content"
     android:orientation="vertical">
 
-    <LinearLayout
-        style="@style/Widget.Healix.ListRow"
+    <!-- swipewrap：滑动层（swipeItem）盖在常驻按钮（swipeActs）上 -->
+    <FrameLayout
+        android:id="@+id/swipeWrap"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal">
+        android:layout_height="wrap_content">
+
+        <!-- 下层常驻操作按钮：编辑（text_3 底）/ 删除（negative 底），各 72dp -->
+        <LinearLayout
+            android:id="@+id/swipeActs"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:gravity="end"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/actEdit"
+                android:layout_width="@dimen/swipe_act_width"
+                android:layout_height="match_parent"
+                android:background="@color/text_3"
+                android:gravity="center"
+                android:text="@string/edit"
+                android:textColor="@color/btn_primary_text" />
+
+            <TextView
+                android:id="@+id/actDelete"
+                android:layout_width="@dimen/swipe_act_width"
+                android:layout_height="match_parent"
+                android:background="@color/negative"
+                android:gravity="center"
+                android:text="@string/delete"
+                android:textColor="@color/btn_primary_text" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/swipeItem"
+            style="@style/Widget.Healix.ListRow"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@color/surface"
+            android:orientation="horizontal">
 
         <!-- 6px 低饱和圆点，垂直居中于第一行 -->
         <View
@@ -99,6 +137,7 @@
                 tools:visibility="visible" />
         </LinearLayout>
     </LinearLayout>
+    </FrameLayout>
 
     <!-- 分隔线：左缩进 20dp -->
     <View

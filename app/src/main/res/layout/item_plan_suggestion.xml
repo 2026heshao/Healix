@@ -30,6 +30,15 @@
             android:layout_marginTop="6dp"
             tools:text="牛肉 150g + 米饭 200g + 鸡蛋 1 个" />
 
+        <!-- 行动条三要素之二三（F8）：大概多久 · 为什么是现在 -->
+        <TextView
+            android:id="@+id/itemMeta"
+            style="@style/Text.Secondary"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            tools:text="约 20 分钟 · 还差 1280 kcal，这一顿补上一大半" />
+
         <TextView
             android:id="@+id/btnLogThis"
             style="@style/Text.Link"

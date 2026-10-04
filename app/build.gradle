@@ -102,6 +102,10 @@ dependencies {
     // 安全存储：API key 用 EncryptedSharedPreferences
     implementation 'androidx.security:security-crypto:1.1.0-alpha06'
 
+    // PDF 知识库（F12）：本地解析 PDF 文字层，原文件不出设备。
+    // 2.0.27.0 为 Maven Central 最新稳定版，要求 API 24+（项目 minSdk 29 兼容）。
+    implementation 'com.tom-roush:pdfbox-android:2.0.27.0'
+
     testImplementation 'junit:junit:4.13.2'
     // 纯 JVM 单元测试里没有 Android 内置的 org.json。
     // SchemaValidator 依赖它，因此测试期引入同 API 的独立实现。

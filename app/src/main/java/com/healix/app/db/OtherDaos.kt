@@ -45,8 +45,10 @@ interface ChatMessageDao {
 
     @Query(
         """
-        SELECT * FROM chat_messages WHERE session_date = :sessionDate
-        ORDER BY created_at DESC LIMIT :limit
+        SELECT * FROM (
+            SELECT * FROM chat_messages WHERE session_date = :sessionDate
+            ORDER BY created_at DESC LIMIT :limit
+        ) ORDER BY created_at ASC
         """
     )
     suspend fun recentForContext(sessionDate: String, limit: Int = 16): List<ChatMessageEntity>

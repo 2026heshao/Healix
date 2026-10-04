@@ -52,6 +52,15 @@ class ChatActivity : AppCompatActivity() {
         binding.btnBack.setOnClickListener { finish() }
         binding.btnSend.setOnClickListener { send() }
 
+        // v6（11.1）：助理是全局 3 Tab 的第二页 —— tabbar 高亮第二段，
+        // 「记录 / 我的」点击由 TabBar 处理（in_tab 转场返回主界面）。
+        TabBar.bind(this, TabBar.TAB_ASSISTANT)
+
+        // v6（11.4）：快捷入口按压缩放反馈
+        binding.quickToday.bindPressScale()
+        binding.quickDinner.bindPressScale()
+        binding.quickWeek.bindPressScale()
+
         // 快捷入口三行：仅在当日会话为空时出现，一旦有消息即隐藏，不再恢复
         binding.quickToday.setOnClickListener { send("今天达标了吗") }
         binding.quickDinner.setOnClickListener { send("推荐晚餐") }
@@ -193,7 +202,22 @@ class ChatAdapter : RecyclerView.Adapter<ChatAdapter.VH>() {
         val ctx = holder.text.context
         val isUser = m.role == "user"
 
-        holder.text.text = m.content
+        // ── 来源标注（F12，10.4 ①）────────────────────────────────
+        // 来源信息由消息体约定分隔符承载：content 末行 `来源：标题 · 第 N 页`。
+        // 渲染时识别：拆出末行做 13sp text_2 的可点 span（→ 知识库页），
+        // 未命中不出现；正文不含来源行。content 本身仍是纯文本。
+        val lines = m.content.split("\n")
+        val sourceLine = if (!isUser && lines.size >= 2) {
+            lines.last().takeIf { it.startsWith("来源：") }
+        } else {
+            null
+        }
+        val body = if (sourceLine != null) lines.dropLast(1).joinToString("\n") else m.content
+        holder.text.text = if (sourceLine != null) {
+            sourceSpannable(ctx, holder.text, body, sourceLine)
+        } else {
+            body
+        }
 
         // ── 气泡外观 ────────────────────────────────────────────────
         if (isUser) {
@@ -240,6 +264,51 @@ class ChatAdapter : RecyclerView.Adapter<ChatAdapter.VH>() {
         val row: android.widget.LinearLayout,
         val text: android.widget.TextView,
     ) : RecyclerView.ViewHolder(row)
+
+    /**
+     * 来源行 span：13sp（相对正文 15sp 缩放）、text_2 色、可点跳知识库页。
+     * 与正文隔一个换行（气泡内无法对 span 加 4dp 间距，取 10.4 ① 的近似实现）。
+     */
+    private fun sourceSpannable(
+        ctx: android.content.Context,
+        text: android.widget.TextView,
+        body: String,
+        sourceLine: String,
+    ): CharSequence {
+        val sp = android.text.SpannableString("$body\n$sourceLine")
+        val start = body.length + 1
+        sp.setSpan(
+            android.text.style.RelativeSizeSpan(13f / 15f), start, sp.length,
+            android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
+        )
+        sp.setSpan(
+            android.text.style.ForegroundColorSpan(
+                androidx.core.content.ContextCompat.getColor(ctx, R.color.text_2),
+            ),
+            start, sp.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
+        )
+        sp.setSpan(
+            object : android.text.style.ClickableSpan() {
+                override fun onClick(widget: View) {
+                    ctx.startActivity(android.content.Intent(ctx, KnowledgeBaseActivity::class.java))
+                }
+
+                override fun updateDrawState(ds: android.text.TextPaint) {
+                    // 保持 text_2 色与常规字重，不加下划线（可点但不花哨）
+                    ds.isUnderlineText = false
+                }
+            },
+            start, sp.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
+        )
+        // 仅在存在可点来源行时启用 MovementMethod（避免影响普通气泡的手势）。
+        // 复用时 item 可能没有来源行，所以每次绑定都按当前状态重设。
+        text.movementMethod = if (sourceLine != null) {
+            android.text.method.LinkMovementMethod.getInstance()
+        } else {
+            null
+        }
+        return sp
+    }
 
     private companion object {
         const val TYPE_USER = 0

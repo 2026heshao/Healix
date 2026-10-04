@@ -252,6 +252,22 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch { repo.undo(clientEventId) }
     }
 
+    /**
+     * 左滑删除（规范 11.3）：与 [undo] 同一软删除管道 —— 删除即撤销，
+     * 30 天后由清理任务物理清除，不新增第三种删除语义。
+     */
+    fun deleteEvent(clientEventId: String) {
+        viewModelScope.launch { repo.undo(clientEventId) }
+    }
+
+    /**
+     * 删除后的「撤销」（11.3 V3）：恢复软删除的记录。
+     * ts / day_key 未动，observeByDay（ORDER BY ts DESC）回插后自然在原位。
+     */
+    fun restoreEvent(clientEventId: String) {
+        viewModelScope.launch { repo.restore(clientEventId) }
+    }
+
     /** 由 [SubmitResult] 组装撤销条载荷；失败或没有首条事件时返回 null。 */
     private fun undoPayloadOf(result: SubmitResult): UndoPayload? {
         if (!result.ok) return null

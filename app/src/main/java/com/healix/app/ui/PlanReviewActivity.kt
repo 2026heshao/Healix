@@ -45,6 +45,12 @@ class PlanReviewActivity : AppCompatActivity() {
         observe()
     }
 
+    /** v6（11.2）：二级页返回统一 in_back —— 返回页从 -22% 滑入。 */
+    override fun finish() {
+        super.finish()
+        overridePendingTransition(R.anim.in_back, R.anim.out_back)
+    }
+
     private fun selectTab(tab: PlanTab) {
         vm.showTab(tab)
         val isPlan = tab == PlanTab.PLAN
@@ -146,10 +152,23 @@ class PlanReviewActivity : AppCompatActivity() {
             )
             val title = row.findViewById<TextView>(R.id.itemTitle)
             val detail = row.findViewById<TextView>(R.id.itemDetail)
+            val meta = row.findViewById<TextView>(R.id.itemMeta)
             val logBtn = row.findViewById<TextView>(R.id.btnLogThis)
 
             title.text = getString(R.string.plan_item_kcal, item.title, item.kcal)
             detail.text = item.detail
+            // 行动条三要素之二三（F8）：大概多久 · 为什么是现在；两者都空则不占行
+            val durationText = item.duration.ifBlank { "——" }
+            meta.text = if (item.whyNow.isBlank()) {
+                durationText
+            } else {
+                getString(R.string.plan_action_meta, durationText, item.whyNow)
+            }
+            meta.visibility = if (item.duration.isBlank() && item.whyNow.isBlank()) {
+                View.GONE
+            } else {
+                View.VISIBLE
+            }
             logBtn.setOnClickListener { vm.logSuggestion(item) }
             binding.itemContainer.addView(row)
         }

@@ -74,6 +74,11 @@ class EventEditSheet : BottomSheetDialogFragment() {
         binding.btnConfirm.setOnClickListener { save(container) }
         binding.btnReparse.setOnClickListener { reparse() }
         binding.btnDelete.setOnClickListener { delete() }
+
+        // v6（11.5）：弹盘可下拖关闭 —— 超过 80dp 松手即关，否则弹回。
+        // input / button 上的按下已被 GrabberLayout 排除（防表单误拖）。
+        binding.root.onDragDismiss = { dismiss() }
+        binding.btnConfirm.bindPressScale()
     }
 
     /** 按类型决定显示哪些字段 —— 不显示无意义的字段（如 meal 不显示 sleep_h）。 */

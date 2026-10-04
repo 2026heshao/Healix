@@ -31,8 +31,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         TrainingPlanEntity::class,
         BodySignalEntity::class,
         ReminderEntity::class,
+        KnowledgeDocEntity::class,
+        KnowledgeChunkEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 // ⚠️ 这里**故意不加** @TypeConverters。
@@ -55,6 +57,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun trainingPlanDao(): TrainingPlanDao
     abstract fun bodySignalDao(): BodySignalDao
     abstract fun reminderDao(): ReminderDao
+    abstract fun knowledgeDocDao(): KnowledgeDocDao
+    abstract fun knowledgeChunkDao(): KnowledgeChunkDao
 
     companion object {
         private const val DB_NAME = "healix.db"
@@ -97,10 +101,30 @@ abstract class AppDatabase : RoomDatabase() {
         }
 
         /**
+         * v2 → v3：知识库两表（功能清单 2 F12 / 设计规范 10.8）。
+         * 纯 DDL，写法照 MIGRATION_1_2 惯例：标识符反引号、自增主键
+         * `INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL`、可空列不加 NOT NULL。
+         * 建表语句与 `KnowledgeEntities.kt` 的 @Entity 定义逐字段一致。
+         */
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `knowledge_docs` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `title` TEXT NOT NULL, `file_name` TEXT NOT NULL, `uri` TEXT NOT NULL, `size_bytes` INTEGER NOT NULL, `page_count` INTEGER NOT NULL, `status` TEXT NOT NULL, `chunk_count` INTEGER NOT NULL, `added_at` INTEGER NOT NULL, `last_error` TEXT)"
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `knowledge_chunks` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `doc_id` INTEGER NOT NULL, `seq` INTEGER NOT NULL, `content` TEXT NOT NULL, `page_no` INTEGER NOT NULL)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_knowledge_chunks_doc_id` ON `knowledge_chunks` (`doc_id`)"
+                )
+            }
+        }
+
+        /**
          * 所有历史 Migration。v1 之前无历史版本；v2 起每升一次 version
          * 必须往这里加一个 Migration 对象。
          */
-        val MIGRATIONS: Array<Migration> = arrayOf(MIGRATION_1_2)
+        val MIGRATIONS: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3)
 
         fun get(context: Context): AppDatabase =
             instance ?: synchronized(this) {

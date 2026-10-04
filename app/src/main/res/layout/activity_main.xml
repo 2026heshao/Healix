@@ -1,15 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    主界面（设计规范系统 4.1）。
-    硬约束：无卡片、无阴影、汇总区不给色块、底部导航只有两个文字入口。
+    主界面（设计规范系统 4.1 + 11.1 v6）。
+    硬约束：无卡片、无阴影、汇总区不给色块。
+    v6：根容器改 FrameLayout，全局 3 Tab tabbar 绝对定位盖底（不占 flex 流）；
+    「记录」页内容区在最下方预留 80dp（列表 clipToPadding=false 补偿可视行数）；
+    「我的」页为同 Activity 内的第二页（view_mine_page），Tab 间走 in_tab 转场。
 -->
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
     android:background="@color/bg"
     android:fitsSystemWindows="true">
+
+    <!-- ── Tab 页 1：记录（原主界面内容） ── -->
+    <LinearLayout
+        android:id="@+id/pageHome"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical">
 
     <!-- 顶部：日期 + 设置。无 AppBar 阴影 -->
     <RelativeLayout
@@ -266,7 +275,7 @@
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:clipToPadding="false"
-            android:paddingBottom="8dp"
+            android:paddingBottom="@dimen/list_bottom_pad"
             android:scrollbars="none" />
 
         <!-- 空状态：居中 13sp 灰字 + 一行示例 -->
@@ -294,39 +303,14 @@
         </LinearLayout>
     </FrameLayout>
 
-    <!-- 底部导航：仅两个文字入口，不用图标导航栏（4.1） -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="48dp"
-        android:orientation="horizontal">
-
-        <TextView
-            android:id="@+id/tabHome"
-            style="@style/Text.Button"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:background="?attr/selectableItemBackground"
-            android:gravity="center"
-            android:text="@string/tab_home"
-            android:textColor="@color/text_1" />
-
-        <TextView
-            android:id="@+id/tabAssistant"
-            style="@style/Text.Button"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:background="?attr/selectableItemBackground"
-            android:gravity="center"
-            android:text="@string/assistant"
-            android:textColor="@color/text_2" />
-    </LinearLayout>
-
-    <!-- 速记输入区：高 64dp，顶部 1dp 上边界线，无圆角无卡片 -->
+    <!--
+        速记输入区：高 64dp，顶部 1dp 上边界线，无圆角无卡片。
+        v6：marginBottom 64dp 抬升到全局 tabbar 之上，不被全局导航遮挡（11.6）。
+    -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="@dimen/input_height"
+        android:layout_marginBottom="@dimen/tab_raise"
         android:background="@drawable/bg_input_bar"
         android:gravity="center_vertical"
         android:orientation="horizontal"
@@ -374,5 +358,25 @@
             android:scaleType="fitCenter"
             android:src="@drawable/ic_send" />
     </LinearLayout>
+    </LinearLayout>
+    <!-- /pageHome -->
 
-</LinearLayout>
+    <!-- ── Tab 页 2：我的（v6 · 11.1，同 Activity 内切换） ── -->
+    <include
+        android:id="@+id/minePage"
+        layout="@layout/view_mine_page"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <!--
+        全局底部导航 3 Tab（v6 · 11.1）：64dp，绝对定位盖底，不占 flex 流。
+        只在 Tab 页（记录/助理/我的）可见，进二级页时由 TabBar 隐藏。
+    -->
+    <include
+        android:id="@+id/tabbar"
+        layout="@layout/view_tabbar"
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/tabbar_height"
+        android:layout_gravity="bottom" />
+
+</FrameLayout>

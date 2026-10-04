@@ -91,6 +91,15 @@ interface EventDao {
     )
     suspend fun softDelete(id: Long, deletedAt: Long)
 
+    /**
+     * 软删除恢复（规范 11.3 左滑删除的「撤销」）：清掉 deleted_at 即回到列表
+     * —— ts / day_key 均未动，ORDER BY ts DESC 回插后自然在原位（V3 断言）。
+     */
+    @Query(
+        "UPDATE events SET deleted_at = NULL, updated_at = :now WHERE id = :id"
+    )
+    suspend fun restore(id: Long, now: Long)
+
     @Query("SELECT * FROM events WHERE deleted_at IS NOT NULL AND deleted_at < :before")
     suspend fun listPurgeable(before: Long): List<EventEntity>
 

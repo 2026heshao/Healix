@@ -360,6 +360,21 @@ class EventRepository(private val context: Context) {
     }
 
     /**
+     * 软删除恢复（规范 11.3 左滑删除的「撤销」，V3 断言）：
+     * 清掉 deleted_at，记录按原 ts 回插到列表原位。
+     */
+    suspend fun restore(clientEventId: String): Boolean = withContext(Dispatchers.IO) {
+        return@withContext try {
+            val entity = eventDao.findByClientId(clientEventId) ?: return@withContext false
+            if (entity.deletedAt == null) return@withContext true // 未删除，幂等
+            eventDao.restore(entity.id, System.currentTimeMillis())
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /**
      * 用户在 ConfirmSheet 里手工改过之后保存。
      *
      * 与 AI 回填的区别：`origin` 保持不变（仍可追溯是 AI 抽的还是用户改的），

@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    文档操作弹窗（设计规范系统 10.3 ③）：复用 EventEditSheet / ConfirmSheet 的
+    容器规格（bg_sheet + 8dp 顶圆角 + 把手），不新造弹窗组件。
+    内容为 标题 / 元信息 / 打开原文 / 删除文档(全弹窗唯一 negative) / 取消。
+    删除二次确认时由代码原地切换内容（不用系统 AlertDialog，无底色容器原则）。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="@drawable/bg_sheet"
+    android:orientation="vertical"
+    android:paddingStart="@dimen/screen_margin"
+    android:paddingEnd="@dimen/screen_margin"
+    android:paddingBottom="20dp">
+
+    <!-- 把手 -->
+    <View
+        android:layout_width="@dimen/handle_width"
+        android:layout_height="@dimen/handle_height"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="10dp"
+        android:layout_marginBottom="14dp"
+        android:background="@drawable/bg_handle" />
+
+    <!-- 标题：常态 = 文件名；确认态 = 删除提示 -->
+    <TextView
+        android:id="@+id/sheetTitle"
+        style="@style/Text.Body"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        tools:text="训练计划.pdf" />
+
+    <!-- 元信息：N 页 · 大小 · 添加日期；确认态隐藏 -->
+    <TextView
+        android:id="@+id/sheetMeta"
+        style="@style/Text.Tertiary"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        tools:text="12 页 · 2.1 MB · 2026-10-03 添加" />
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/divider"
+        android:layout_marginTop="14dp"
+        android:background="@color/line" />
+
+    <!-- 打开原文：任何状态下都保留（10.3 ③，解析失败文件也没坏） -->
+    <TextView
+        android:id="@+id/btnOpen"
+        style="@style/Text.Body"
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/touch_min"
+        android:background="?attr/selectableItemBackground"
+        android:gravity="center_vertical"
+        android:text="@string/knowledge_open" />
+
+    <!-- 删除文档：全弹窗唯一 negative -->
+    <TextView
+        android:id="@+id/btnDelete"
+        style="@style/Text.Danger"
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/touch_min"
+        android:background="?attr/selectableItemBackground"
+        android:gravity="center_vertical"
+        android:text="@string/knowledge_delete" />
+
+    <!-- 取消：常态 15sp text_2；确认态同为取消 -->
+    <TextView
+        android:id="@+id/btnCancel"
+        style="@style/Text.Secondary"
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/touch_min"
+        android:background="?attr/selectableItemBackground"
+        android:gravity="center_vertical"
+        android:text="@string/cancel" />
+
+</LinearLayout>

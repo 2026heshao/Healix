@@ -4,8 +4,10 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.healix.app.HealixApp
+import com.healix.app.R
 import com.healix.app.db.ChatMessageEntity
 import com.healix.app.net.NetworkStatus
+import com.healix.app.repo.parseFoodsJson
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -81,17 +83,108 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 return@launch
             }
 
+            // 知识库检索（F12，10.4 ②）：关键词打分，命中才注入，未命中不注入
+            // （常态对话零噪声）。纯本地内存打分，毫秒级，不产生任何网络调用。
+            val hits = container.knowledgeRepository.search(text)
+            val knowledge = hits.joinToString("\n") { h ->
+                "${h.docTitle}（第 ${h.pageNo} 页）：${h.content}"
+            }
+
+            // 结构化画像（F6）：硬约束段（忌口/疼痛/器材）+ 软背景段（场景/作息）
+            // 拼进 background 通道（空值整段省略，沿用 systemPrompt 的空省略先例）。
+            // 不给 ChatEngine.reply 增参 —— 避免与知识库侧的签名改动互相踩。
+            val allergens = parseFoodsJson(
+                db.settingsDao().get(com.healix.app.db.SettingsKeys.PROFILE_ALLERGENS).orEmpty(),
+            )
+            val pain = parseFoodsJson(
+                db.settingsDao().get(com.healix.app.db.SettingsKeys.PROFILE_PAIN).orEmpty(),
+            )
+            val gear = parseFoodsJson(
+                db.settingsDao().get(com.healix.app.db.SettingsKeys.PROFILE_GEAR).orEmpty(),
+            )
+            val scene = db.settingsDao()
+                .get(com.healix.app.db.SettingsKeys.PROFILE_SCENE).orEmpty()
+            val bed = db.settingsDao()
+                .get(com.healix.app.db.SettingsKeys.PROFILE_SLEEP_BED).orEmpty()
+            val wake = db.settingsDao()
+                .get(com.healix.app.db.SettingsKeys.PROFILE_SLEEP_WAKE).orEmpty()
+            // 背景每次现读：设置页可能刚改过，缓存会让改动不生效
+            val backgroundText = db.settingsDao().get(SettingsActivity.KEY_BACKGROUND).orEmpty()
+            val background = buildString {
+                // 硬约束段：只在有内容时出现；疼痛行内嵌 F9 硬规则语义。
+                // 「【硬约束】」标记行与规则 8 的「硬约束段」措辞互相呼应。
+                val hardHead = buildList {
+                    if (allergens.isNotEmpty()) {
+                        add("- 忌口/过敏/不吃（饮食建议必须绕开）：${allergens.joinToString("、")}")
+                    }
+                    if (pain.isNotEmpty()) {
+                        add(
+                            "- 疼痛/不适部位（运动建议必须避开相关动作，" +
+                                "优先恢复性建议——睡眠、补水）：${pain.joinToString("、")}",
+                        )
+                    }
+                    if (gear.isNotEmpty()) {
+                        add("- 可用器材（运动建议只用这些）：${gear.joinToString("、")}")
+                    }
+                }
+                if (hardHead.isNotEmpty()) {
+                    appendLine("【硬约束——必须遵守】")
+                    hardHead.forEach { appendLine(it) }
+                    appendLine()
+                }
+                // 软背景段：场景 / 作息 / 补充说明
+                if (scene.isNotBlank()) appendLine("就餐场景：$scene")
+                if (bed.isNotBlank() || wake.isNotBlank()) {
+                    append("作息：")
+                    if (bed.isNotBlank()) append("$bed 睡")
+                    if (bed.isNotBlank() && wake.isNotBlank()) append(" · ")
+                    if (wake.isNotBlank()) append("$wake 起")
+                    appendLine()
+                }
+                append(backgroundText)
+            }.trim()
+
             val reply = ChatEngine.reply(
                 context = getApplication(),
                 config = config,
                 sessionDate = sessionDate,
                 userText = text,
-                history = db.chatMessageDao().recentForContext(sessionDate, 16),
-                // 背景每次现读：设置页可能刚改过，缓存会让改动不生效
-                background = db.settingsDao().get(SettingsActivity.KEY_BACKGROUND).orEmpty(),
+                // F2 去重：send() 已先把当前这句 persist("user", text) 落库，
+                // 它必然出现在 recentForContext 的结果里；ChatEngine.reply 又会
+                // add(userText) 一次，不剔除就会把同一句话发两遍。
+                // 多取 1 条（17）再剔除当前句，保证传给引擎的历史仍是 16 条。
+                //
+                // ⚠️ 为什么不能 dropLast(1)：
+                // 1) F1 落地后 recentForContext 返回**正序**（最旧在前、最新在后），
+                //    当前句位于列表**末尾**，但这不是依赖点——真正的判定条件是
+                //    "content 与当前 userText 相同且 created_at 最新"。
+                // 2) 若 persist 失败（DB 异常被吞，见 persist()）或用户连续发两句
+                //    一模一样的话，末尾元素未必是当前句；dropLast(1) 会误删上一条
+                //    真实历史。所以从末尾起找第一条 content 匹配项剔除，匹配不到
+                //    就一条不删。
+                history = db.chatMessageDao().recentForContext(sessionDate, 17)
+                    .withoutTrailingDuplicate(text),
+                // 软背景段（F6 场景/作息）+ 硬约束段 + 补充说明：
+                // 空串时 systemPrompt 的 backgroundBlock 整段省略
+                background = background,
+                // 知识库命中片段（10.4 ②）：拼在 backgroundBlock 之后、规则之前，
+                // ≤300 token；只进对话 prompt，PROMPT_EXTRACT 一字不改
+                knowledge = knowledge,
             )
 
-            persist("assistant", reply.text)
+            // 来源标注（10.4 ①）：来源信息由消息体约定分隔符承载 —— content 追加
+            // `\n来源：标题 · 第 N 页`，ChatAdapter 渲染时识别，未命中不出现。
+            // ChatMessage.content 仍为纯文本（LlmProvider 只收纯文本）。
+            // 来源行只取首条命中（主来源），不计入正文句数约束。
+            val replyText = if (hits.isNotEmpty()) {
+                reply.text + "\n" + getApplication<Application>().getString(
+                    R.string.knowledge_source, hits.first().docTitle, hits.first().pageNo,
+                )
+            } else {
+                reply.text
+            }
+
+            persist("assistant", replyText)
             _uiState.value = when (reply.state) {
                 ChatEngine.State.Ok -> ChatUiState.Idle
                 ChatEngine.State.Queued -> ChatUiState.Queued(seconds = 4)
@@ -113,5 +206,15 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         } catch (_: Exception) {
             // DB 异常 → 对话不落库但功能不中断（9.2 组件表失败处理）
         }
+    }
+
+    /**
+     * 从末尾（created_at 最新的一端）起找第一条 content 与 [currentText] 相同的
+     * 记录并剔除。历史列表为正序（最旧在前），剔除的即列表中的匹配项——
+     * 只删一条匹配，用户连发相同内容时更早的那几条是真实历史，必须保留。
+     */
+    private fun List<ChatMessageEntity>.withoutTrailingDuplicate(currentText: String): List<ChatMessageEntity> {
+        val idx = indexOfLast { it.content == currentText }
+        return if (idx == -1) this else toMutableList().apply { removeAt(idx) }
     }
 }

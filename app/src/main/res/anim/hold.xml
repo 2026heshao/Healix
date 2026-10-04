@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    原地保持（设计规范 11.2）：转场对子里不动的那一侧。
+    原型里只有新页面做动画，旧页面保持不动 —— Android 双窗口模型需要
+    一个"无变化"的动画占位，让 overridePendingTransition 两侧时长对齐。
+-->
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+    android:duration="400"
+    android:shareInterpolator="true">
+
+    <alpha
+        android:fromAlpha="1.0"
+        android:toAlpha="1.0" />
+</set>

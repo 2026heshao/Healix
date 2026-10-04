@@ -55,6 +55,14 @@
             android:name=".ui.SettingsActivity"
             android:exported="false" />
 
+        <!--
+            知识库管理页（设计规范系统 10.3，F12）。
+            单入口在设置页（10.1）；解析纯本地，飞行模式下全流程可用。
+        -->
+        <activity
+            android:name=".ui.KnowledgeBaseActivity"
+            android:exported="false" />
+
         <activity
             android:name=".ui.DebugActivity"
             android:exported="false" />

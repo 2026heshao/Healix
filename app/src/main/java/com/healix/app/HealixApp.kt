@@ -5,6 +5,7 @@ import android.content.Context
 import com.healix.app.db.AppDatabase
 import com.healix.app.notify.QuickInputService
 import com.healix.app.repo.EventRepository
+import com.healix.app.repo.KnowledgeRepository
 import com.healix.app.repo.QuotaGuard
 import com.healix.app.security.SecretStore
 
@@ -36,6 +37,9 @@ class HealixApp : Application() {
 
     /** 调用预算护栏。 */
     val quotaGuard: QuotaGuard by lazy { QuotaGuard(this) }
+
+    /** PDF 知识库（F12）：上传 / 解析 / 检索 / 删除，纯本地。 */
+    val knowledgeRepository: KnowledgeRepository by lazy { KnowledgeRepository(this) }
 
     override fun onCreate() {
         super.onCreate()
