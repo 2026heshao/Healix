@@ -129,6 +129,9 @@ class QuickInputService : Service() {
     }
 
     override fun onDestroy() {
+        // 注销延时回退回调：否则 Service 销毁后 revertRunnable 仍会触发一次
+        // notifyUpdated()（G6）。
+        mainHandler.removeCallbacks(revertRunnable)
         scope.cancel()
         super.onDestroy()
     }

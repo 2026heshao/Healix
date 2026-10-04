@@ -120,6 +120,14 @@ interface PlanDao {
 
     @Query("SELECT * FROM daily_reviews WHERE date = :date LIMIT 1")
     fun observeReview(date: String): Flow<DailyReviewEntity?>
+
+    /** 导出备份用（G4）：一次拿全部今日计划，按日期升序。 */
+    @Query("SELECT * FROM daily_plans ORDER BY date ASC")
+    suspend fun listAllPlans(): List<DailyPlanEntity>
+
+    /** 导出备份用（G4）：一次拿全部每日复盘，按日期升序。 */
+    @Query("SELECT * FROM daily_reviews ORDER BY date ASC")
+    suspend fun listAllReviews(): List<DailyReviewEntity>
 }
 
 @Dao

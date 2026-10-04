@@ -9,6 +9,7 @@ import com.healix.app.net.ChatRequest
 import com.healix.app.net.ChatResult
 import com.healix.app.net.ErrKind
 import com.healix.app.net.LlmProvider
+import com.healix.app.net.NetworkStatus
 import com.healix.app.net.OpenAiCompatProvider
 import com.healix.app.net.ProviderConfig
 import com.healix.app.parse.PROMPT_VER
@@ -169,6 +170,20 @@ class EventRepository(private val context: Context) {
             )
         }
 
+        // 通知栏路径跑在 BroadcastReceiver 的 goAsync() 里，有硬时限预算（前台≈10s / 后台≈60s）。
+        // 离线时不把 15s×(N+1) 的退避链白跑完 —— 直接置 failed，交由 retryFailedPending() 补抽。
+        // ⚠️ 只对通知栏来源生效：主输入路径「先落库再判网络」是刻意取舍（见 MainViewModel.submit）。
+        if (source == SOURCE_NOTIFICATION && !NetworkStatus.isOnline(context)) {
+            eventDao.markFailed(cid, "offline: 离线，待联网后重试", System.currentTimeMillis())
+            return@withContext SubmitResult(
+                ok = false,
+                clientEventId = cid,
+                error = "offline",
+                extraCount = 0,
+                latencyMs = 0,
+            )
+        }
+
         // ── 第 2 步：取 provider 配置 ─────────────────────────────────
         val config = loadProviderConfig()
         if (config == null || !config.isUsable()) {
@@ -191,7 +206,8 @@ class EventRepository(private val context: Context) {
             messages = buildExtractMessages(rawText),
             temperature = 0.3,
             timeoutMs = DEFAULT_EXTRACT_TIMEOUT_MS,
-            maxRetries = loadMaxRetries(),
+            // 通知栏路径跑在 goAsync() 的硬时限预算内：不重试（0），一次失败即交 retryFailedPending 补抽。
+            maxRetries = if (source == SOURCE_NOTIFICATION) 0 else loadMaxRetries(),
             retryBaseSeconds = loadRetryBaseSeconds(),
             exponentialBackoff = loadExponentialBackoff(),
         )

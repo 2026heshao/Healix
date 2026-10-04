@@ -1,11 +1,15 @@
 package com.healix.app.ui
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.view.MotionEvent
 import android.view.View
 import android.view.inputmethod.InputMethodManager
 import android.os.Bundle
 import androidx.activity.OnBackPressedCallback
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
@@ -58,6 +62,21 @@ class MainActivity : AppCompatActivity() {
      */
     private var lastUiState: MainUiState = MainUiState.Idle
 
+    /**
+     * Android 13+ 通知权限申请入口。
+     *
+     * 必须在 Activity **STARTED 之前**注册 —— 故放在属性初始化处（等价于 onCreate 阶段），
+     * **不能**放进 onResume（否则抛 IllegalStateException: LifecycleOwner ... not in
+     * CREATED state）。拒绝时不做处理，落到「我的」页的手动引导。
+     */
+    private val notifPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) {
+            // 结果无需处理：拒绝则落到 MinePage 的手动引导
+        }
+
+    /** 进程级标记：避免每次 onResume 反复弹（用户拒绝后不再骚扰）。 */
+    private var askedNotifPermission = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
@@ -81,7 +100,7 @@ class MainActivity : AppCompatActivity() {
         binding.list.adapter = adapter
         binding.list.setHasFixedSize(false)
 
-        binding.dateLabel.text = HealixDate.todayLabel(this)
+        binding.dateLabel.text = HealixDate.labelOf(vm.todayDayKeyFlow.value)
 
         binding.btnSend.setOnClickListener { submit() }
         binding.btnSettings.setOnClickListener {
@@ -256,14 +275,24 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        // 通知栏录入可能在本页不可见时发生；Room Flow 会自动推新数据，
-        // 这里只需在回到前台时确认常驻通知副标题与今日状态一致。
-        vm.refreshNudgeSubtitle()
+        // 回前台统一入口（G2/G5）：跨零点重算今日 day_key + 软删清理 + 刷新常驻通知副标题。
+        // ⚠️ 原独立调用 vm.refreshNudgeSubtitle() 已并入 vm.refresh()，故此处不再重复调用。
+        vm.refresh()
         // 规则扫描走"打开时计算"，不依赖后台定时器（PRD §7.4）。
         // 整个流程 0 次 AI 调用，纯本地。
         vm.scanSignals()
         // 桌面小工具：回前台推一次（覆盖跨天 / 跨周后本周口径变化，app-pushes-updates）
         com.healix.app.widget.HealixWidgetProvider.push(this)
+
+        // 通知权限（G1）：Android 13+ 首次进入申请一次。POST_NOTIFICATIONS 未授予时
+        // QuickInputService 的前台通知会被系统静默丢弃 → 「通知栏速记」入口整片消失。
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !askedNotifPermission) {
+            askedNotifPermission = true
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                    != PackageManager.PERMISSION_GRANTED) {
+                notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
     }
 
     private fun focusInput() {
@@ -452,6 +481,13 @@ class MainActivity : AppCompatActivity() {
                         // 监督提示条：今日无记录时出现（被动监督，不依赖后台定时器）
                         binding.nudgeBar.visibility =
                             if (count == 0) View.VISIBLE else View.GONE
+                    }
+                }
+
+                launch {
+                    // 日期标签与列表同口径：跨零点 refresh() 后今日 day_key 变化 → 标签同步刷新
+                    vm.todayDayKeyFlow.collect { key ->
+                        binding.dateLabel.text = HealixDate.labelOf(key)
                     }
                 }
             }
@@ -656,8 +692,16 @@ internal object HealixDate {
 
     private val WEEKDAYS = arrayOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
 
-    fun todayLabel(context: android.content.Context): String {
-        val d = java.time.LocalDate.now()
+    /**
+     * 按 day_key（日界线口径）渲染日期标签。
+     *
+     * 与列表共用同一 day_key，避免凌晨窗口（默认日界 04:00）内
+     * 「列表已算作今天、日期标签却按 LocalDate.now() 显示昨天」的口径打架。
+     * day_key 解析失败时兜底为系统当天，保证标签永不空白。
+     */
+    fun labelOf(dayKey: String): String {
+        val d = runCatching { java.time.LocalDate.parse(dayKey) }.getOrNull()
+            ?: java.time.LocalDate.now()
         return "${d.monthValue}月${d.dayOfMonth}日 ${WEEKDAYS[d.dayOfWeek.value - 1]}"
     }
 

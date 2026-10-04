@@ -80,6 +80,36 @@ internal object ExportWriter {
         }
         root.put("presets", presets)
 
+        // daily_plans（G4：AI 今日计划；plan_json / content 可空 → 用 JSONObject.NULL 兜）
+        val plans = JSONArray()
+        for (p in db.planDao().listAllPlans()) {
+            plans.put(
+                JSONObject().apply {
+                    put("date", p.date)
+                    put("target_kcal", p.targetKcal)
+                    put("plan_json", p.planJson ?: JSONObject.NULL)
+                    put("content", p.content ?: JSONObject.NULL)
+                    put("generated_at", p.generatedAt)
+                    put("source", p.source)
+                },
+            )
+        }
+        root.put("daily_plans", plans)
+
+        // daily_reviews（G4：每日复盘；content / model 可空 → 用 JSONObject.NULL 兜）
+        val reviews = JSONArray()
+        for (r in db.planDao().listAllReviews()) {
+            reviews.put(
+                JSONObject().apply {
+                    put("date", r.date)
+                    put("content", r.content ?: JSONObject.NULL)
+                    put("model", r.model ?: JSONObject.NULL)
+                    put("generated_at", r.generatedAt)
+                },
+            )
+        }
+        root.put("daily_reviews", reviews)
+
         // settings（非敏感项；apiKey 不在其中）
         val settings = JSONObject()
         for (s in db.settingsDao().listAll()) {

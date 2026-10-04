@@ -85,7 +85,7 @@ interface EventDao {
     @Query("SELECT * FROM events WHERE client_event_id = :clientEventId LIMIT 1")
     suspend fun findByClientId(clientEventId: String): EventEntity?
 
-    /** 软删除。30 天后可由清理任务物理删除，避免误删不可恢复。 */
+    /** 软删除。App 回前台时清理 `deleted_at` 超过 30 天的行（见 MainViewModel.refresh）。 */
     @Query(
         "UPDATE events SET deleted_at = :deletedAt, updated_at = :deletedAt WHERE id = :id"
     )
@@ -99,9 +99,6 @@ interface EventDao {
         "UPDATE events SET deleted_at = NULL, updated_at = :now WHERE id = :id"
     )
     suspend fun restore(id: Long, now: Long)
-
-    @Query("SELECT * FROM events WHERE deleted_at IS NOT NULL AND deleted_at < :before")
-    suspend fun listPurgeable(before: Long): List<EventEntity>
 
     @Query("DELETE FROM events WHERE deleted_at IS NOT NULL AND deleted_at < :before")
     suspend fun purgeDeleted(before: Long)

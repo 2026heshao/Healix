@@ -109,7 +109,34 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val uiState: StateFlow<MainUiState> = _uiState.asStateFlow()
 
     /** 今日 day_key。跨零点时由 refresh() 重新计算。 */
-    private val todayKey = MutableStateFlow(LocalDate.now().toString())
+    private val todayKey = MutableStateFlow(com.healix.app.parse.todayDayKey())
+
+    /**
+     * 今日 day_key 的只读镜像（日界线口径）。
+     *
+     * 供首页顶部日期标签与列表共用同一口径：两者都从 [todayKey] 派生，
+     * 跨零点经 refresh() 更新后同步刷新，避免凌晨窗口内「列表已翻篇、日期标签还停在昨天」。
+     */
+    val todayDayKeyFlow: StateFlow<String> = todayKey.asStateFlow()
+
+    init {
+        // 初始化即校正一次：todayDayKey() 默认按 DEFAULT_DAY_START_HOUR 取值，
+        // 这里用设置表里的真实日界线覆盖，保证自定义日界 / 跨零点口径一致。
+        viewModelScope.launch { syncTodayKey() }
+    }
+
+    /**
+     * 按当前设置的日界线重算今日 day_key。
+     *
+     * 与全项目其它读取点同一口径（唯一夹取入口 [com.healix.app.parse.dayStartHourOf]）——
+     * 默认日界 4 点：若沿用 `LocalDate.now()`，凌晨 00:00–04:00 记的条目会写进"昨天"，
+     * 而首页按"今天"查 → 刚记的条目 4 小时内不出现（观感 = 丢失）。跨零点后由 refresh() 调用。
+     */
+    private suspend fun syncTodayKey() {
+        val dayStart = com.healix.app.parse.dayStartHourOf(db.settingsDao().get(KEY_DAY_START))
+        val key = com.healix.app.parse.dayKeyOf(System.currentTimeMillis(), dayStart)
+        if (todayKey.value != key) todayKey.value = key
+    }
 
     val events: StateFlow<List<EventEntity>> = todayKey
         .flatMapLatest { day -> db.eventDao().observeByDay(day) }
@@ -495,8 +522,13 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      * 不依赖后台定时器 —— 国行 ROM 会杀后台（总方案第十节）。
      */
     fun refresh() {
-        val now = LocalDate.now().toString()
-        if (todayKey.value != now) todayKey.value = now
+        // 跨零点重算今日 day_key（G2）：同一套日界线口径，避免 todayKey 永不刷新。
+        viewModelScope.launch { syncTodayKey() }
+        // 软删清理（G5）：物理删除 `deleted_at` 超过 30 天的行，走后台不阻塞回前台。
+        viewModelScope.launch(Dispatchers.IO) {
+            val cutoff = System.currentTimeMillis() - PURGE_AFTER_MS
+            runCatching { db.eventDao().purgeDeleted(cutoff) }
+        }
         refreshNudgeSubtitle()
     }
 
@@ -509,6 +541,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         const val KEY_DAY_START = com.healix.app.db.SettingsKeys.DAY_START
         const val KEY_HIDE_KCAL = com.healix.app.db.SettingsKeys.HIDE_KCAL
         const val KEY_HIDE_WEIGHT = com.healix.app.db.SettingsKeys.HIDE_WEIGHT
+
+        /** 软删物理清理阈值：30 天（毫秒）。`purgeDeleted` 只删 `deleted_at < cutoff` 的软删行。 */
+        private const val PURGE_AFTER_MS = 30L * 24 * 60 * 60 * 1000
 
         // 兜底默认值（目标摄入 2500 kcal、每周训练 3 次）已收敛到
         // `com.healix.app.db.GoalDefaults` —— 跨文件唯一来源，不要在这里重定义。
