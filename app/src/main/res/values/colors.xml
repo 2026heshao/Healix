@@ -34,4 +34,9 @@
     <color name="btn_disabled_bg">#DAD7D2</color>
     <color name="scrim">#52000000</color>
 
+    <!-- 用户气泡文字：与 bg_bubble_user（text_1 实底）构成固定对比对。
+         浅色 = 深底(#1A1918)配白字；深色 = 浅底(#F2F0ED)配深字。
+         不能复用 btn_primary_text（两种模式都是白字），否则深色模式白字配浅底不可读。 -->
+    <color name="bubble_user_text">#FFFFFF</color>
+
 </resources>

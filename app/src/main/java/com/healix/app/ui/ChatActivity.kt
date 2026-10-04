@@ -51,6 +51,9 @@ class ChatActivity : AppCompatActivity() {
         binding.sessionLabel.text = HealixDate.sessionLabel(LocalDate.now())
         binding.btnSend.setOnClickListener { send() }
 
+        // 微扩展 B：会话日期切换 —— 点顶部日期弹出会话菜单（今天/昨天/更早）
+        binding.sessionLabel.setOnClickListener { anchor -> showSessionMenu(anchor) }
+
         // v6（11.1）：助理是全局 3 Tab 的第二页 —— tabbar 高亮第二段，
         // 「记录 / 我的」点击由 TabBar 处理（in_tab 转场返回主界面）。
         TabBar.bind(this, TabBar.TAB_ASSISTANT)
@@ -65,7 +68,28 @@ class ChatActivity : AppCompatActivity() {
         binding.quickDinner.setOnClickListener { send("推荐晚餐") }
         binding.quickWeek.setOnClickListener { send("本周复盘") }
 
+        // 微扩展 D：模型调用失败时，提示条变成重试入口（文案见 observe() 的 retryAvailable 分支）
+        binding.simplifiedBar.setOnClickListener { vm.retryLast() }
+
         observe()
+    }
+
+    /**
+     * 微扩展 B：会话日期菜单。列出所有有消息的日期（倒序），点选切换只读查看。
+     * 历史会话禁用输入与发送（发送永远写今天的会话，避免"在昨天的页面发出
+     * 一条出现在今天"的错位）。
+     */
+    private fun showSessionMenu(anchor: View) {
+        val dates = vm.sessionDates.value
+        if (dates.isEmpty()) return
+        val popup = androidx.appcompat.widget.PopupMenu(this, anchor)
+        dates.forEach { date ->
+            popup.menu.add(HealixDate.sessionLabel(java.time.LocalDate.parse(date))).setOnMenuItemClickListener {
+                vm.selectSession(date)
+                true
+            }
+        }
+        popup.show()
     }
 
     private fun send(text: String? = null) {
@@ -84,13 +108,58 @@ class ChatActivity : AppCompatActivity() {
                     vm.messages.collect { list ->
                         adapter.submit(list)
                         if (list.isNotEmpty()) {
-                            binding.quickGroup.visibility = View.GONE
                             binding.emptyHint.visibility = View.GONE
                             binding.messageList.scrollToPosition(list.size - 1)
                         } else {
-                            binding.quickGroup.visibility = View.VISIBLE
                             binding.emptyHint.visibility = View.VISIBLE
                         }
+                        // 快捷问答三行：只在"今天的空会话"出现；历史会话一律不出现
+                        updateQuickGroup(list.isNotEmpty())
+                    }
+                }
+
+                // 微扩展 B：查看历史会话 = 只读。输入条/发送/预设条全部禁用，
+                // 顶部日期标签换成完整提示（点击菜单仍可切回今天）。
+                launch {
+                    vm.isToday.collect { today ->
+                        binding.input.isEnabled = today
+                        binding.btnSend.isEnabled = today
+                        binding.btnSend.alpha = if (today) 1f else 0.4f
+                        binding.presetScroll.visibility =
+                            if (today && binding.presetRow.childCount > 0) View.VISIBLE else View.GONE
+                        if (!today) {
+                            val date = java.time.LocalDate.parse(vm.selectedDate.value)
+                            binding.sessionLabel.text =
+                                getString(R.string.chat_viewing_past, HealixDate.sessionLabel(date))
+                        } else {
+                            binding.sessionLabel.text = HealixDate.sessionLabel(java.time.LocalDate.now())
+                        }
+                    }
+                }
+
+                // 微扩展 C：预设快捷条渲染（与记录页同一 item_preset 样式）
+                launch {
+                    vm.presets.collect { presets ->
+                        binding.presetRow.removeAllViews()
+                        for (preset in presets) {
+                            val tv = layoutInflater.inflate(
+                                R.layout.item_preset, binding.presetRow, false,
+                            ) as android.widget.TextView
+                            tv.text = preset.name
+                            tv.bindPressScale()
+                            tv.setOnClickListener { vm.logPreset(preset) }
+                            binding.presetRow.addView(tv)
+                        }
+                        val show = presets.isNotEmpty() && vm.isToday.value
+                        binding.presetScroll.visibility = if (show) View.VISIBLE else View.GONE
+                    }
+                }
+
+                // 微扩展 C：预设落库结果反馈
+                launch {
+                    vm.presetToast.collect { text ->
+                        android.widget.Toast.makeText(this@ChatActivity, text,
+                            android.widget.Toast.LENGTH_SHORT).show()
                     }
                 }
 
@@ -127,8 +196,25 @@ class ChatActivity : AppCompatActivity() {
                         }
                     }
                 }
+
+                // 微扩展 D：模型失败 → 提示条换成可点的重试文案
+                launch {
+                    vm.retryAvailable.collect { retryable ->
+                        binding.simplifiedBar.text = if (retryable) {
+                            getString(R.string.chat_retry_hint)
+                        } else {
+                            getString(R.string.state_simplified)
+                        }
+                    }
+                }
             }
         }
+    }
+
+    /** 快捷问答三行：仅查看今天且当前会话为空时出现。 */
+    private fun updateQuickGroup(hasMessages: Boolean) {
+        val show = !hasMessages && vm.isToday.value
+        binding.quickGroup.visibility = if (show) View.VISIBLE else View.GONE
     }
 }
 
@@ -221,14 +307,27 @@ class ChatAdapter : RecyclerView.Adapter<ChatAdapter.VH>() {
         // ── 气泡外观 ────────────────────────────────────────────────
         if (isUser) {
             holder.text.setBackgroundResource(R.drawable.bg_bubble_user)
+            // 气泡底色 = text_1（深色模式下是浅底），文字必须与底反相：
+            // bubble_user_text 浅色=白 / 深色=深，不能用恒为白的 btn_primary_text
             holder.text.setTextColor(
-                androidx.core.content.ContextCompat.getColor(ctx, R.color.btn_primary_text)
+                androidx.core.content.ContextCompat.getColor(ctx, R.color.bubble_user_text)
             )
         } else {
             holder.text.setBackgroundResource(R.drawable.bg_bubble_assistant)
             holder.text.setTextColor(
                 androidx.core.content.ContextCompat.getColor(ctx, R.color.text_1)
             )
+        }
+
+        // ── 长按复制（微扩展 A）：复制正文（不含来源行）───────────────
+        holder.text.isLongClickable = true
+        holder.text.setOnLongClickListener { v ->
+            val cm = v.context.getSystemService(android.content.ClipboardManager::class.java)
+            cm.setPrimaryClip(android.content.ClipData.newPlainText("healix_chat", body))
+            android.widget.Toast.makeText(
+                v.context, R.string.chat_copied, android.widget.Toast.LENGTH_SHORT,
+            ).show()
+            true
         }
 
         // ── 外层对齐 + 最大宽度 78% ──────────────────────────────────

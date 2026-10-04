@@ -55,6 +55,10 @@ interface ChatMessageDao {
 
     @Query("SELECT COUNT(*) FROM chat_messages WHERE session_date = :sessionDate AND role = 'user'")
     suspend fun countUserTurns(sessionDate: String): Int
+
+    /** 微扩展 B：有消息的会话日期（倒序），聊天页日期切换用。纯查询，无 schema 变更。 */
+    @Query("SELECT DISTINCT session_date FROM chat_messages ORDER BY session_date DESC")
+    fun observeSessionDates(): Flow<List<String>>
 }
 
 @Dao

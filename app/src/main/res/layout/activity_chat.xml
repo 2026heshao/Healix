@@ -142,6 +142,25 @@
             android:text="@string/quick_week" />
     </LinearLayout>
 
+    <!-- 预设快捷条（微扩展 C）：与记录页同一 presets 数据源，点击 = 直接落库。
+         横向滚动，仅在查看今天且有预设时出现。 -->
+    <HorizontalScrollView
+        android:id="@+id/presetScroll"
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/touch_min"
+        android:scrollbars="none"
+        android:visibility="gone"
+        tools:visibility="visible">
+
+        <LinearLayout
+            android:id="@+id/presetRow"
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:orientation="horizontal"
+            android:paddingStart="@dimen/screen_margin"
+            android:paddingEnd="@dimen/screen_margin" />
+    </HorizontalScrollView>
+
     <!-- 免责声明：常驻消息区底部上方，不随滚动消失 -->
     <TextView
         style="@style/Text.Tertiary"

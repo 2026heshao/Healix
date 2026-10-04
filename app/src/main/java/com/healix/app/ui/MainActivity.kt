@@ -164,6 +164,20 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
+     * 从助理页切「记录 / 我的」时，TabBar.chatTo 用 CLEAR_TOP|SINGLE_TOP 重开本页。
+     * 若本页已在栈顶（聊天前就是从主界面进的），系统走 onNewIntent 而非 onCreate ——
+     * 不在这里读 EXTRA_TAB，extra 就永远没人接，页面停在旧 Tab（实测 bug）。
+     */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        val tab = intent.getIntExtra(TabBar.EXTRA_TAB, -1)
+        if (tab == TabBar.TAB_RECORD || tab == TabBar.TAB_MINE) {
+            showTab(tab)
+        }
+    }
+
+    /**
      * SAF 回传（v6 迁移）：导出备份入口已从设置页迁到「我的」页（11.1），
      * 发起方变成 MainActivity —— 必须在这里转发给 ExportWriter，
      * 否则用户选完路径后 pendingPayload 永远挂着、文件不会写入（静默失败）。

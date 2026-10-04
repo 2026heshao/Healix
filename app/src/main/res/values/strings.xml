@@ -38,6 +38,12 @@
     <string name="quick_week">本周复盘</string>
     <string name="quota_exhausted">今日对话次数已用完，明天再来</string>
     <string name="tool_running">查了一下记录…</string>
+    <!-- 微扩展：失败重试 / 长按复制 / 会话日期切换 / 预设快捷条 -->
+    <string name="chat_retry_hint">这次没答上来，点此重试</string>
+    <string name="chat_copied">已复制</string>
+    <string name="chat_viewing_past">正在查看 %1$s 的对话，回到今天才能继续</string>
+    <string name="preset_logged">已记录：%1$s</string>
+    <string name="preset_log_failed">记录失败，再试一次</string>
 
     <!-- 设置 -->
     <string name="group_model">模型服务</string>
