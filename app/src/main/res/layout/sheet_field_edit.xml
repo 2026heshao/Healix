@@ -62,7 +62,7 @@
                 android:paddingEnd="12dp"
                 android:text="@string/cancel" />
 
-            <Button
+            <androidx.appcompat.widget.AppCompatButton
                 android:id="@+id/btnConfirm"
                 style="@style/Widget.Healix.Button"
                 android:layout_width="wrap_content"

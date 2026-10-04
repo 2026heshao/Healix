@@ -102,7 +102,7 @@
                     android:maxLines="2"
                     android:text="@string/knowledge_empty_hint" />
 
-                <Button
+                <androidx.appcompat.widget.AppCompatButton
                     android:id="@+id/btnPick"
                     style="@style/Widget.Healix.Button"
                     android:layout_width="match_parent"

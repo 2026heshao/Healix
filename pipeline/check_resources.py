@@ -10,6 +10,8 @@ CI 首跑时 mergeDebugResources 报 `Found item String/type_meal more than one 
   2. 布局引用的 @dimen/@color/@style/@string/@drawable 是否存在
   3. Kotlin 引用的 R.xxx 是否存在
   4. values-night 覆盖项是否都在 values 里有对应定义（否则是死代码）
+  5. 布局里禁止裸 `<Button>`（MaterialComponents 会替换为 MaterialButton 并
+     忽略 android:background → 主按钮 accent 底不渲染，白字压白底不可见）
 
 退出码：0 = 全通过；1 = 发现问题。
 """
@@ -237,6 +239,36 @@ def check_signal_copy() -> None:
             errors.append(f"strings.xml: {name} 含概率数字 → {body}")
 
 
+def check_button_tag() -> None:
+    """布局里禁止出现裸 `<Button>` 标签（v8 需求 3 的防回归规则）。
+
+    根因（2026-10-05 实测）：`Theme.MaterialComponents.*` 会通过
+    `MaterialComponentsViewInflater` 把布局里的 `<Button>` 替换为
+    `com.google.android.material.button.MaterialButton`，而 MaterialButton
+    **不支持 `android:background`**（官方文档明确要求用 `app:backgroundTint`）。
+    项目的主按钮样式 `Widget.Healix.Button` 靠 `android:background=@drawable/bg_btn_primary`
+    上 accent 底 —— 被忽略后按钮底变透明，`btn_primary_text`（#FFFFFF 白字）
+    压在弹窗的 `surface`（#FFFFFF 白底）上 → 主按钮完全不可见。
+
+    正确写法：显式写全限定 `<androidx.appcompat.widget.AppCompatButton>`，
+    视图 inflater 不会替换显式类名，`android:background` 照常生效。
+
+    ⚠️ 先剥 XML 注释再扫 —— 注释里写反例说明（正是本规则的由来）会造成假阳性。
+    """
+    for xml in sorted((RES / "layout").glob("*.xml")):
+        text = xml.read_text(encoding="utf-8")
+        stripped = re.sub(r"<!--.*?-->", "", text, flags=re.S)
+        for lineno, line in enumerate(stripped.splitlines(), 1):
+            # `<Button` 允许出现在行尾（属性换行书写），所以结尾用 `(?:[\s>]|$)`
+            if re.search(r"<Button(?:[\s>]|$)", line):
+                errors.append(
+                    f"{xml.relative_to(ROOT)}:{lineno}: 禁止使用裸 <Button> 标签 —— "
+                    f"MaterialComponents 主题会替换为 MaterialButton 并忽略 "
+                    f"android:background（主按钮 accent 底不渲染、白字压白底不可见）。"
+                    f"请改用 <androidx.appcompat.widget.AppCompatButton>"
+                )
+
+
 def main() -> int:
     if not RES.exists():
         print(f"找不到资源目录：{RES}")
@@ -247,6 +279,7 @@ def main() -> int:
     check_night_overrides()
     check_shell_line_endings()
     check_signal_copy()
+    check_button_tag()
 
     print("=" * 64)
     print("Healix 资源静态检查")

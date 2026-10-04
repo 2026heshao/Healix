@@ -422,7 +422,7 @@
                         android:paddingEnd="@dimen/screen_margin"
                         tools:text="结合你的目标（增重）和本周已练肌群，一次生成 7 天安排。" />
 
-                    <Button
+                    <androidx.appcompat.widget.AppCompatButton
                         android:id="@+id/btnGenerate"
                         style="@style/Widget.Healix.Button"
                         android:layout_width="match_parent"

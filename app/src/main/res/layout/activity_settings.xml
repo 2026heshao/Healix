@@ -91,7 +91,7 @@
                 「填了 → 接入 → 才生效」是用户的心智模型，必须有一个显式的落地点。
                 行为 = 写配置 + 校验完整性 + 发一次真实请求验证（见 runApply）。
             -->
-            <Button
+            <androidx.appcompat.widget.AppCompatButton
                 android:id="@+id/btnApply"
                 style="@style/Widget.Healix.Button"
                 android:layout_width="match_parent"
@@ -114,7 +114,7 @@
                 tools:visibility="visible" />
 
             <!-- 测试连通性：本节第二按钮，样式降一级为文字按钮（避免两个同权重主按钮） -->
-            <Button
+            <androidx.appcompat.widget.AppCompatButton
                 android:id="@+id/btnTest"
                 style="@style/Widget.Healix.TextButton"
                 android:layout_width="wrap_content"
