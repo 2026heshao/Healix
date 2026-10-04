@@ -10,6 +10,7 @@ import com.healix.app.net.ChatMessage
 import com.healix.app.net.ChatRequest
 import com.healix.app.net.ChatResult
 import com.healix.app.net.ErrKind
+import com.healix.app.net.NetworkStatus
 import com.healix.app.net.OpenAiCompatProvider
 import com.healix.app.parse.DEFAULT_DAY_START_HOUR
 import com.healix.app.parse.dayKeyOf
@@ -134,6 +135,18 @@ class PlanGenerator(context: Context) {
         private const val PLAN_TYPE_MEAL = "meal"
         private const val PLAN_TYPE_EXERCISE = "exercise"
         private const val PLAN_TYPE_SLEEP = "sleep"
+
+        /**
+         * 解析上限：模型输出永不可信，防啰嗦 / prompt 被注入时返回成百条拖垮
+         * 主线程 inflate（渲染见 PlanReviewActivity.renderTimeline，逐项 inflate）。
+         * ⚠️ 命名为 MAX_PLAN_ITEMS 而非 MAX_EVENTS，避免与 SchemaValidator 的
+         *    抽取链同名常量撞车触发 check_duplicate_constants。
+         */
+        private const val MAX_PLAN_ITEMS = 8
+        private const val MAX_TITLE_LEN = 80
+        private const val MAX_DETAIL_LEN = 120
+        private const val MAX_WHY_LEN = 80
+        private const val MAX_NOTE_LEN = 200
     }
 
     // ------------------------------------------------------------------
@@ -208,9 +221,11 @@ class PlanGenerator(context: Context) {
      */
     internal suspend fun update(todayKey: String, summary: TodaySummary): PlanResult = withContext(Dispatchers.IO) {
         val config = runCatching { app.eventRepository.loadProviderConfig() }.getOrNull()
-        if (config == null || !config.isUsable()) {
-            // 未配置 / 不可用：不调网。与 AI 失败走同一收口 ——
-            // 有缓存保留上一版，无缓存才落本地兜底（不得用兜底覆盖已有缓存）
+        if (config == null || !config.isUsable() || !NetworkStatus.isOnline(app)) {
+            // 未配置 / 不可用 / 断网：不调网。与 AI 失败走同一收口 ——
+            // 有缓存保留上一版，无缓存才落本地兜底（不得用兜底覆盖已有缓存）。
+            // 断网同样不调网：NETWORK 属于可重试 ErrKind，离线会白等整条退避链
+            //（最坏 ~75-80 秒），把按钮卡在「更新中」。与对话链同一口径。
             return@withContext failWithFallbackOrCache(todayKey, summary)
         }
 
@@ -509,7 +524,11 @@ class PlanGenerator(context: Context) {
                 val arr = root.optJSONArray("items") ?: return null
                 val items = itemsOf(arr)
                 if (items.isEmpty()) return null
-                TimelineJson(items, root.optString("note").trim())
+                // ⚠️ 用 optText 而非 optString：optString 对 JSON null 会返回字面字符串
+                //    "null"（本文件的 optText 专门挡了 JSONObject.NULL），模型给
+                //    "note": null 时计划底部会显示字面 "null"。同时按 MAX_NOTE_LEN 截断。
+                //    —— 这一处顺带修掉一个既有 P3（note 未挡 JSON null）。
+                TimelineJson(items, root.optText("note").take(MAX_NOTE_LEN))
             }
             is JSONArray -> {
                 val items = itemsOf(root)
@@ -522,19 +541,23 @@ class PlanGenerator(context: Context) {
 
     private fun itemsOf(arr: JSONArray): List<TimelineItem> {
         val out = mutableListOf<TimelineItem>()
-        for (i in 0 until arr.length()) {
+        // 条数上限：parseTimelineJson → renderTimeline 在主线程逐项 inflate，
+        // 模型啰嗦或 prompt 被注入时返回成百条 = 卡顿 / ANR / OOM。prompt 写了
+        // "最多 6 项"，但代码必须自己设防（模型输出永不可信）。
+        for (i in 0 until minOf(arr.length(), MAX_PLAN_ITEMS)) {
             val o = arr.optJSONObject(i) ?: continue
-            val title = o.optText("title")
-            val detail = o.optText("detail")
+            // 先截断再判空：长度上限对 title/detail 生效后再决定是否跳过该项。
+            val title = o.optText("title").take(MAX_TITLE_LEN)
+            val detail = o.optText("detail").take(MAX_DETAIL_LEN)
             if (title.isEmpty() && detail.isEmpty()) continue
             out += TimelineItem(
-                time = o.optText("time"),
-                type = o.optText("type").ifEmpty { PLAN_TYPE_HABIT },
+                time = o.optText("time").take(5),
+                type = o.optText("type").ifEmpty { PLAN_TYPE_HABIT }.take(16),
                 title = title,
                 detail = detail,
                 kcal = o.optInt("kcal", 0),
-                duration = o.optText("duration"),
-                why = o.optText("why").ifEmpty { o.optText("whyNow") },
+                duration = o.optText("duration").take(16),
+                why = o.optText("why").ifEmpty { o.optText("whyNow") }.take(MAX_WHY_LEN),
             )
         }
         return out

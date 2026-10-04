@@ -766,6 +766,39 @@ class EventRepository(private val context: Context) {
     }
 
     /**
+     * 训练链（purpose=training）的调用埋点。训练页「生成本周计划」每次 provider
+     * 往返都记一条（成功与失败都记），是配额计数（`QuotaGuard.canExtract`，
+     * training 归入抽取桶）与调试页 / token 统计 / 失败诊断的数据来源。
+     *
+     * ⚠️ 与 [recordPlanCall] 形状**完全一致**（同管道转发私有 [recordCall]），
+     *    唯一区别是 purpose 固定为 [PURPOSE_TRAINING]；块体转发（转发 suspend 调用
+     *    禁止 `= call()` 表达式体 —— CI #31 的教训）。
+     */
+    suspend fun recordTrainingCall(
+        model: String,
+        attempts: Int,
+        latencyMs: Long,
+        status: String,
+        httpCode: Int? = null,
+        inputTokens: Int? = null,
+        outputTokens: Int? = null,
+        errorHead: String? = null,
+    ) {
+        recordCall(
+            purpose = PURPOSE_TRAINING,
+            eventId = null,
+            model = model,
+            attempts = attempts,
+            latencyMs = latencyMs,
+            status = status,
+            httpCode = httpCode,
+            inputTokens = inputTokens,
+            outputTokens = outputTokens,
+            errorHead = errorHead,
+        )
+    }
+
+    /**
      * 组装 provider 配置。
      *
      * baseUrl / model 来自 settings 表（非敏感，可导出迁移）；
@@ -829,6 +862,15 @@ const val PURPOSE_EXTRACT = "extract"
 const val PURPOSE_PLAN = "plan"
 const val PURPOSE_REVIEW = "review"
 const val PURPOSE_ASK = "ask"
+
+/**
+ * 训练链（周计划生成）埋点 purpose。
+ *
+ * ⚠️ 2026-10-05 修复：训练链此前**从未埋点**（TrainingPlanner 内 recordCall/llmCall
+ *    零命中），导致「生成本周计划」连点可无限烧免费额度，且调试页 / token 统计 /
+ *    失败诊断全盲。现归入抽取配额桶（[QuotaGuard] 的 CALL_PURPOSES）。
+ */
+const val PURPOSE_TRAINING = "training"
 
 /** 供通知栏副标题用的占位：把 JSON 数组字符串读回列表（防御性，失败给空）。 */
 fun parseFoodsJson(foodsJson: String): List<String> = try {

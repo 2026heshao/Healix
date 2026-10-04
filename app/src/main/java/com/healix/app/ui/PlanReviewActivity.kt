@@ -246,12 +246,14 @@ class PlanReviewActivity : AppCompatActivity() {
     private fun renderTraining(st: TrainingUiState) {
         if (vm.tab.value == PlanTab.TRAINING) updateRefreshVisibility(true)
 
-        binding.trainingModeLabel.visibility =
-            if (st.hasPlan && st.source == TrainingPlanner.SOURCE_FALLBACK) {
-                View.VISIBLE
-            } else {
-                View.GONE
-            }
+        val hint = when {
+            st.quotaExhausted -> getString(R.string.quota_exhausted_short)
+            st.hasPlan && st.source == TrainingPlanner.SOURCE_FALLBACK ->
+                getString(R.string.mode_simplified_local)
+            else -> null
+        }
+        binding.trainingModeLabel.visibility = if (hint == null) View.GONE else View.VISIBLE
+        if (hint != null) binding.trainingModeLabel.text = hint
 
         val plan = st.plan
         if (st.hasPlan && plan != null) {

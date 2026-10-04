@@ -43,9 +43,9 @@ class QuotaGuard(private val context: Context) {
         const val DEFAULT_DAILY_CALL_LIMIT = 20
         const val DEFAULT_DAILY_CHAT_LIMIT = 15
 
-        /** 归入"抽取"配额的 purpose */
+        /** 归入"抽取"配额的 purpose（training 与抽取 / 计划 / 复盘共用同一个 20/日 桶） */
         private val CALL_PURPOSES = listOf(
-            PURPOSE_EXTRACT, PURPOSE_PLAN, PURPOSE_REVIEW,
+            PURPOSE_EXTRACT, PURPOSE_PLAN, PURPOSE_REVIEW, PURPOSE_TRAINING,
         )
 
         /** 归入"对话"配额的 purpose */
@@ -55,7 +55,7 @@ class QuotaGuard(private val context: Context) {
     }
 
     /**
-     * 抽取类调用是否还有额度。purpose = extract / plan / review。
+     * 抽取类调用是否还有额度。purpose = extract / plan / review / training。
      *
      * @return true = 可以调用；false = 已用尽，调用方必须走本地 fallback
      */

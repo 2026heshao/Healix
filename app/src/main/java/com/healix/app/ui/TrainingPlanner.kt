@@ -11,10 +11,13 @@ import com.healix.app.db.TrainingPlanEntity
 import com.healix.app.net.ChatMessage
 import com.healix.app.net.ChatRequest
 import com.healix.app.net.ChatResult
+import com.healix.app.net.ErrKind
+import com.healix.app.net.NetworkStatus
 import com.healix.app.net.OpenAiCompatProvider
 import com.healix.app.parse.DEFAULT_DAY_START_HOUR
 import com.healix.app.parse.dayKeyOf
 import com.healix.app.parse.loadsLenient
+import com.healix.app.repo.EventRepository
 import com.healix.app.repo.ORIGIN_USER
 import com.healix.app.repo.SOURCE_APP
 import com.healix.app.rules.MuscleRecovery
@@ -171,6 +174,12 @@ class TrainingPlanner(context: Context) {
     // ------------------------------------------------------------------
 
     private suspend fun tryAi(): TrainingPlan? {
+        // 断网短路：不在离线 / 假热点（captive portal）下发起请求。NETWORK 属于可重试
+        // ErrKind，离线会一路重试到退避链走完（最坏 ~75-80 秒），把按钮白卡在「生成中」。
+        // 与对话链同一口径（ChatViewModel 断网优先判定）—— 直接返回 null 让调用方
+        // 走 localFallback()，不新增任何 UI 状态。
+        if (!NetworkStatus.isOnline(app)) return null
+
         val config = app.eventRepository.loadProviderConfig() ?: return null
         if (!config.isUsable()) return null
 
@@ -188,9 +197,40 @@ class TrainingPlanner(context: Context) {
             exponentialBackoff = true,
         )
 
+        // 成败双记（与 PlanGenerator.update 同口径）：每次 provider 往返都写 llm_calls，
+        // 否则配额计数恒为未消耗、调试页全盲。
+        val started = System.currentTimeMillis()
         return when (val result = provider.chat(request)) {
-            is ChatResult.Ok -> parsePlan(result.content, SOURCE_AI)
-            is ChatResult.Err -> null
+            is ChatResult.Ok -> {
+                val latencyMs = System.currentTimeMillis() - started
+                app.eventRepository.recordTrainingCall(
+                    model = config.model,
+                    attempts = 1,
+                    latencyMs = latencyMs,
+                    status = EventRepository.STATUS_OK,
+                    httpCode = 200,
+                    inputTokens = result.usage.inputTokens,
+                    outputTokens = result.usage.outputTokens,
+                )
+                parsePlan(result.content, SOURCE_AI)
+            }
+
+            is ChatResult.Err -> {
+                val latencyMs = System.currentTimeMillis() - started
+                app.eventRepository.recordTrainingCall(
+                    model = config.model,
+                    attempts = if (result.attempts > 0) result.attempts else request.maxRetries + 1,
+                    latencyMs = latencyMs,
+                    status = when (result.kind) {
+                        ErrKind.TIMEOUT -> EventRepository.STATUS_TIMEOUT
+                        ErrKind.AUTH -> EventRepository.STATUS_HTTP_ERROR
+                        else -> EventRepository.STATUS_RETRY_EXHAUSTED
+                    },
+                    httpCode = result.httpCode,
+                    errorHead = result.message,
+                )
+                null
+            }
         }
     }
 

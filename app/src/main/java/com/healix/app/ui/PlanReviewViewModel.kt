@@ -59,6 +59,8 @@ data class TrainingUiState(
     /** 本周已记录的训练日 dow 集合（按钮据此变「已记录」）。 */
     val completed: Set<Int> = emptySet(),
     val todayDow: Int = 1,
+    /** 训练配额不足（未调网，仅提示）—— 语义对齐 [PlanUiState.quotaExhausted]。 */
+    val quotaExhausted: Boolean = false,
 )
 
 /**
@@ -139,17 +141,28 @@ class PlanReviewViewModel(app: Application) : AndroidViewModel(app) {
             val key = runCatching { generator.todayKey() }.getOrNull()
             val cached = key?.let { runCatching { generator.loadCached(it) }.getOrNull() }
             val result = cached ?: runCatching { generator.localTimeline(summary) }.getOrNull()
+            // ⚠️ 字段级 copy（不整对象重建）：整对象重建会与 updatePlan() 的 .copy() 竞争
+            //    写同一个 StateFlow；一旦 reload 在「更新」在途时完成，会把 updating 覆盖回
+            //    false、短暂解除按钮禁用，使 updatePlan 的在途守卫失效。故 updating 一律不写，
+            //    保持 updatePlan 的权威值。
             _plan.value = if (result == null) {
-                PlanUiState(gapLeft = gapLeft)
+                _plan.value.copy(
+                    items = emptyList(),
+                    note = "",
+                    gapLeft = gapLeft,
+                    generatedAt = 0L,
+                    failed = false,
+                    fromCache = false,
+                )
             } else {
-                PlanUiState(
+                _plan.value.copy(
                     items = result.items,
                     note = result.note,
                     gapLeft = gapLeft,
                     source = result.source,
                     generatedAt = result.generatedAt,
-                    updating = false,
                     failed = false,
+                    fromCache = false,
                 )
             }
         }
@@ -163,9 +176,13 @@ class PlanReviewViewModel(app: Application) : AndroidViewModel(app) {
      * （不清空），无缓存时 [PlanGenerator] 内部落本地兜底。
      */
     fun updatePlan() {
-        viewModelScope.launch(Dispatchers.IO) {
-            _plan.value = _plan.value.copy(updating = true, failed = false, quotaExhausted = false)
+        // 在途守卫：**同步**置位 + 同步判。updatePlan() 由主线程调用，两次点击在主线程
+        // 上天然串行，故无竞态。绝不能把置位留在协程里（Dispatchers.IO）—— UI 要等一次
+        // 调度才置灰按钮，落在同一帧内的第二次点击会一路走完 provider.chat()，白烧额度。
+        if (_plan.value.updating) return
+        _plan.value = _plan.value.copy(updating = true, failed = false, quotaExhausted = false)
 
+        viewModelScope.launch(Dispatchers.IO) {
             if (!container.quotaGuard.canExtract()) {
                 _plan.value = _plan.value.copy(updating = false, quotaExhausted = true)
                 return@launch
@@ -275,8 +292,23 @@ class PlanReviewViewModel(app: Application) : AndroidViewModel(app) {
      * 才进入 `failed` 态。
      */
     fun generateTraining() {
+        // 在途守卫：**同步**置位 + 同步判。generateTraining() 只由主线程的按钮点击调用
+        // （PlanReviewActivity 的 btnGenerate / btnTrainingRetry），两次点击在主线程上
+        // 天然串行，故无竞态。绝不能把置位留在协程里（Dispatchers.IO）—— UI 要等一次
+        // 调度才置灰按钮，落在同一帧内的第二次点击会再发起一次训练 AI 调用（修复 1 之后
+        // 两次都会计入配额桶，比改动前更严重）。与 updatePlan() 完全同构。
+        if (_training.value.generating) return
+        _training.value = _training.value.copy(
+            generating = true,
+            failed = false,
+            quotaExhausted = false,
+        )
+
         viewModelScope.launch(Dispatchers.IO) {
-            _training.value = _training.value.copy(generating = true, failed = false)
+            if (!container.quotaGuard.canExtract()) {
+                _training.value = _training.value.copy(generating = false, quotaExhausted = true)
+                return@launch
+            }
 
             val plan = runCatching { planner.loadOrGenerate(force = true) }.getOrNull()
             if (plan == null) {
