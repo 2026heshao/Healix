@@ -2,8 +2,12 @@ package com.healix.app.ui
 
 import android.app.Activity
 import android.content.Intent
+import android.view.View
+import android.view.ViewGroup
 import android.widget.TextView
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import com.healix.app.R
 
 /**
@@ -48,9 +52,7 @@ internal object TabBar {
         val assistant = activity.findViewById<TextView>(R.id.tabAssistant)
         val mine = activity.findViewById<TextView>(R.id.tabMine)
 
-        highlight(record, active == TAB_RECORD)
-        highlight(assistant, active == TAB_ASSISTANT)
-        highlight(mine, active == TAB_MINE)
+        select(activity, active)
 
         record.setOnClickListener { onRecord?.invoke() ?: chatTo(activity, TAB_RECORD) }
         mine.setOnClickListener { onMine?.invoke() ?: chatTo(activity, TAB_MINE) }
@@ -61,6 +63,52 @@ internal object TabBar {
                 activity.startActivity(Intent(activity, ChatActivity::class.java))
                 activity.overridePendingTransition(R.anim.in_tab, R.anim.hold)
             }
+        }
+
+        bindImeGuard(activity)
+    }
+
+    /**
+     * Tab 切换后重设高亮：MainActivity 的记录/我的在同一 Activity 内互切，
+     * 切完必须同步 tabbar 三段颜色（bind 只在 onCreate 高亮一次，不够）。
+     */
+    fun select(activity: Activity, tab: Int) {
+        highlight(activity.findViewById(R.id.tabRecord), tab == TAB_RECORD)
+        highlight(activity.findViewById(R.id.tabAssistant), tab == TAB_ASSISTANT)
+        highlight(activity.findViewById(R.id.tabMine), tab == TAB_MINE)
+    }
+
+    /**
+     * 键盘守卫（11.6 交互遗留修复）：adjustResize 下键盘弹出时 WindowInsets
+     * 把整个内容区（含锚底的 tabbar）一起顶到键盘之上 —— tabbar 悬浮在键盘上
+     * 是真机最直观的破绽。
+     *
+     * 处理：ime 可见 → tabbar 隐藏，同时把输入条为让位 tabbar 而预留的
+     * 64dp 抬升（tab_raise marginBottom）归零，输入条贴住键盘顶；
+     * ime 收起 → 全部还原。选 GONE 而非 translate 动画：与 adjustResize 的
+     * 同帧重排叠加动画会闪烁，瞬时显隐反而干净。
+     *
+     * 两处宿主（activity_main / activity_chat）都有 @+id/tabbar include 与
+     * @+id/input 输入条，且都在 onCreate 调 [bind] —— 逻辑放这一处，
+     * ChatActivity 侧零改动生效，两页行为必然一致。
+     *
+     * 限制：ime insets 精确上报需 API 30+（minSdk 29，目标机型 Magic6 Pro
+     * 为 API 34）；API 29 上拿不到 ime 可见性，行为退回现状（tabbar 随键盘上移）。
+     */
+    private fun bindImeGuard(activity: Activity) {
+        val root = activity.findViewById<View>(android.R.id.content) ?: return
+        val tabbar = activity.findViewById<View>(R.id.tabbar) ?: return
+        val input = activity.findViewById<View>(R.id.input) ?: return
+        val bar = input.parent as? ViewGroup ?: return
+        val lp = bar.layoutParams as? ViewGroup.MarginLayoutParams ?: return
+        val raisePx = lp.bottomMargin // 布局里的 tab_raise 抬升量
+
+        ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
+            val imeVisible = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom > 0
+            tabbar.visibility = if (imeVisible) View.GONE else View.VISIBLE
+            lp.bottomMargin = if (imeVisible) 0 else raisePx
+            bar.layoutParams = lp // 重新赋值触发 requestLayout
+            insets // 不消费，根布局 fitsSystemWindows 照常工作
         }
     }
 
@@ -81,12 +129,6 @@ internal object TabBar {
     fun openSecondary(activity: Activity, intent: Intent) {
         activity.startActivity(intent)
         activity.overridePendingTransition(R.anim.in_fwd, R.anim.out_fwd)
-    }
-
-    /** 二级页返回：统一 in_back 转场（11.2 后退，返回页从 -22% 滑入）。 */
-    fun backOut(activity: Activity) {
-        activity.finish()
-        activity.overridePendingTransition(R.anim.in_back, R.anim.out_back)
     }
 
     private fun highlight(tab: TextView, on: Boolean) {

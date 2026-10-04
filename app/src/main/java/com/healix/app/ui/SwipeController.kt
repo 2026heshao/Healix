@@ -84,6 +84,17 @@ class SwipeController(context: Context) {
     }
 
     /**
+     * 行被回收/复用时解除滑开跟踪（复用残留修复）：
+     * RecyclerView 复用会把滑开态的 ViewHolder 让给新 item，此时 openRow 若仍
+     * 指向这个视图，"全局单开"与 closeIfOutside 都在跟踪一个已经不属于原行的
+     * 视图。宿主在 bind 时重置平移的同时调用本方法，保证出屏的滑开行滚回来
+     * 一定是已回弹的干净行。
+     */
+    fun release(item: View) {
+        if (openRow === item) openRow = null
+    }
+
+    /**
      * 收起所有滑开的行（按下列表其它区域时由宿主调用）。
      * [hit] = 按下点所在的列表项根视图；滑开行若不在它的子树里就收起，
      * 已滑开行自身的按下不收（允许继续拖拽）。

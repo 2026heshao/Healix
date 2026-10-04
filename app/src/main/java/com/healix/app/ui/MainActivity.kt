@@ -5,6 +5,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.inputmethod.InputMethodManager
 import android.os.Bundle
+import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
@@ -18,6 +19,8 @@ import com.healix.app.databinding.ActivityMainBinding
 import com.healix.app.databinding.ItemEventBinding
 import com.healix.app.db.EventEntity
 import com.healix.app.db.PresetEntity
+import com.healix.app.notify.AppEvent
+import com.healix.app.notify.AppEventBus
 import com.healix.app.notify.EventText
 import kotlinx.coroutines.launch
 
@@ -125,6 +128,18 @@ class MainActivity : AppCompatActivity() {
         )
         showTabImmediate(currentTab)
 
+        // 系统返回键（Tab 页返回栈）：「我的」页按返回 = 切回记录 tab（原型 go()
+        // 语义：tab 平级、返回不退出）；已是记录 tab 才退出 App。
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (currentTab == TabBar.TAB_MINE) {
+                    showTab(TabBar.TAB_RECORD)
+                } else {
+                    finish()
+                }
+            }
+        })
+
         // 左滑"点其它区域自动回弹"：列表内按下非滑开行 → 收起（全局单开，11.3）
         binding.list.addOnItemTouchListener(object : RecyclerView.SimpleOnItemTouchListener() {
             override fun onInterceptTouchEvent(rv: RecyclerView, e: MotionEvent): Boolean {
@@ -174,6 +189,8 @@ class MainActivity : AppCompatActivity() {
     private fun showTab(target: Int) {
         if (currentTab == target) return
         currentTab = target
+        // 同 Activity 内互切后 tabbar 高亮必须跟着走（bind 只在 onCreate 高亮一次）
+        TabBar.select(this, target)
         playInTab(if (target == TabBar.TAB_MINE) binding.minePage.root else binding.pageHome)
         val outgoing = if (target == TabBar.TAB_MINE) binding.pageHome else binding.minePage.root
         outgoing.visibility = View.GONE
@@ -253,6 +270,23 @@ class MainActivity : AppCompatActivity() {
     private fun observe() {
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
+
+                // 进程内事件（通知栏录入 → 前台反馈，AppEventBus）：
+                // 数据刷新由 Room Flow 承担，这里只接「即时提示」职责 ——
+                // RequestFocusInput（点通知兜底聚焦速记框）、Failed（失败原因轻提示）。
+                launch {
+                    AppEventBus.events.collect { event ->
+                        when (event) {
+                            is AppEvent.RequestFocusInput -> focusInput()
+                            is AppEvent.Failed -> android.widget.Toast.makeText(
+                                this@MainActivity, event.reason,
+                                android.widget.Toast.LENGTH_SHORT,
+                            ).show()
+                            // Recorded / PendingQueued / Undone：列表已由 Room Flow 自动刷新
+                            else -> Unit
+                        }
+                    }
+                }
 
                 launch {
                     vm.events.collect { list ->
@@ -485,6 +519,14 @@ class EventAdapter(
 
         fun bind(e: EventEntity) {
             val ctx = b.root.context
+
+            // ── 复用防残留：滑开态 ViewHolder 被复用到新 item 时，swipeWrap
+            //    可能带着上一次的 -144dp 平移。bind 前先取消残留动画、归位平移，
+            //    并解除 SwipeController 对这个视图的滑开跟踪（出屏滑开行滚回来
+            //    = 已回弹的干净行）。──
+            b.swipeItem.animate().cancel()
+            b.swipeItem.translationX = 0f
+            swipe.release(b.swipeItem)
 
             // ── v6 左滑：拖拽跟随 + 按压缩放，同一个触摸监听承载两种反馈 ──
             b.swipeItem.setOnTouchListener { v, ev ->

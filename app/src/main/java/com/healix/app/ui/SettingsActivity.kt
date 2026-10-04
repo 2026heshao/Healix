@@ -183,7 +183,7 @@ class SettingsActivity : AppCompatActivity() {
     /** v6 11.2：二级页返回走 in_back 转场（覆盖返回键与手势返回）。 */
     override fun finish() {
         super.finish()
-        TabBar.backOut(this)
+        overridePendingTransition(R.anim.in_back, R.anim.out_back)
     }
 
     private fun observe() {

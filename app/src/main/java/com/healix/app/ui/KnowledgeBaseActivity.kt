@@ -31,6 +31,9 @@ class KnowledgeBaseActivity : AppCompatActivity() {
     private lateinit var binding: ActivityKnowledgeBinding
     private val repo by lazy { HealixApp.from(this).knowledgeRepository }
 
+    /** 10.5 增量朗读缓存：doc.id → 上次朗读的状态文案（内存即可，不存库）。 */
+    private val announcedStates = mutableMapOf<Long, String>()
+
     /** SAF 选文件：launcher 必须在 Activity 创建阶段注册。 */
     private val pickPdf =
         registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -78,7 +81,9 @@ class KnowledgeBaseActivity : AppCompatActivity() {
         docs.forEach { doc ->
             val row = RowKnowledgeDocBinding.inflate(layoutInflater, container, false)
             row.docTitle.text = doc.title
-            row.docTitle.contentDescription = rowContentDescription(doc)
+            val desc = rowContentDescription(doc)
+            row.docTitle.contentDescription = desc
+            maybeAnnounceStateChange(row, doc, desc)
 
             renderSubtitle(row, doc)
 
@@ -145,6 +150,25 @@ class KnowledgeBaseActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * 10.5 增量朗读：文档行状态原地回填时（解析中 → N 页 · 大小 / 解析失败），
+     * 朗读新状态一次；同一状态只读一次，重复刷新不重复读。
+     * 文案复用 [rowContentDescription]（与 contentDescription 同源）。
+     * 首次出现只记录不朗读 —— 否则进页会朗读整个列表。
+     */
+    private fun maybeAnnounceStateChange(
+        row: RowKnowledgeDocBinding,
+        doc: KnowledgeDocEntity,
+        desc: String,
+    ) {
+        val last = announcedStates[doc.id]
+        if (last == desc) return
+        if (announcedStates.containsKey(doc.id)) {
+            row.root.announceForAccessibility(desc)
+        }
+        announcedStates[doc.id] = desc
+    }
+
     /** 10.5 无障碍：文档行朗读「标题，状态/页数」。 */
     private fun rowContentDescription(doc: KnowledgeDocEntity): String {
         val ctx = this
@@ -165,6 +189,6 @@ class KnowledgeBaseActivity : AppCompatActivity() {
     /** v6 11.2：二级页返回走 in_back 转场（覆盖返回键与手势返回）。 */
     override fun finish() {
         super.finish()
-        TabBar.backOut(this)
+        overridePendingTransition(R.anim.in_back, R.anim.out_back)
     }
 }

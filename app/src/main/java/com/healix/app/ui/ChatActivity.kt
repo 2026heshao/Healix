@@ -49,7 +49,6 @@ class ChatActivity : AppCompatActivity() {
         binding.messageList.adapter = adapter
 
         binding.sessionLabel.text = HealixDate.sessionLabel(LocalDate.now())
-        binding.btnBack.setOnClickListener { finish() }
         binding.btnSend.setOnClickListener { send() }
 
         // v6（11.1）：助理是全局 3 Tab 的第二页 —— tabbar 高亮第二段，
