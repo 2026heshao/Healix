@@ -71,11 +71,23 @@ interface PresetDao {
     @Query("SELECT * FROM presets ORDER BY use_count DESC, last_used_at DESC LIMIT :limit")
     fun observeTop(limit: Int = 6): Flow<List<PresetEntity>>
 
+    /** 预设管理页：全量响应式（编辑/删除后列表即时刷新），按名称排序便于翻找 */
+    @Query("SELECT * FROM presets ORDER BY name ASC")
+    fun observeAll(): Flow<List<PresetEntity>>
+
+    /** 「我的」页入口行计数 */
+    @Query("SELECT COUNT(*) FROM presets")
+    fun observeCount(): Flow<Int>
+
     @Query("UPDATE presets SET use_count = use_count + 1, last_used_at = :now WHERE id = :id")
     suspend fun bumpUsage(id: Long, now: Long)
 
     @Query("SELECT * FROM presets ORDER BY name ASC")
     suspend fun listAll(): List<PresetEntity>
+
+    /** 预设管理页删除（预设非事件数据，无软删链路；UI 侧二次确认兜底）。 */
+    @Query("DELETE FROM presets WHERE id = :id")
+    suspend fun delete(id: Long)
 }
 
 @Dao

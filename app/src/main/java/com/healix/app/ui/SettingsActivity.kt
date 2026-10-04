@@ -62,8 +62,10 @@ class SettingsActivity : AppCompatActivity() {
         binding.btnTest.setOnClickListener { runConnectivityTest() }
 
         // ── 调用限制 ──────────────────────────────────────────────
-        setupRow(binding.rowExtractQuota, R.string.setting_daily_quota) { editInt(KEY_QUOTA, R.string.setting_daily_quota) }
-        setupRow(binding.rowChatQuota, R.string.setting_chat_quota) { editInt(KEY_CHAT_QUOTA, R.string.setting_chat_quota) }
+        // 配额口径改造（2026-10-05）：每日上限改为护栏内置常量（QuotaGuard.DEFAULT_*），
+        // 不再提供设置项；这两行只读展示今日实际调用量，值在 observe() 回填。
+        binding.rowExtractQuota.label.setText(R.string.setting_today_extract)
+        binding.rowChatQuota.label.setText(R.string.setting_today_chat)
         setupRow(binding.rowRetry, R.string.setting_retry) { editInt(KEY_RETRY, R.string.setting_retry) }
         setupRow(binding.rowRetryDelay, R.string.setting_retry_delay) { editDecimal(KEY_RETRY_DELAY, R.string.setting_retry_delay) }
 
@@ -193,8 +195,8 @@ class SettingsActivity : AppCompatActivity() {
                     binding.rowBaseUrl.value.text = v.baseUrl.ifBlank { "—" }
                     binding.rowModel.value.text = v.model.ifBlank { "—" }
                     binding.rowApiKey.value.text = if (v.hasApiKey) MASK else getString(R.string.no_provider_config).let { "未设置" }
-                    binding.rowExtractQuota.value.text = getString(R.string.unit_times, v.extractQuota)
-                    binding.rowChatQuota.value.text = getString(R.string.unit_times, v.chatQuota)
+                    binding.rowExtractQuota.value.text = getString(R.string.unit_times, v.usedExtractToday)
+                    binding.rowChatQuota.value.text = getString(R.string.unit_times, v.usedChatToday)
                     binding.rowRetry.value.text = getString(R.string.unit_times, v.retry)
                     binding.rowRetryDelay.value.text = getString(R.string.unit_seconds, trim(v.retryDelay))
                     binding.rowHeight.value.text = if (v.height > 0) getString(R.string.unit_cm, v.height) else "—"
@@ -810,8 +812,6 @@ class SettingsActivity : AppCompatActivity() {
         const val KEY_BASE_URL = SettingsKeys.BASE_URL
         const val KEY_MODEL = SettingsKeys.MODEL
         const val KEY_PROVIDER = SettingsKeys.PROVIDER
-        const val KEY_QUOTA = SettingsKeys.EXTRACT_QUOTA
-        const val KEY_CHAT_QUOTA = SettingsKeys.CHAT_QUOTA
         const val KEY_RETRY = SettingsKeys.RETRY
         const val KEY_RETRY_DELAY = SettingsKeys.RETRY_DELAY
         const val KEY_HEIGHT = SettingsKeys.HEIGHT

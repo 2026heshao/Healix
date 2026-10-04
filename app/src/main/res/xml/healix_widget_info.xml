@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    桌面小工具元数据。updatePeriodMillis=0 刻意禁用系统周期刷新：
+    走 app-pushes-updates 模型（EventRepository 写入点 + MainActivity.onResume 主动推），
+    避免 ROM 拦掉后台周期唤醒后小工具长期显示陈旧数据还不自知。
+-->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="250dp"
+    android:minHeight="40dp"
+    android:updatePeriodMillis="0"
+    android:initialLayout="@layout/widget_healix"
+    android:resizeMode="horizontal|vertical"
+    android:widgetCategory="home_screen"
+    android:description="@string/widget_desc" />

@@ -4,7 +4,6 @@ import android.content.Context
 import com.healix.app.HealixApp
 import com.healix.app.db.LlmCallDao
 import com.healix.app.db.SettingsDao
-import com.healix.app.db.SettingsKeys
 import com.healix.app.parse.dayKeyOf
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -33,15 +32,12 @@ class QuotaGuard(private val context: Context) {
 
     companion object {
         /**
-         * settings 键名。
-         *
-         * ⚠️ 2026-10-03 修复：过去这里是 `quota_daily_call_limit` / `quota_daily_chat_limit`，
-         * 而设置页写入的是 `daily_quota` / `chat_quota` —— 键名分裂导致
-         * **用户在设置页改的配额从未生效过**（永远回落默认值 20 / 15）。
-         * 现在统一引用 [SettingsKeys]。
+         * 配额口径改造（2026-10-05）：上限不再可配置，护栏用**固定常量**。
+         * 原因：这两项是成本护栏不是用户偏好 —— 暴露成设置项后反而引入
+         * 「改大就没事」的错觉，且设置页已改为展示实际调用量（见
+         * SettingsActivity 调用限制组）。settings 表里的历史键
+         * （SettingsKeys.EXTRACT_QUOTA / CHAT_QUOTA）留档不再读取。
          */
-        const val KEY_DAILY_CALL_LIMIT = SettingsKeys.EXTRACT_QUOTA
-        const val KEY_DAILY_CHAT_LIMIT = SettingsKeys.CHAT_QUOTA
 
         /** 默认值（功能补充 1.8：每日 AI 调用上限 20；9.2：对话 15） */
         const val DEFAULT_DAILY_CALL_LIMIT = 20
@@ -64,10 +60,7 @@ class QuotaGuard(private val context: Context) {
      * @return true = 可以调用；false = 已用尽，调用方必须走本地 fallback
      */
     suspend fun canExtract(): Boolean = withContext(Dispatchers.IO) {
-        val limit = loadDailyCallLimit()
-        if (limit <= 0) return@withContext false
-        val used = countPurposes(CALL_PURPOSES, dayStartMillis())
-        used < limit
+        countPurposes(CALL_PURPOSES, dayStartMillis()) < DEFAULT_DAILY_CALL_LIMIT
     }
 
     /**
@@ -76,20 +69,17 @@ class QuotaGuard(private val context: Context) {
      * UI 文案：「今日对话次数已用完，明天再来」（**不用 negative 色**，这是预期行为不是错误）。
      */
     suspend fun canChat(): Boolean = withContext(Dispatchers.IO) {
-        val limit = loadDailyChatLimit()
-        if (limit <= 0) return@withContext false
-        val used = countPurposes(CHAT_PURPOSES, dayStartMillis())
-        used < limit
+        countPurposes(CHAT_PURPOSES, dayStartMillis()) < DEFAULT_DAILY_CHAT_LIMIT
     }
 
-    /** 今日抽取额度剩余（设置页/调试页展示用）。 */
-    suspend fun remainingExtract(): Int = withContext(Dispatchers.IO) {
-        (loadDailyCallLimit() - countPurposes(CALL_PURPOSES, dayStartMillis())).coerceAtLeast(0)
+    /** 今日抽取类实际调用次数（设置页展示用，**不是剩余额度**）。 */
+    suspend fun usedExtractToday(): Int = withContext(Dispatchers.IO) {
+        countPurposes(CALL_PURPOSES, dayStartMillis())
     }
 
-    /** 今日对话额度剩余。 */
-    suspend fun remainingChat(): Int = withContext(Dispatchers.IO) {
-        (loadDailyChatLimit() - countPurposes(CHAT_PURPOSES, dayStartMillis())).coerceAtLeast(0)
+    /** 今日对话类实际调用次数。 */
+    suspend fun usedChatToday(): Int = withContext(Dispatchers.IO) {
+        countPurposes(CHAT_PURPOSES, dayStartMillis())
     }
 
     /** 今日总调用次数（调试页用，不分 purpose）。 */
@@ -158,12 +148,4 @@ class QuotaGuard(private val context: Context) {
 
         return cal.timeInMillis + dayStartHour * 60L * 60L * 1000L
     }
-
-    private suspend fun loadDailyCallLimit(): Int =
-        settingsDao.get(KEY_DAILY_CALL_LIMIT)?.toIntOrNull()
-            ?.coerceIn(0, 500) ?: DEFAULT_DAILY_CALL_LIMIT
-
-    private suspend fun loadDailyChatLimit(): Int =
-        settingsDao.get(KEY_DAILY_CHAT_LIMIT)?.toIntOrNull()
-            ?.coerceIn(0, 500) ?: DEFAULT_DAILY_CHAT_LIMIT
 }

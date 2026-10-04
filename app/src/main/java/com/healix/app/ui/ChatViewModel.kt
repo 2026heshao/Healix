@@ -5,6 +5,9 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.healix.app.HealixApp
 import com.healix.app.R
+import com.healix.app.agent.AgentOutcome
+import com.healix.app.agent.HealthAgent
+import com.healix.app.agent.LogProposal
 import com.healix.app.db.ChatMessageEntity
 import com.healix.app.db.EventEntity
 import com.healix.app.db.PresetEntity
@@ -101,6 +104,17 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     /** 预设落库结果（已格式化的 Toast 文案；失败文案见 [R.string.preset_log_failed]）。 */
     private val _presetToast = MutableSharedFlow<String>(extraBufferCapacity = 4)
     val presetToast: SharedFlow<String> = _presetToast.asSharedFlow()
+
+    /**
+     * propose_log 拟稿（S3–S4 agent）：Activity 收到后弹确认框。
+     * 确认 → [confirmProposal] 走完整抽取链；取消 → 什么都不发生。
+     */
+    private val _proposal = MutableSharedFlow<LogProposal>(extraBufferCapacity = 4)
+    val proposal: SharedFlow<LogProposal> = _proposal.asSharedFlow()
+
+    /** 拟稿确认后的落库结果 Toast（复用预设同一组文案资源）。 */
+    private val _proposalToast = MutableSharedFlow<String>(extraBufferCapacity = 4)
+    val proposalToast: SharedFlow<String> = _proposalToast.asSharedFlow()
 
     /** 切换查看的会话日期（yyyy-MM-dd）。 */
     fun selectSession(date: String) {
@@ -233,56 +247,98 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 append(backgroundText)
             }.trim()
 
-            val reply = ChatEngine.reply(
-                context = getApplication(),
+            // F2 去重后的历史窗口（agent 与单轮回退共用同一份）
+            val history = db.chatMessageDao().recentForContext(todayKey, 17)
+                .withoutTrailingDuplicate(text)
+
+            // ── S3–S4 第一级：有界工具循环 ────────────────────────────
+            // 限步 4 / 墙钟 30s / 同参即停（见 HealthAgent）。任何失败都
+            // 落回第二级单轮 ChatEngine（其内含第三级本地模板）。
+            val outcome = HealthAgent(getApplication(), repo).run(
                 config = config,
                 sessionDate = todayKey,
                 userText = text,
-                // F2 去重：send() / retryLast() 的 user 消息都已落库，
-                // 它必然出现在 recentForContext 的结果里；ChatEngine.reply 又会
-                // add(userText) 一次，不剔除就会把同一句话发两遍。
-                // 多取 1 条（17）再剔除当前句，保证传给引擎的历史仍是 16 条。
-                //
-                // ⚠️ 为什么不能 dropLast(1)：
-                // 1) F1 落地后 recentForContext 返回**正序**（最旧在前、最新在后），
-                //    当前句位于列表**末尾**，但这不是依赖点——真正的判定条件是
-                //    "content 与当前 userText 相同且 created_at 最新"。
-                // 2) 若 persist 失败（DB 异常被吞）或用户连续发两句
-                //    一模一样的话，末尾元素未必是当前句；dropLast(1) 会误删上一条
-                //    真实历史。所以从末尾起找第一条 content 匹配项剔除，匹配不到
-                //    就一条不删。
-                history = db.chatMessageDao().recentForContext(todayKey, 17)
-                    .withoutTrailingDuplicate(text),
-                // 软背景段（F6 场景/作息）+ 硬约束段 + 补充说明：
-                // 空串时 systemPrompt 的 backgroundBlock 整段省略
+                history = history,
                 background = background,
-                // 知识库命中片段（10.4 ②）：拼在 backgroundBlock 之后、边界之前，
-                // ≤300 token；只进对话 prompt，PROMPT_EXTRACT 一字不改
                 knowledge = knowledge,
             )
+            when (outcome) {
+                is AgentOutcome.Done -> completeWithText(outcome.text, hits.firstOrNull())
 
-            // 来源标注（10.4 ①）：来源信息由消息体约定分隔符承载 —— content 追加
-            // `\n来源：标题 · 第 N 页`，ChatAdapter 渲染时识别，未命中不出现。
-            // ChatMessage.content 仍为纯文本（LlmProvider 只收纯文本）。
-            // 来源行只取首条命中（主来源），不计入正文句数约束。
-            val replyText = if (hits.isNotEmpty()) {
-                reply.text + "\n" + getApplication<Application>().getString(
-                    R.string.knowledge_source, hits.first().docTitle, hits.first().pageNo,
-                )
-            } else {
-                reply.text
-            }
+                is AgentOutcome.ProposalPending -> {
+                    persistAssistant(outcome.text)
+                    _uiState.value = ChatUiState.Idle
+                    _proposal.emit(outcome.proposal)
+                }
 
-            persistAssistant(replyText)
-            _uiState.value = when (reply.state) {
-                ChatEngine.State.Ok -> ChatUiState.Idle
-                ChatEngine.State.Queued -> ChatUiState.Queued(seconds = 4)
-                // 模型真失败了 → 这一种才给重试入口（未配置/断网在上面提前 return）
-                ChatEngine.State.Degraded -> {
-                    _retryAvailable.value = true
-                    ChatUiState.Degraded
+                is AgentOutcome.RateLimited -> {
+                    persistAssistant(outcome.message)
+                    _uiState.value = ChatUiState.Queued(seconds = 4)
+                }
+
+                AgentOutcome.Failed -> {
+                    // 第二级：单轮（无工具）。Degraded 时 reply.text 已是本地模板文案。
+                    val reply = ChatEngine.reply(
+                        context = getApplication(),
+                        config = config,
+                        sessionDate = todayKey,
+                        userText = text,
+                        history = history,
+                        background = background,
+                        knowledge = knowledge,
+                    )
+                    when (reply.state) {
+                        ChatEngine.State.Ok -> completeWithText(reply.text, hits.firstOrNull())
+                        ChatEngine.State.Queued -> {
+                            persistAssistant(reply.text)
+                            _uiState.value = ChatUiState.Queued(seconds = 4)
+                        }
+                        // 模型真失败了 → 这一种才给重试入口（未配置/断网在上面提前 return）
+                        ChatEngine.State.Degraded -> {
+                            persistAssistant(reply.text)
+                            _uiState.value = ChatUiState.Degraded
+                            _retryAvailable.value = true
+                        }
+                    }
                 }
             }
+    }
+
+    /** 正常文本回复收口：来源行拼接（10.4 ①）+ 落库 + 状态复位。 */
+    private suspend fun completeWithText(text: String, source: com.healix.app.repo.KnowledgeHit?) {
+        val replyText = if (source != null) {
+            text + "\n" + getApplication<Application>().getString(
+                R.string.knowledge_source, source.docTitle, source.pageNo,
+            )
+        } else {
+            text
+        }
+        persistAssistant(replyText)
+        _uiState.value = ChatUiState.Idle
+    }
+
+    /**
+     * 用户确认拟稿（agent propose_log）：走完整抽取链（与「记一笔」同管道），
+     * source = ai_suggestion。成功与否都经 [proposalToast] 反馈。
+     */
+    fun confirmProposal(proposal: LogProposal) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val app = getApplication<Application>()
+            try {
+                val result = repo.submit(
+                    proposal.rawText,
+                    source = com.healix.app.repo.SOURCE_AI_SUGGESTION,
+                )
+                val msg = if (result.ok) {
+                    app.getString(R.string.preset_logged, proposal.rawText)
+                } else {
+                    app.getString(R.string.preset_log_failed)
+                }
+                _proposalToast.emit(msg)
+            } catch (_: Exception) {
+                _proposalToast.emit(app.getString(R.string.preset_log_failed))
+            }
+        }
     }
 
     /**

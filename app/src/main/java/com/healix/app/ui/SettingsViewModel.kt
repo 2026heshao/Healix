@@ -38,8 +38,10 @@ data class SettingsValues(
     val baseUrl: String = "",
     val model: String = "",
     val hasApiKey: Boolean = false,
-    val extractQuota: Int = 20,
-    val chatQuota: Int = 15,
+    /** 今日抽取类实际调用次数（配额口径改造后只读展示，上限不可配置）。 */
+    val usedExtractToday: Int = 0,
+    /** 今日对话类实际调用次数。 */
+    val usedChatToday: Int = 0,
     val retry: Int = 5,
     val retryDelay: Double = 1.5,
     val height: Int = 0,
@@ -244,8 +246,8 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
             baseUrl = all[SettingsActivity.KEY_BASE_URL].orEmpty(),
             model = all[SettingsActivity.KEY_MODEL].orEmpty(),
             hasApiKey = container.secretStore?.hasApiKey() == true,
-            extractQuota = all[SettingsActivity.KEY_QUOTA]?.toIntOrNull() ?: 20,
-            chatQuota = all[SettingsActivity.KEY_CHAT_QUOTA]?.toIntOrNull() ?: 15,
+            usedExtractToday = quotas.usedExtractToday(),
+            usedChatToday = quotas.usedChatToday(),
             retry = all[SettingsActivity.KEY_RETRY]?.toIntOrNull() ?: 5,
             retryDelay = all[SettingsActivity.KEY_RETRY_DELAY]?.toDoubleOrNull() ?: 1.5,
             height = all[SettingsActivity.KEY_HEIGHT]?.toIntOrNull() ?: 0,

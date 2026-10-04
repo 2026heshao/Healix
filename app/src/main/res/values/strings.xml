@@ -36,6 +36,20 @@
     <string name="quick_today_ok">今天达标了吗</string>
     <string name="quick_dinner">推荐晚餐</string>
     <string name="quick_week">本周复盘</string>
+    <!-- 快捷问答按时段动态（微扩展）：第 2 行按当前时段换文案 -->
+    <string name="quick_breakfast">推荐早餐</string>
+    <string name="quick_lunch">推荐午餐</string>
+    <string name="quick_afternoon">下午加餐推荐</string>
+    <string name="quick_late_night">夜里饿了怎么办</string>
+
+    <!-- 桌面小工具（微扩展 E·方案 B） -->
+    <string name="widget_gap_left">本周运动还差 %1$d 次</string>
+    <string name="widget_gap_done">本周运动已达标</string>
+    <string name="widget_desc">本周运动进度速览，随手记一笔</string>
+
+    <!-- HealthAgent propose_log 拟稿确认（S3–S4） -->
+    <string name="proposal_confirm">助理拟了一条记录：「%1$s」。现在记下来吗？</string>
+    <string name="proposal_note_default">我把记录拟好了，你确认一下就记下。</string>
     <string name="quota_exhausted">今日对话次数已用完，明天再来</string>
     <string name="tool_running">查了一下记录…</string>
     <!-- 微扩展：失败重试 / 长按复制 / 会话日期切换 / 预设快捷条 -->
@@ -44,6 +58,21 @@
     <string name="chat_viewing_past">正在查看 %1$s 的对话，回到今天才能继续</string>
     <string name="preset_logged">已记录：%1$s</string>
     <string name="preset_log_failed">记录失败，再试一次</string>
+
+    <!-- 预设管理页（微扩展 C 闭环：聊天页快捷条 + 这里管增删改） -->
+    <string name="preset_manage_title">预设管理</string>
+    <string name="preset_add">＋ 新建预设</string>
+    <string name="preset_empty">还没有预设，点下方「新建」加一条</string>
+    <string name="preset_new_title">新建预设</string>
+    <string name="preset_edit_title">编辑预设</string>
+    <string name="preset_name_hint">名称（如：早餐 鸡蛋×2+牛奶）</string>
+    <string name="preset_kcal_hint">热量（kcal）</string>
+    <string name="preset_delete_confirm">删除预设「%1$s」？不可恢复。</string>
+    <string name="presets_entry_count">%1$d 条</string>
+    <string name="presets_entry_none">未创建</string>
+    <string name="preset_sub_used_kcal">%1$d kcal · 用过 %2$d 次</string>
+    <string name="preset_sub_kcal">%1$d kcal</string>
+    <string name="preset_sub_used">用过 %1$d 次</string>
 
     <!-- 设置 -->
     <string name="group_model">模型服务</string>
@@ -184,8 +213,8 @@
         <item>外卖</item>
         <item>自己做饭</item>
     </string-array>
-    <string name="setting_daily_quota">每日调用上限</string>
-    <string name="setting_chat_quota">每日对话上限</string>
+    <string name="setting_today_extract">今日抽取调用</string>
+    <string name="setting_today_chat">今日对话调用</string>
     <string name="setting_retry">重试次数</string>
     <string name="setting_retry_delay">退避初始间隔</string>
     <string name="setting_custom">自定义</string>

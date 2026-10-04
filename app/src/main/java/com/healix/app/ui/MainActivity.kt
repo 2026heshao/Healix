@@ -175,6 +175,12 @@ class MainActivity : AppCompatActivity() {
         if (tab == TabBar.TAB_RECORD || tab == TabBar.TAB_MINE) {
             showTab(tab)
         }
+        // 桌面小工具「记一笔」：本页已在栈顶时走这里 —— 记录 tab 下补聚焦速记框
+        if (intent.getBooleanExtra(EXTRA_FOCUS_INPUT, false) &&
+            currentTab == TabBar.TAB_RECORD
+        ) {
+            binding.input.postDelayed({ focusInput() }, 200)
+        }
     }
 
     /**
@@ -256,6 +262,8 @@ class MainActivity : AppCompatActivity() {
         // 规则扫描走"打开时计算"，不依赖后台定时器（PRD §7.4）。
         // 整个流程 0 次 AI 调用，纯本地。
         vm.scanSignals()
+        // 桌面小工具：回前台推一次（覆盖跨天 / 跨周后本周口径变化，app-pushes-updates）
+        com.healix.app.widget.HealixWidgetProvider.push(this)
     }
 
     private fun focusInput() {
@@ -472,6 +480,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     companion object {
+        /**
+         * 桌面小工具「记一笔」：打开本页并聚焦速记框（小工具侧 extra，
+         * 见 HealixWidgetProvider.logIntent；冷启动由 onCreate 300ms 自动聚焦兜底）。
+         */
+        const val EXTRA_FOCUS_INPUT = "healix.extra.FOCUS_INPUT"
+
         /**
          * 状态行进入状态详情页时携带的默认段（规范 §9.4）：
          * 信号态进来默认「身体」段（用户要看的就是那条信号），摘要态默认「运动」段。

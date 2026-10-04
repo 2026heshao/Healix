@@ -126,8 +126,11 @@ internal object ChatEngine {
      * **只进这一处 prompt** —— `PROMPT_EXTRACT`（抽取链）一字不改。
      * 抽取链的任务是把口语转成 JSON，用户背景对"这句话说了什么"没有信息量，
      * 塞进去反而会挤占 token 并可能诱导模型改写 foods 字段。
+     *
+     * S3 起改为 **internal**：HealthAgent 复用同一份系统提示（人格/边界/隐私
+     * 规则不因有工具而出现第二套），只在其后追加工具说明段。
      */
-    private fun systemPrompt(
+    internal fun systemPrompt(
         context: Context,
         sessionDate: String,
         background: String,

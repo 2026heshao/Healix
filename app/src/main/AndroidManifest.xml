@@ -68,6 +68,11 @@
             android:name=".ui.ResourceActivity"
             android:exported="false" />
 
+        <!-- 预设管理页：快捷条预设的新建/编辑/删除（聊天页快捷条的消费端闭环） -->
+        <activity
+            android:name=".ui.PresetManageActivity"
+            android:exported="false" />
+
         <activity
             android:name=".ui.DebugActivity"
             android:exported="false" />
@@ -113,6 +118,21 @@
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
+        </receiver>
+
+        <!--
+            桌面小工具（微扩展 E·方案 B）：本周运动缺口 + 记一笔。
+            updatePeriodMillis=0 —— 刷新全部由 App 写入点主动推（app-pushes-updates）。
+        -->
+        <receiver
+            android:name=".widget.HealixWidgetProvider"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/healix_widget_info" />
         </receiver>
 
     </application>

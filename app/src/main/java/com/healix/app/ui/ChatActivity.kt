@@ -63,10 +63,15 @@ class ChatActivity : AppCompatActivity() {
         binding.quickDinner.bindPressScale()
         binding.quickWeek.bindPressScale()
 
-        // 快捷入口三行：仅在当日会话为空时出现，一旦有消息即隐藏，不再恢复
-        binding.quickToday.setOnClickListener { send("今天达标了吗") }
-        binding.quickDinner.setOnClickListener { send("推荐晚餐") }
-        binding.quickWeek.setOnClickListener { send("本周复盘") }
+        // 快捷入口三行：仅在当日会话为空时出现，一旦有消息即隐藏，不再恢复。
+        // 第 2 行按时段动态（微扩展）：早[5,11) 早餐 / 午[11,14) 午餐 /
+        // 下午[14,18) 加餐 / 晚[18,23) 晚餐 / 深夜[23,5) 夜间饮食。
+        // 纯本地换文案，不调 AI、不占配额。
+        val quickMeal = getString(timeBucketMealRes())
+        binding.quickDinner.text = quickMeal
+        binding.quickToday.setOnClickListener { send(getString(R.string.quick_today_ok)) }
+        binding.quickDinner.setOnClickListener { send(quickMeal) }
+        binding.quickWeek.setOnClickListener { send(getString(R.string.quick_week)) }
 
         // 微扩展 D：模型调用失败时，提示条变成重试入口（文案见 observe() 的 retryAvailable 分支）
         binding.simplifiedBar.setOnClickListener { vm.retryLast() }
@@ -163,6 +168,30 @@ class ChatActivity : AppCompatActivity() {
                     }
                 }
 
+                // S3–S4：propose_log 拟稿确认 —— 确认后走完整抽取链（与「记一笔」同管道）
+                launch {
+                    vm.proposal.collect { proposal ->
+                        androidx.appcompat.app.AlertDialog.Builder(this@ChatActivity)
+                            .setMessage(getString(R.string.proposal_confirm, proposal.rawText))
+                            .setPositiveButton(R.string.confirm) { _: android.content.DialogInterface, _: Int ->
+                                vm.confirmProposal(proposal)
+                            }
+                            .setNegativeButton(
+                                R.string.cancel,
+                                null as android.content.DialogInterface.OnClickListener?,
+                            )
+                            .show()
+                    }
+                }
+
+                // S3–S4：拟稿落库结果反馈
+                launch {
+                    vm.proposalToast.collect { text ->
+                        android.widget.Toast.makeText(this@ChatActivity, text,
+                            android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                }
+
                 launch {
                     vm.uiState.collect { state ->
                         when (state) {
@@ -215,6 +244,21 @@ class ChatActivity : AppCompatActivity() {
     private fun updateQuickGroup(hasMessages: Boolean) {
         val show = !hasMessages && vm.isToday.value
         binding.quickGroup.visibility = if (show) View.VISIBLE else View.GONE
+    }
+
+    /**
+     * 时段 → 第 2 行快捷问句资源（左闭右开：早[5,11) 午[11,14)
+     * 下午[14,18) 晚[18,23) 深夜[23,5)）。小时取本机 24h 制时间。
+     */
+    private fun timeBucketMealRes(): Int {
+        val hour = java.time.LocalTime.now().hour
+        return when (hour) {
+            in 5..10 -> R.string.quick_breakfast
+            in 11..13 -> R.string.quick_lunch
+            in 14..17 -> R.string.quick_afternoon
+            in 18..22 -> R.string.quick_dinner
+            else -> R.string.quick_late_night
+        }
     }
 }
 

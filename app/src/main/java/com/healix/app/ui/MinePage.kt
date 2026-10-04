@@ -34,6 +34,7 @@ internal class MinePage(
 
     private val rowStatusDetail = root.findViewById<View>(R.id.rowStatusDetail)
     private val rowResources = root.findViewById<View>(R.id.rowResources)
+    private val rowPresets = root.findViewById<View>(R.id.rowPresets)
     private val rowKnowledge = root.findViewById<View>(R.id.rowKnowledge)
     private val rowExport = root.findViewById<View>(R.id.rowExport)
     private val rowSettings = root.findViewById<View>(R.id.rowSettings)
@@ -63,6 +64,14 @@ internal class MinePage(
             TabBar.openSecondary(activity, Intent(activity, ResourceActivity::class.java))
         }
         rowResources.bindPressScale()
+
+        // ── 数据：预设管理（聊天页快捷条的唯一创建/编辑/删除入口）──
+        rowPresets.findViewById<TextView>(R.id.label).setText(R.string.preset_manage_title)
+        rowPresets.findViewById<View>(R.id.chevron).visibility = View.VISIBLE
+        rowPresets.setOnClickListener {
+            TabBar.openSecondary(activity, Intent(activity, PresetManageActivity::class.java))
+        }
+        rowPresets.bindPressScale()
 
         // ── 数据：知识库（唯一入口迁移至此，11.1）──
         rowKnowledge.findViewById<TextView>(R.id.label).setText(R.string.knowledge_title)
@@ -106,6 +115,7 @@ internal class MinePage(
 
         observeKnowledgeCount()
         observeResourceCount()
+        observePresetsCount()
     }
 
     /**
@@ -161,6 +171,30 @@ internal class MinePage(
                             ),
                         )
                     }
+                }
+            }
+        }
+    }
+
+    /**
+     * 预设管理入口值：预设条数（Room Flow，管理页增删后即时刷新）。
+     * 0 条显示「未创建」（text_3，与知识库 0 份同一空态口径）。
+     */
+    private fun observePresetsCount() {
+        val value = rowPresets.findViewById<TextView>(R.id.value)
+        (activity as LifecycleOwner).lifecycleScope.launch {
+            activity.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                container.database.presetDao().observeCount().collect { count ->
+                    value.text = if (count > 0) {
+                        activity.getString(R.string.presets_entry_count, count)
+                    } else {
+                        activity.getString(R.string.presets_entry_none)
+                    }
+                    value.setTextColor(
+                        container.getColor(
+                            if (count > 0) R.color.text_2 else R.color.text_3,
+                        ),
+                    )
                 }
             }
         }

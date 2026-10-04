@@ -306,6 +306,9 @@ class EventRepository(private val context: Context) {
                 errorHead = null,
             )
 
+            // 小工具推送：抽取结果可能改变本周运动计数（app-pushes-updates 模型）
+            com.healix.app.widget.HealixWidgetProvider.push(context)
+
             SubmitResult(
                 ok = true,
                 clientEventId = cid,
@@ -338,6 +341,8 @@ class EventRepository(private val context: Context) {
             val entity = eventDao.findByClientId(clientEventId) ?: return@withContext false
             val now = System.currentTimeMillis()
             eventDao.softDelete(entity.id, now)
+            // 软删会改变本周运动计数（countByTypeInRange 排除 deleted_at）→ 推小工具
+            com.healix.app.widget.HealixWidgetProvider.push(context)
 
             // 若该条是多事件拆分出来的，把同批（同 raw_text 同秒）的兄弟条也删掉
             // 注意：只删同 raw_text 且未删除的，避免误伤用户真实的重复记录
@@ -368,6 +373,8 @@ class EventRepository(private val context: Context) {
             val entity = eventDao.findByClientId(clientEventId) ?: return@withContext false
             if (entity.deletedAt == null) return@withContext true // 未删除，幂等
             eventDao.restore(entity.id, System.currentTimeMillis())
+            // 恢复同理 → 推小工具
+            com.healix.app.widget.HealixWidgetProvider.push(context)
             true
         } catch (e: Exception) {
             false
@@ -418,6 +425,8 @@ class EventRepository(private val context: Context) {
                 lastError = null,
                 updatedAt = System.currentTimeMillis(),
             )
+            // 用户改 type 可能改成 exercise → 推小工具
+            com.healix.app.widget.HealixWidgetProvider.push(context)
             true
         } catch (e: Exception) {
             false
@@ -690,6 +699,38 @@ class EventRepository(private val context: Context) {
         } catch (e: Exception) {
             // 吞掉：埋点写入失败不影响用户记录
         }
+    }
+
+    /**
+     * 对话链路（purpose=ask）的调用埋点 —— 配额计数（QuotaGuard.canChat）与
+     * 设置页「今日对话调用」的数据来源。
+     *
+     * ⚠️ 2026-10-05 修复：此前聊天链路从未写 llm_calls，配额判空恒为未消耗、
+     * 调用量恒显示 0。现由 HealthAgent 每次模型往返调用本方法（成功与失败都记）。
+     * 抽取链仍走私有 [recordCall]（purpose 语义不同，勿混用）。
+     */
+    suspend fun recordChatCall(
+        model: String,
+        attempts: Int,
+        latencyMs: Long,
+        status: String,
+        httpCode: Int? = null,
+        inputTokens: Int? = null,
+        outputTokens: Int? = null,
+        errorHead: String? = null,
+    ) {
+        recordCall(
+            purpose = PURPOSE_ASK,
+            eventId = null,
+            model = model,
+            attempts = attempts,
+            latencyMs = latencyMs,
+            status = status,
+            httpCode = httpCode,
+            inputTokens = inputTokens,
+            outputTokens = outputTokens,
+            errorHead = errorHead,
+        )
     }
 
     /**
