@@ -14,8 +14,8 @@ import com.healix.app.net.ChatResult
 import com.healix.app.net.ErrKind
 import com.healix.app.net.NetworkStatus
 import com.healix.app.net.OpenAiCompatProvider
-import com.healix.app.parse.DEFAULT_DAY_START_HOUR
 import com.healix.app.parse.dayKeyOf
+import com.healix.app.parse.dayStartHourOf
 import com.healix.app.parse.loadsLenient
 import com.healix.app.repo.EventRepository
 import com.healix.app.repo.ORIGIN_USER
@@ -51,8 +51,8 @@ import java.util.UUID
  * 失败必须降级可用（PRD 风险表：免费档 429 密集）
  * ══════════════════════════════════════════════════════════════════════════
  * 未配置 provider / 限流 / 超时 / JSON 解析失败，一律走 [localFallback]：
- * 生成一份纯本地、无 AI 参与的结构化计划，动作只按肌群给组次（不编造具体动作、
- * 不编热量 —— 项目纪律：不制造假数据）。界面据此照常渲染列表与「记一笔」。
+ * 生成一份纯本地、无 AI 参与的结构化计划，动作只按肌群给组次区间、热量留空
+ * （`kcal = 0`）—— 项目纪律：不制造假数据。界面据此照常渲染列表与「记一笔」。
  */
 
 /**
@@ -211,6 +211,7 @@ class TrainingPlanner(context: Context) {
                     httpCode = 200,
                     inputTokens = result.usage.inputTokens,
                     outputTokens = result.usage.outputTokens,
+                    promptVer = PROMPT_VER_TRAINING,
                 )
                 parsePlan(result.content, SOURCE_AI)
             }
@@ -228,6 +229,7 @@ class TrainingPlanner(context: Context) {
                     },
                     httpCode = result.httpCode,
                     errorHead = result.message,
+                    promptVer = PROMPT_VER_TRAINING,
                 )
                 null
             }
@@ -364,7 +366,7 @@ class TrainingPlanner(context: Context) {
 
     /**
      * 纯本地降级计划：按目标次数把 6 个肌群轮转进本周。
-     * **不编造具体动作名称、不编热量** —— 只给肌群 + 组次区间，
+     * **只给肌群 + 组次区间，热量留空（`kcal = 0`）** —— 不写具体动作名、不给热量，
      * 让「记一笔」与周维度仍可用（PRD 风险表要求降级可用）。
      */
     private suspend fun localFallback(): TrainingPlan {
@@ -421,7 +423,7 @@ class TrainingPlanner(context: Context) {
      * 因此**不弹确认**，直接写 + 5 秒撤销；对话页的「记一笔」由 AI 的**推测**触发，
      * 必须由人点头。两条路径方向相反，不合并。
      *
-     * - `kcal = 0`：**不编热量**（项目纪律：不制造假数据）
+     * - `kcal = 0`：**热量留空**（项目纪律：不制造假数据）
      * - `parseStatus = "done"`：内容是 App 给的，不需要 AI 再解析一次
      * - `source = "app"` / `origin = "user"`：来源可追溯
      */
@@ -514,9 +516,9 @@ class TrainingPlanner(context: Context) {
     /** ISO 周键 `yyyy-Www`（用 [WeekFields.ISO]，不用 SimpleDateFormat 手拼 —— 跨年周会错）。 */
     fun weekKey(): String = weekKeyOf(LocalDate.now())
 
+    /** 日界线小时。**唯一夹取入口** = [dayStartHourOf]（禁止在别处再写 coerceIn）。 */
     private suspend fun dayStartHour(): Int =
-        db.settingsDao().get(SettingsKeys.DAY_START)
-            ?.toIntOrNull()?.coerceIn(0, 12) ?: DEFAULT_DAY_START_HOUR
+        dayStartHourOf(db.settingsDao().get(SettingsKeys.DAY_START))
 
     /** 去掉无意义的小数尾巴：7.0 → "7"，7.5 → "7.5"。 */
     private fun trimNumber(v: Double): String =

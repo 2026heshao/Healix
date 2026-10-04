@@ -10,7 +10,7 @@ import com.healix.app.db.GoalDefaults
 import com.healix.app.db.GoalMetrics
 import com.healix.app.db.ReminderEntity
 import com.healix.app.db.SettingsKeys
-import com.healix.app.parse.DEFAULT_DAY_START_HOUR
+import com.healix.app.parse.dayStartHourOf
 import com.healix.app.parse.todayDayKey
 import com.healix.app.rules.HealthRules
 import kotlinx.coroutines.Dispatchers
@@ -106,8 +106,8 @@ class StatusDetailViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private suspend fun load(): StatusUi {
-        val dayStart = db.settingsDao().get(SettingsKeys.DAY_START)
-            ?.toIntOrNull() ?: DEFAULT_DAY_START_HOUR
+        // 日界线走唯一入口 dayStartHourOf（§1 收口）。
+        val dayStart = dayStartHourOf(db.settingsDao().get(SettingsKeys.DAY_START))
         // 与写入端同一条日界线，避免窗口边界漂移
         val today = LocalDate.parse(todayDayKey(dayStart))
         val todayKey = today.toString()

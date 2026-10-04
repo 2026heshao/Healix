@@ -11,11 +11,11 @@ import com.healix.app.net.ErrKind
 import com.healix.app.net.LlmProvider
 import com.healix.app.net.OpenAiCompatProvider
 import com.healix.app.net.ProviderConfig
-import com.healix.app.parse.DEFAULT_DAY_START_HOUR
 import com.healix.app.parse.PROMPT_VER
 import com.healix.app.parse.ParsedEvent
 import com.healix.app.parse.buildExtractMessages
 import com.healix.app.parse.dayKeyOf
+import com.healix.app.parse.dayStartHourOf
 import com.healix.app.parse.extractEvents
 import com.healix.app.parse.normalizeEvent
 import kotlinx.coroutines.Dispatchers
@@ -666,11 +666,20 @@ class EventRepository(private val context: Context) {
      *
      * 参数名与 [com.healix.app.db.LlmCallEntity] 的列名逐一对应，
      * 调用点全部用命名参数，避免顺序错位。
+     *
+     * @param promptVer 本次调用实际使用的 prompt 版本号。**由调用方传入** ——
+     *   抽取 = `PROMPT_VER`(v2) / 计划 = `PROMPT_VER_PLAN`(v1) / 训练 =
+     *   `PROMPT_VER_TRAINING`(v1) / 对话 = `PROMPT_VER_CHAT` / 测试 = `PROMPT_VER_NONE`。
+     *   恒定写 `PROMPT_VER` 会让 `llm_calls.prompt_ver` 列语义失真（"哪版 prompt 效果更好"
+     *   的归因会得出错误结论）。四个公开 wrapper 各自默认 `PROMPT_VER` 保持向后兼容。
+     *   注：本类**不 import `ui` 包**（避免 repo → ui 反向依赖），故版本值一律由调用方透传。
      */
     private suspend fun recordCall(
         purpose: String,
         eventId: Long?,
         model: String,
+        /** 默认 = 抽取链版本；抽取链内部调用直接走默认，不显式传（见下方调用点）。 */
+        promptVer: String = PROMPT_VER,
         attempts: Int,
         latencyMs: Long,
         status: String,
@@ -686,7 +695,7 @@ class EventRepository(private val context: Context) {
                     purpose = purpose,
                     eventId = eventId,
                     model = model,
-                    promptVer = PROMPT_VER,
+                    promptVer = promptVer,
                     attempts = attempts,
                     latencyMs = latencyMs,
                     status = status,
@@ -718,11 +727,14 @@ class EventRepository(private val context: Context) {
         inputTokens: Int? = null,
         outputTokens: Int? = null,
         errorHead: String? = null,
+        /** 对话链 prompt 版本（调用方传 `PROMPT_VER_CHAT`）。默认 = 抽取链，向后兼容。 */
+        promptVer: String = PROMPT_VER,
     ) {
         recordCall(
             purpose = PURPOSE_ASK,
             eventId = null,
             model = model,
+            promptVer = promptVer,
             attempts = attempts,
             latencyMs = latencyMs,
             status = status,
@@ -750,11 +762,14 @@ class EventRepository(private val context: Context) {
         inputTokens: Int? = null,
         outputTokens: Int? = null,
         errorHead: String? = null,
+        /** 计划链 prompt 版本（调用方传 `ui.PROMPT_VER_PLAN`）。默认 = 抽取链，向后兼容。 */
+        promptVer: String = PROMPT_VER,
     ) {
         recordCall(
             purpose = PURPOSE_PLAN,
             eventId = null,
             model = model,
+            promptVer = promptVer,
             attempts = attempts,
             latencyMs = latencyMs,
             status = status,
@@ -783,11 +798,55 @@ class EventRepository(private val context: Context) {
         inputTokens: Int? = null,
         outputTokens: Int? = null,
         errorHead: String? = null,
+        /** 训练链 prompt 版本（调用方传 `ui.PROMPT_VER_TRAINING`）。默认 = 抽取链，向后兼容。 */
+        promptVer: String = PROMPT_VER,
     ) {
         recordCall(
             purpose = PURPOSE_TRAINING,
             eventId = null,
             model = model,
+            promptVer = promptVer,
+            attempts = attempts,
+            latencyMs = latencyMs,
+            status = status,
+            httpCode = httpCode,
+            inputTokens = inputTokens,
+            outputTokens = outputTokens,
+            errorHead = errorHead,
+        )
+    }
+
+    /**
+     * 设置页"真实请求"埋点（purpose = [PURPOSE_TEST]）。
+     *
+     * 场景：「测试连通性」与「接入并启用」都会发一次真实请求（消耗免费额度），
+     * 此前**完全不计数** → `llm_calls` 缺行、调试页数据不完整。
+     *
+     * ⚠️ **不占配额**：`PURPOSE_TEST` **不并入** `QuotaGuard.CALL_PURPOSES` /
+     *    `CHAT_PURPOSES`（那两处显式枚举，见 `QuotaGuard.kt`）—— 它只落库供统计
+     *    与调试，不参与"今日调用次数"限额判定。这是拍板口径（落库但不占配额）。
+     *
+     * 形状与 [recordPlanCall] **完全同构**；块体转发（转发 suspend 调用禁止
+     * `= call()` 表达式体 —— CI #31 的教训）。无 system prompt → 调用方传
+     * [PROMPT_VER_NONE]。
+     */
+    suspend fun recordTestCall(
+        model: String,
+        attempts: Int,
+        latencyMs: Long,
+        status: String,
+        httpCode: Int? = null,
+        inputTokens: Int? = null,
+        outputTokens: Int? = null,
+        errorHead: String? = null,
+        /** 测试链无 system prompt，调用方传 [PROMPT_VER_NONE]。默认 = 抽取链，向后兼容。 */
+        promptVer: String = PROMPT_VER,
+    ) {
+        recordCall(
+            purpose = PURPOSE_TEST,
+            eventId = null,
+            model = model,
+            promptVer = promptVer,
             attempts = attempts,
             latencyMs = latencyMs,
             status = status,
@@ -827,9 +886,9 @@ class EventRepository(private val context: Context) {
     private suspend fun loadExponentialBackoff(): Boolean =
         settingsDao.get(KEY_EXP_BACKOFF)?.toBooleanStrictOrNull() ?: true
 
+    /** 日界线小时。**唯一夹取入口** = [dayStartHourOf]（禁止在别处再写 coerceIn）。 */
     private suspend fun loadDayStartHour(): Int =
-        settingsDao.get(KEY_DAY_START_HOUR)?.toIntOrNull()
-            ?.coerceIn(0, 12) ?: DEFAULT_DAY_START_HOUR
+        dayStartHourOf(settingsDao.get(KEY_DAY_START_HOUR))
 }
 
 /** submit 的结果。用数据类而非 Result，是为了带上埋点所需的全部信息。 */
@@ -864,6 +923,14 @@ const val PURPOSE_REVIEW = "review"
 const val PURPOSE_ASK = "ask"
 
 /**
+ * 无 system prompt 的链路（设置页测试 / 复盘）的 **prompt 版本占位**。
+ *
+ * 这几条链路没有 prompt 版本概念，与其恒定伪造 `PROMPT_VER`(v2) 污染埋点，
+ * 不如显式记 `"none"` —— 归因时一眼可辨"该行无 prompt 版本"。
+ */
+const val PROMPT_VER_NONE = "none"
+
+/**
  * 训练链（周计划生成）埋点 purpose。
  *
  * ⚠️ 2026-10-05 修复：训练链此前**从未埋点**（TrainingPlanner 内 recordCall/llmCall
@@ -871,6 +938,15 @@ const val PURPOSE_ASK = "ask"
  *    失败诊断全盲。现归入抽取配额桶（[QuotaGuard] 的 CALL_PURPOSES）。
  */
 const val PURPOSE_TRAINING = "training"
+
+/**
+ * 设置页"真实请求"埋点 purpose（测试连通性 / 接入并启用）。
+ *
+ * ⚠️ **不占配额** —— 刻意**不并入** `QuotaGuard.CALL_PURPOSES` / `CHAT_PURPOSES`
+ *    （那两处显式枚举）。低频 + 用户显式触发，风险可控；本 purpose 只落库供
+ *    统计与调试页，不参与"今日调用次数"限额。拍板口径：落库但不占配额。
+ */
+const val PURPOSE_TEST = "test"
 
 /** 供通知栏副标题用的占位：把 JSON 数组字符串读回列表（防御性，失败给空）。 */
 fun parseFoodsJson(foodsJson: String): List<String> = try {

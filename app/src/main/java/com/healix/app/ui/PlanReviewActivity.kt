@@ -151,10 +151,13 @@ class PlanReviewActivity : AppCompatActivity() {
         val hasItems = plan.items.isNotEmpty()
         binding.planSourceLabel.visibility = if (hasItems) View.VISIBLE else View.GONE
         if (hasItems) {
+            // ⚠️ fallback（本地兜底）时用 plan_source_estimated（"本地简化 · 热量为估算"），
+            //    让用户看得出 kcal 是**估算**（§2 口径 a）；**不复用** mode_simplified_local
+            //    —— 训练页共用那条，改了会串味。
             val srcName = if (plan.source == TrainingPlanner.SOURCE_AI) {
                 getString(R.string.plan_source_ai)
             } else {
-                getString(R.string.mode_simplified_local)
+                getString(R.string.plan_source_estimated)
             }
             val time = if (plan.generatedAt > 0) hhmm(plan.generatedAt) else "--:--"
             binding.planSourceLabel.text = getString(R.string.plan_source_line, srcName, time)

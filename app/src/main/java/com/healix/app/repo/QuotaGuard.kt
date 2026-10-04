@@ -5,6 +5,7 @@ import com.healix.app.HealixApp
 import com.healix.app.db.LlmCallDao
 import com.healix.app.db.SettingsDao
 import com.healix.app.parse.dayKeyOf
+import com.healix.app.parse.dayStartHourOf
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.Calendar
@@ -52,6 +53,9 @@ class QuotaGuard(private val context: Context) {
         private val CHAT_PURPOSES = listOf(
             PURPOSE_ASK, "agent_loop",
         )
+
+        // ⚠️ 设置页"真实请求"（测试连通性 / 接入并启用）的埋点 purpose **刻意不在**
+        //    上面两张表里 —— 它落库供统计与调试，但**不占配额**（拍板口径：落库但不占配额）。
     }
 
     /**
@@ -132,8 +136,7 @@ class QuotaGuard(private val context: Context) {
      * 加 dayStartHour 小时，即为窗口起点。这样"凌晨 2 点记的一笔"仍算前一日的配额。
      */
     private suspend fun dayStartMillis(): Long {
-        val dayStartHour = settingsDao.get(EventRepository.KEY_DAY_START_HOUR)
-            ?.toIntOrNull()?.coerceIn(0, 12) ?: 4
+        val dayStartHour = dayStartHourOf(settingsDao.get(EventRepository.KEY_DAY_START_HOUR))
 
         val dayKey = dayKeyOf(System.currentTimeMillis(), dayStartHour)
         val parts = dayKey.split('-')

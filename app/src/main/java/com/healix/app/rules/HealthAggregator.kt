@@ -8,8 +8,8 @@ import com.healix.app.db.EventEntity
 import com.healix.app.db.GoalDefaults
 import com.healix.app.db.GoalMetrics
 import com.healix.app.db.SettingsKeys
-import com.healix.app.parse.DEFAULT_DAY_START_HOUR
 import com.healix.app.parse.dayKeyOf
+import com.healix.app.parse.dayStartHourOf
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.temporal.ChronoUnit
@@ -159,8 +159,8 @@ object HealthAggregator {
      */
     suspend fun scanAndPersist(context: Context): List<HealthSignal> {
         val db = HealixApp.from(context).database
-        val dayStart = db.settingsDao().get(SettingsKeys.DAY_START)
-            ?.toIntOrNull()?.coerceIn(0, 12) ?: DEFAULT_DAY_START_HOUR
+        // 日界线走唯一入口 dayStartHourOf（§1 收口）。
+        val dayStart = dayStartHourOf(db.settingsDao().get(SettingsKeys.DAY_START))
         val target = db.settingsDao().get(SettingsKeys.TARGET_KCAL)
             ?.toIntOrNull() ?: GoalDefaults.TARGET_KCAL
 
@@ -194,8 +194,8 @@ object HealthAggregator {
      */
     suspend fun acknowledgeAll(context: Context) {
         val db = HealixApp.from(context).database
-        val dayStart = db.settingsDao().get(SettingsKeys.DAY_START)
-            ?.toIntOrNull()?.coerceIn(0, 12) ?: DEFAULT_DAY_START_HOUR
+        // 日界线走唯一入口 dayStartHourOf（§1 收口）。
+        val dayStart = dayStartHourOf(db.settingsDao().get(SettingsKeys.DAY_START))
         val since = LocalDate.parse(dayKeyOf(System.currentTimeMillis(), dayStart))
             .minusDays(7).toString()
         try {

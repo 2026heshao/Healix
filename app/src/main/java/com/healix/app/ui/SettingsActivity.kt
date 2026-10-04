@@ -61,7 +61,9 @@ class SettingsActivity : AppCompatActivity() {
         // 不再提供设置项；这两行只读展示今日实际调用量，值在 observe() 回填。
         // 日界线（原「个人」组）上移到本组顶部：它决定配额日窗口与会话切日，
         // 是系统参数而非个人信息（P1 迁移决策 2）。
-        setupRow(binding.rowDayStart, R.string.setting_day_start) { editInt(KEY_DAY_START, R.string.setting_day_start) }
+        setupRow(binding.rowDayStart, R.string.setting_day_start) {
+            editInt(KEY_DAY_START, R.string.setting_day_start, 0..12)
+        }
         binding.rowExtractQuota.label.setText(R.string.setting_today_extract)
         binding.rowChatQuota.label.setText(R.string.setting_today_chat)
         setupRow(binding.rowRetry, R.string.setting_retry) { editInt(KEY_RETRY, R.string.setting_retry) }
@@ -262,7 +264,7 @@ class SettingsActivity : AppCompatActivity() {
         val initial = trimOrEmpty(currentTarget(GoalMetrics.WEIGHT_KG, 0.0))
         showFieldDialog(
             R.string.setting_weight_goal,
-            listOf(FieldSpec(R.string.setting_weight, initial, NUMBER_DECIMAL)),
+            listOf(FieldSheet.FieldSpec(R.string.setting_weight, initial, NUMBER_DECIMAL)),
         ) { raw ->
             raw.firstOrNull()?.toDoubleOrNull()?.let { vm.setGoalTarget(GoalMetrics.WEIGHT_KG, it) }
         }
@@ -274,8 +276,8 @@ class SettingsActivity : AppCompatActivity() {
         showFieldDialog(
             R.string.setting_train_goal,
             listOf(
-                FieldSpec(R.string.goal_train_sessions_label, sessions, NUMBER_INT),
-                FieldSpec(R.string.goal_train_minutes_label, minutes, NUMBER_INT),
+                FieldSheet.FieldSpec(R.string.goal_train_sessions_label, sessions, NUMBER_INT),
+                FieldSheet.FieldSpec(R.string.goal_train_minutes_label, minutes, NUMBER_INT),
             ),
         ) { raw ->
             val s = raw.getOrNull(0)?.toIntOrNull()
@@ -289,7 +291,7 @@ class SettingsActivity : AppCompatActivity() {
         val initial = trimOrEmpty(currentTarget(GoalMetrics.SLEEP_H, 0.0))
         showFieldDialog(
             R.string.setting_sleep_goal,
-            listOf(FieldSpec(R.string.unit_hour_plain, initial, NUMBER_DECIMAL)),
+            listOf(FieldSheet.FieldSpec(R.string.unit_hour_plain, initial, NUMBER_DECIMAL)),
         ) { raw ->
             raw.firstOrNull()?.toDoubleOrNull()?.let { vm.setGoalTarget(GoalMetrics.SLEEP_H, it) }
         }
@@ -299,7 +301,7 @@ class SettingsActivity : AppCompatActivity() {
         val initial = trimOrEmpty(currentTarget(GoalMetrics.WATER_ML, 0.0))
         showFieldDialog(
             R.string.setting_water_goal,
-            listOf(FieldSpec(R.string.setting_water_goal, initial, NUMBER_INT)),
+            listOf(FieldSheet.FieldSpec(R.string.setting_water_goal, initial, NUMBER_INT)),
         ) { raw ->
             raw.firstOrNull()?.toIntOrNull()?.let { vm.setGoalTarget(GoalMetrics.WATER_ML, it.toDouble()) }
         }
@@ -350,13 +352,13 @@ class SettingsActivity : AppCompatActivity() {
     /** 新增（existing == null）或编辑一条提醒：复用 ConfirmSheet 三行字段。 */
     private fun editReminder(existing: ReminderEntity?) {
         val specs = listOf(
-            FieldSpec(R.string.reminder_field_name, existing?.name.orEmpty(), InputType.TYPE_CLASS_TEXT),
-            FieldSpec(
+            FieldSheet.FieldSpec(R.string.reminder_field_name, existing?.name.orEmpty(), InputType.TYPE_CLASS_TEXT),
+            FieldSheet.FieldSpec(
                 R.string.reminder_field_days,
                 existing?.intervalDays?.toString().orEmpty(),
                 NUMBER_INT,
             ),
-            FieldSpec(
+            FieldSheet.FieldSpec(
                 R.string.reminder_field_last,
                 existing?.lastDoneAt?.let { dateLabel(it) }.orEmpty(),
                 InputType.TYPE_CLASS_TEXT,
@@ -376,20 +378,21 @@ class SettingsActivity : AppCompatActivity() {
     /**
      * 字段编辑弹窗（§5.1 弹窗统一）：委托 [FieldSheet] 底色容器载体，
      * 与个人信息页 / 预设管理页共用同一组件（不再用系统 AlertDialog，
-     * 落实设计规范「无底色容器原则」）。[FieldSpec] 为既有私有入参规格，
-     * 转换为 [FieldSheet.FieldSpec] 后下传；[onOk] 收到的字段顺序与 specs 一致。
+     * 落实设计规范「无底色容器原则」）。
+     *
+     * B1：字段规格**统一用** [FieldSheet.FieldSpec]**（直接嵌套类，4 参含 maxLength，
+     * 默认 0）**，删除了本文件原有的私有同名近重复类型与那次 `map` 转换；直接透传。
+     * [onOk] 收到的字段顺序与 specs 一致。
      */
-    private fun showFieldDialog(titleRes: Int, specs: List<FieldSpec>, onOk: (List<String>) -> Unit) {
-        val sheet = FieldSheet.newInstance(
-            titleRes,
-            specs.map { FieldSheet.FieldSpec(it.labelRes, it.initial, it.inputType) },
-        )
+    private fun showFieldDialog(
+        titleRes: Int,
+        specs: List<FieldSheet.FieldSpec>,
+        onOk: (List<String>) -> Unit,
+    ) {
+        val sheet = FieldSheet.newInstance(titleRes, specs)
         sheet.onResult = onOk
         sheet.show(supportFragmentManager, FieldSheet.TAG)
     }
-
-    /** 字段行规格（label 用资源 id，避免硬编码中文）。 */
-    private data class FieldSpec(val labelRes: Int, val initial: String, val inputType: Int)
 
     /** 毫秒时间戳 → `yyyy-MM-dd`（本地时区）。 */
     private fun dateLabel(ts: Long): String =
@@ -463,7 +466,15 @@ class SettingsActivity : AppCompatActivity() {
         }
     }
 
-    private fun editInt(key: String, labelRes: Int) {
+    /**
+     * 整数输入。`range != null` 时做范围校验：**越界或非数字则拒绝写入并提示**
+     * （不静默夹取 —— 静默夹取会让用户以为填的值已生效，产生"设置没生效"的困惑）。
+     *
+     * ⚠️ `range` 默认 `null`（不校验），保持向后兼容 —— `rowRetry`（KEY_RETRY）等
+     * 既有调用点行为不变。日界线（`day_start`）传 `0..12`，从**输入端**堵住越界，
+     * 与读取端唯一夹取入口 `dayStartHourOf` 形成对称契约。
+     */
+    private fun editInt(key: String, labelRes: Int, range: IntRange? = null) {
         lifecycleScope.launch {
             val current = vm.raw(key).orEmpty()
             val input = EditText(this@SettingsActivity).apply {
@@ -471,8 +482,27 @@ class SettingsActivity : AppCompatActivity() {
                 inputType = InputType.TYPE_CLASS_NUMBER
                 setSelection(text.length)
             }
-            showDialog(labelRes, input) { vm.put(key, input.text.toString().trim()) }
+            showDialog(labelRes, input) {
+                val text = input.text.toString().trim()
+                if (range != null) {
+                    val value = text.toIntOrNull()
+                    if (value == null || value !in range) {
+                        showRangeRejected(labelRes, range)
+                        return@showDialog
+                    }
+                }
+                vm.put(key, text)
+            }
         }
+    }
+
+    /** 数值输入越界时的拒绝提示（配合 editInt 的 range 校验）。 */
+    private fun showRangeRejected(labelRes: Int, range: IntRange) {
+        AlertDialog.Builder(this)
+            .setTitle(labelRes)
+            .setMessage(getString(R.string.setting_value_out_of_range, range.first, range.last))
+            .setPositiveButton(R.string.confirm, null as DialogInterface.OnClickListener?)
+            .show()
     }
 
     private fun editDecimal(key: String, labelRes: Int) {

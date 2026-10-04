@@ -445,8 +445,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun logPreset(preset: PresetEntity) {
         viewModelScope.launch(Dispatchers.IO) {
             val now = System.currentTimeMillis()
-            val dayStart = db.settingsDao().get(KEY_DAY_START)?.toIntOrNull()
-                ?: com.healix.app.parse.DEFAULT_DAY_START_HOUR
+            // 日界线走唯一入口 dayStartHourOf（§1 收口）。
+            val dayStart = com.healix.app.parse.dayStartHourOf(db.settingsDao().get(KEY_DAY_START))
             val clientEventId = java.util.UUID.randomUUID().toString()
 
             db.eventDao().insertIgnore(

@@ -1,5 +1,6 @@
 package com.healix.app.net
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -160,7 +161,12 @@ class OpenAiCompatProvider(
                 attempts = attempt + 1,
             )
         } catch (e: Exception) {
-            // 兜底：绝不向上抛（含 CancellationException 之外的一切）
+            // 兜底：CancellationException 原样上抛（对齐协程取消语义），其余一律收敛为
+            // NETWORK，绝不向上抛。⚠️ 必须显式重抛 CancellationException —— 否则协程
+            // 被取消时会在此被吞成一次 NETWORK 错误（伪造网络失败 + 污染埋点）。
+            // 注：kotlinx.coroutines.CancellationException 是 java.util.concurrent 的
+            // typealias，**不是** IOException，不受上面 catch(IOException) 影响。
+            if (e is CancellationException) throw e
             ChatResult.Err(
                 kind = ErrKind.NETWORK,
                 message = sanitize("${e.javaClass.simpleName}: ${e.message ?: ""}"),

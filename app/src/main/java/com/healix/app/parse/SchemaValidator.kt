@@ -570,6 +570,23 @@ fun dayKeyOf(tsMs: Long, dayStartHour: Int = DEFAULT_DAY_START_HOUR): String {
 fun todayDayKey(dayStartHour: Int = DEFAULT_DAY_START_HOUR): String =
     dayKeyOf(System.currentTimeMillis(), dayStartHour)
 
+/**
+ * settings 原始字符串 → 合法日界线小时（0..12）。
+ *
+ * **唯一夹取入口** —— 所有读取 `SettingsKeys.DAY_START` 的地方都必须经本函数，
+ * 禁止在别处再写 `coerceIn(0, 12)` 或裸 `toIntOrNull()`（半迁移 = 0）。
+ *
+ * 为什么必须收口：写入端（设置页 `editInt`）虽有范围校验，但库里可能因历史原因
+ * 存了越界值（如 20）。一旦某处读取裸用 20、另一处夹到 12，`dayKeyOf` 会在一天中
+ * 约 8 小时窗口内落在**不同日期** —— 写入日键与读取日键跨天，`daily_plans.date`
+ * 与 `events.day_key` 分桶不一致。本函数把夹取变成唯一语义。
+ *
+ * @param raw settings 表里的原始字符串（可能为 null / 非数字）
+ * @return 合法小时；缺失或非法回落 [DEFAULT_DAY_START_HOUR]
+ */
+fun dayStartHourOf(raw: String?): Int =
+    raw?.toIntOrNull()?.coerceIn(0, 12) ?: DEFAULT_DAY_START_HOUR
+
 /** 当前设备默认时区 id，写日志/埋点用（不参与计算，计算全走 Calendar 本地时区）。 */
 fun localTimeZoneId(): String = TimeZone.getDefault().id
 

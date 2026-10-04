@@ -8,8 +8,8 @@ import com.healix.app.db.EventEntity
 import com.healix.app.db.GoalDefaults
 import com.healix.app.db.GoalMetrics
 import com.healix.app.db.SettingsKeys
-import com.healix.app.parse.DEFAULT_DAY_START_HOUR
 import com.healix.app.parse.dayKeyOf
+import com.healix.app.parse.dayStartHourOf
 import com.healix.app.rules.HealthAggregator
 import kotlinx.coroutines.runBlocking
 import java.time.DayOfWeek
@@ -166,8 +166,8 @@ internal data class TodaySummary(
             val db = HealixApp.from(context).database
             val dao = db.eventDao()
             val now = System.currentTimeMillis()
-            val dayStart = db.settingsDao().get(SettingsKeys.DAY_START)
-                ?.toIntOrNull() ?: DEFAULT_DAY_START_HOUR
+            // 日界线走唯一入口 dayStartHourOf（§1 收口）。
+            val dayStart = dayStartHourOf(db.settingsDao().get(SettingsKeys.DAY_START))
             val dayKey = dayKeyOf(now, dayStart)
             val today = LocalDate.parse(dayKey)
 

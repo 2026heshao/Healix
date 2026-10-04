@@ -14,13 +14,16 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.RemoteInput
 import com.healix.app.HealixApp
 import com.healix.app.R
+import com.healix.app.db.SettingsKeys
 import com.healix.app.repo.SOURCE_NOTIFICATION
 import com.healix.app.parse.dayKeyOf
+import com.healix.app.parse.dayStartHourOf
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.Calendar
 
 /**
@@ -304,8 +307,14 @@ class QuickInputService : Service() {
     private fun refreshNudgeSubtitle() {
         scope.launch {
             val state = try {
-                val dayKey = dayKeyOf(System.currentTimeMillis(), DEFAULT_DAY_START_HOUR)
-                val dayStartHour = DEFAULT_DAY_START_HOUR
+                // 日界线**必须与主 App 同口径**：读用户设置（经唯一入口 dayStartHourOf），
+                // 不能写死 4 —— 否则通知栏算出的 day_key 与主 App 写入的 day_key 会跨天，
+                // 副标题"今天还没记录"会误报/漏报（同族 bug：写入日键与读取日键分叉）。
+                val db = HealixApp.from(this@QuickInputService).database
+                val dayStartHour = withContext(Dispatchers.IO) {
+                    dayStartHourOf(db.settingsDao().get(SettingsKeys.DAY_START))
+                }
+                val dayKey = dayKeyOf(System.currentTimeMillis(), dayStartHour)
                 val hasRecord = repository.hasAnyEventToday(dayKey)
                 val isPastEvening = isPastHour(NAG_HOUR, dayStartHour)
                 if (!hasRecord && isPastEvening) NudgeState.Nagging else NudgeState.Normal
@@ -415,8 +424,6 @@ class QuickInputService : Service() {
 
         /** 催记录的时间点：20:00（设计规范 4.6） */
         private const val NAG_HOUR = 20
-
-        private const val DEFAULT_DAY_START_HOUR = 4
 
         private const val NOTIFICATION_ID = HealixApp.NOTIFICATION_ID_QUICK_INPUT
         private const val CHANNEL_ID = HealixApp.CHANNEL_ID_QUICK_INPUT

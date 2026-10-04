@@ -15,12 +15,15 @@ import com.healix.app.db.SettingsKeys
 import com.healix.app.net.ChatMessage
 import com.healix.app.net.ChatRequest
 import com.healix.app.net.ChatResult
+import com.healix.app.net.ErrKind
 import com.healix.app.net.OpenAiCompatProvider
 import com.healix.app.net.ProviderConfig
 import com.healix.app.net.ProviderPresets
-import com.healix.app.parse.DEFAULT_DAY_START_HOUR
 import com.healix.app.parse.dayKeyOf
+import com.healix.app.parse.dayStartHourOf
+import com.healix.app.repo.EventRepository
 import com.healix.app.repo.ORIGIN_USER
+import com.healix.app.repo.PROMPT_VER_NONE
 import com.healix.app.repo.SOURCE_APP
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -257,7 +260,7 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
             age = all[SettingsActivity.KEY_AGE]?.toIntOrNull() ?: 0,
             activity = all[SettingsActivity.KEY_ACTIVITY] ?: "1.2",
             targetKcal = all[SettingsActivity.KEY_TARGET_KCAL]?.toIntOrNull() ?: 2500,
-            dayStart = all[SettingsActivity.KEY_DAY_START]?.toIntOrNull() ?: 4,
+            dayStart = dayStartHourOf(all[SettingsActivity.KEY_DAY_START]),
             background = all[SettingsActivity.KEY_BACKGROUND].orEmpty(),
             goalStatement = all[SettingsKeys.GOAL_STATEMENT].orEmpty(),
             debugSummary = "今日 ${quotas.usedToday()} 次 · 失败 ${quotas.failedToday()}",
@@ -309,8 +312,8 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
         if (kg <= 0.0) return
         viewModelScope.launch(Dispatchers.IO) {
             val now = System.currentTimeMillis()
-            val dayStart = settings.get(SettingsKeys.DAY_START)?.toIntOrNull()
-                ?: DEFAULT_DAY_START_HOUR
+            // 日界线走唯一入口 dayStartHourOf（§1 收口）。
+            val dayStart = dayStartHourOf(settings.get(SettingsKeys.DAY_START))
             db.eventDao().insertIgnore(
                 EventEntity(
                     clientEventId = java.util.UUID.randomUUID().toString(),
@@ -511,19 +514,22 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
 
             val config = ProviderConfig(baseUrl = v.baseUrl, model = v.model, apiKey = key)
             val provider = OpenAiCompatProvider(config)
+            // 提成局部 request：既传给 provider.chat，也复用于埋点（拿 maxRetries 算 attempts）。
+            val request = ChatRequest(
+                messages = listOf(ChatMessage(role = "user", content = "hi")),
+                timeoutMs = 15_000L,
+                maxRetries = 1, // 测试不重试，快速给出真实结论
+            )
 
             val started = System.currentTimeMillis()
             val result = withContext(Dispatchers.IO) {
-                provider.chat(
-                    ChatRequest(
-                        messages = listOf(ChatMessage(role = "user", content = "hi")),
-                        timeoutMs = 15_000L,
-                        maxRetries = 1, // 测试不重试，快速给出真实结论
-                    ),
-                )
+                provider.chat(request)
             }
             val elapsed = System.currentTimeMillis() - started
             val seconds = "%.1f".format(elapsed / 1000.0)
+
+            // 埋点：真实请求落 llm_calls（purpose=test，不占配额，仅供统计/调试）。
+            recordProviderRequest(config, request, result, elapsed)
 
             _testResult.value = when (result) {
                 is ChatResult.Ok -> TestResult(true, "连通 · ${seconds}s")
@@ -590,18 +596,22 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
             // ── 第 2 步：真实请求验证（不重试，快速给结论）───────────────
             val config = ProviderConfig(baseUrl = v.baseUrl, model = v.model, apiKey = key!!)
             val provider = OpenAiCompatProvider(config)
+            // 提成局部 request：既传给 provider.chat，也复用于埋点（拿 maxRetries 算 attempts）。
+            val request = ChatRequest(
+                messages = listOf(ChatMessage(role = "user", content = "hi")),
+                timeoutMs = 15_000L,
+                maxRetries = 1,
+            )
 
             val started = System.currentTimeMillis()
             val result = withContext(Dispatchers.IO) {
-                provider.chat(
-                    ChatRequest(
-                        messages = listOf(ChatMessage(role = "user", content = "hi")),
-                        timeoutMs = 15_000L,
-                        maxRetries = 1,
-                    ),
-                )
+                provider.chat(request)
             }
-            val seconds = "%.1f".format((System.currentTimeMillis() - started) / 1000.0)
+            val elapsed = System.currentTimeMillis() - started
+            val seconds = "%.1f".format(elapsed / 1000.0)
+
+            // 埋点：真实请求落 llm_calls（purpose=test，不占配额，仅供统计/调试）。
+            recordProviderRequest(config, request, result, elapsed)
 
             _applyResult.value = when (result) {
                 is ChatResult.Ok ->
@@ -616,6 +626,59 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
             // 无论成败都重算状态条（成功时 hasApiKey 可能刚变 true）
             reload()
             onDone()
+        }
+    }
+
+    /**
+     * 设置页"真实请求"埋点（purpose = [com.healix.app.repo.PURPOSE_TEST]）。
+     *
+     * 「测试连通性」与「接入并启用」都发一次真实请求（消耗免费额度），此前**完全不计数**
+     * → `llm_calls` 缺行、调试页数据不完整。这里补一条，**不占配额**
+     * （PURPOSE_TEST 刻意不在 QuotaGuard 的 CALL_PURPOSES / CHAT_PURPOSES 里）。
+     * 测试链无 system prompt → promptVer = [PROMPT_VER_NONE]。
+     *
+     * ⚠️ 埋点写入走 IO：`EventRepository.recordCall` 内部直连 `llmCallDao.insert`
+     *    （suspend Room 方法，Room 自行切到 DB executor），这里仍显式
+     *    `withContext(Dispatchers.IO)`，与调用点上下文解耦。埋点失败不影响主流程
+     *    （repository 内部已 try/catch 吞掉）。
+     *
+     * attempts 口径与 plan 链一致：`ChatResult.Err.attempts` 可能为 0 →
+     * 回落 `request.maxRetries + 1`；成功恒为 1。
+     */
+    private suspend fun recordProviderRequest(
+        config: ProviderConfig,
+        request: ChatRequest,
+        result: ChatResult,
+        latencyMs: Long,
+    ) {
+        val repo = container.eventRepository
+        withContext(Dispatchers.IO) {
+            when (result) {
+                is ChatResult.Ok -> repo.recordTestCall(
+                    model = config.model,
+                    attempts = 1,
+                    latencyMs = latencyMs,
+                    status = EventRepository.STATUS_OK,
+                    httpCode = 200,
+                    inputTokens = result.usage.inputTokens,
+                    outputTokens = result.usage.outputTokens,
+                    promptVer = PROMPT_VER_NONE,
+                )
+
+                is ChatResult.Err -> repo.recordTestCall(
+                    model = config.model,
+                    attempts = if (result.attempts > 0) result.attempts else request.maxRetries + 1,
+                    latencyMs = latencyMs,
+                    status = when (result.kind) {
+                        ErrKind.TIMEOUT -> EventRepository.STATUS_TIMEOUT
+                        ErrKind.AUTH -> EventRepository.STATUS_HTTP_ERROR
+                        else -> EventRepository.STATUS_RETRY_EXHAUSTED
+                    },
+                    httpCode = result.httpCode,
+                    errorHead = result.message,
+                    promptVer = PROMPT_VER_NONE,
+                )
+            }
         }
     }
 

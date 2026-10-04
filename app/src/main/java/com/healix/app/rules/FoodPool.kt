@@ -4,8 +4,8 @@ import android.content.Context
 import com.healix.app.HealixApp
 import com.healix.app.db.AppDatabase
 import com.healix.app.db.SettingsKeys
-import com.healix.app.parse.DEFAULT_DAY_START_HOUR
 import com.healix.app.parse.dayKeyOf
+import com.healix.app.parse.dayStartHourOf
 import com.healix.app.repo.parseFoodsJson
 import kotlinx.coroutines.runBlocking
 import java.time.LocalDate
@@ -82,8 +82,8 @@ object FoodPool {
      */
     fun build(context: Context): List<String> = runBlocking {
         val db = HealixApp.from(context).database
-        val dayStart = db.settingsDao().get(SettingsKeys.DAY_START)
-            ?.toIntOrNull() ?: DEFAULT_DAY_START_HOUR
+        // 日界线走唯一入口 dayStartHourOf（§1 收口）。
+        val dayStart = dayStartHourOf(db.settingsDao().get(SettingsKeys.DAY_START))
         topFoods(db, dayStart)
     }
 }

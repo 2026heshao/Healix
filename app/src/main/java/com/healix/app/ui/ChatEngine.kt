@@ -11,6 +11,16 @@ import com.healix.app.net.ProviderConfig
 import com.healix.app.rules.FoodPool
 
 /**
+ * 对话链 prompt 版本号。**独立于**抽取链 `PROMPT_VER`(v2) / 计划链 `PROMPT_VER_PLAN` /
+ * 训练链 `PROMPT_VER_TRAINING`。
+ *
+ * ⚠️ 改动 [ChatEngine.systemPrompt] 内容时必须递增此值（**不改动 `PROMPT_VER`** ——
+ *    那是抽取链的版本号，抽取链一字未改）。本常量仅用于 `llm_calls.prompt_ver`
+ *    的归因；它**不参与**任何 prompt 字节校验，`systemPrompt` 字节冻结契约不因此变化。
+ */
+const val PROMPT_VER_CHAT: String = "v1"
+
+/**
  * 对话引擎（单轮，无工具）。
  *
  * ⚠️ 范围边界（务必读）：

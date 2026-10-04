@@ -13,6 +13,7 @@ import com.healix.app.net.ToolDef
 import com.healix.app.net.ToolFunctionDef
 import com.healix.app.repo.EventRepository
 import com.healix.app.ui.ChatEngine
+import com.healix.app.ui.PROMPT_VER_CHAT
 import com.healix.app.ui.TodaySummary
 import org.json.JSONObject
 
@@ -338,6 +339,8 @@ internal class HealthAgent(
                 httpCode = 200,
                 inputTokens = result.usage.inputTokens,
                 outputTokens = result.usage.outputTokens,
+                // agent 与单轮共用 ChatEngine.systemPrompt → 同一 prompt 版本。
+                promptVer = PROMPT_VER_CHAT,
             )
 
             is ChatResult.Err -> repo.recordChatCall(
@@ -351,6 +354,7 @@ internal class HealthAgent(
                 },
                 httpCode = result.httpCode,
                 errorHead = result.message,
+                promptVer = PROMPT_VER_CHAT,
             )
         }
     }

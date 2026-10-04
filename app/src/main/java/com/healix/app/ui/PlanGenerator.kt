@@ -12,8 +12,8 @@ import com.healix.app.net.ChatResult
 import com.healix.app.net.ErrKind
 import com.healix.app.net.NetworkStatus
 import com.healix.app.net.OpenAiCompatProvider
-import com.healix.app.parse.DEFAULT_DAY_START_HOUR
 import com.healix.app.parse.dayKeyOf
+import com.healix.app.parse.dayStartHourOf
 import com.healix.app.parse.loadsLenient
 import com.healix.app.repo.EventRepository
 import com.healix.app.repo.ProfileContext
@@ -94,7 +94,6 @@ data class PlanResult(
     val generatedAt: Long,
     val failed: Boolean = false,
     val fromCache: Boolean = false,
-    val quotaExhausted: Boolean = false,
 )
 
 /**
@@ -182,8 +181,14 @@ class PlanGenerator(context: Context) {
 
     /**
      * 纯本地降级时间轴：把既有规则条目（晚餐 / 加餐 / 睡眠 / 训练 / 恢复）
-     * **按时段铺开**成一条时间轴。**不编造具体动作名称、不编热量**（项目纪律：
-     * 不制造假数据）—— 食物建议优先取手动清单，物品条件取资源清单。
+     * **按时段铺开**成一条时间轴。
+     *
+     * ⚠️ **给的是估算值**（这是实话，不是"不编数据"）：受本地规则限制，
+     * [buildTimeline] 会给出**估算**的数量与热量（如 400/650/450/400/200 kcal
+     * 与"熟米饭 200g + 鸡胸或牛肉 150g"这类常见分量），目的是让用户"照着吃"
+     * 有用；但它**不是精确数据**——kcal 是按常见分量拍的估算值。
+     * 用户点「记一笔」前，来源行已标注为估算（见 [PlanReviewActivity.renderPlanHeader]
+     * 的 `plan_source_estimated`）。食物建议优先取手动清单，物品条件取资源清单。
      *
      * ⚠️ internal：签名暴露 internal 类型 [TodaySummary]，不能是 public
      *    （否则编译报 "public function exposes its internal parameter type"）。
@@ -214,8 +219,12 @@ class PlanGenerator(context: Context) {
      * 降级链（未配置/不可用 与 AI 失败**同一收口** [failWithFallbackOrCache]）：
      * 有缓存 → 保留上一版（不清空）；无缓存 → 落本地兜底。
      * AI Ok 但解析为空 → 亦视失败走该收口。
-     * 每次 provider 往返都 [EventRepository.recordPlanCall]（成功记 OK，
-     * 失败按 [ErrKind] 记 TIMEOUT / HTTP_ERROR / RETRY_EXHAUSTED）。
+     *
+     * 埋点不变式（**一次 provider 往返恰好一行 `llm_calls`**）：
+     * - 解析成功 → `STATUS_OK`；HTTP 通但 JSON 没用（解析空）→ `STATUS_SCHEMA_INVALID`；
+     * - 其它失败 → 按 [ErrKind] 记 `TIMEOUT` / `HTTP_ERROR` / `RETRY_EXHAUSTED`。
+     * ⚠️ **绝不用"补记一条"实现** —— 那会让一次往返产生 2 行，`QuotaGuard.canExtract()`
+     *    按行数计数 → 白多消耗一次配额。正确改法是把 OK 记录**移位**到解析成功之后。
      *
      * ⚠️ internal：签名暴露 internal 类型 [TodaySummary]（同 [localTimeline]）。
      */
@@ -249,17 +258,20 @@ class PlanGenerator(context: Context) {
 
         when (result) {
             is ChatResult.Ok -> {
-                app.eventRepository.recordPlanCall(
-                    model = config.model,
-                    attempts = 1,
-                    latencyMs = latencyMs,
-                    status = EventRepository.STATUS_OK,
-                    httpCode = 200,
-                    inputTokens = result.usage.inputTokens,
-                    outputTokens = result.usage.outputTokens,
-                )
+                // ⚠️ 埋点**移位**到解析判定之后（见函数 KDoc 的不变式）：
+                //    一次 provider 往返恰好一行 llm_calls，绝不"先记 OK 再补记"。
                 val parsed = parseTimelineJson(result.content)
                 if (parsed != null) {
+                    app.eventRepository.recordPlanCall(
+                        model = config.model,
+                        attempts = 1,
+                        latencyMs = latencyMs,
+                        status = EventRepository.STATUS_OK,
+                        httpCode = 200,
+                        inputTokens = result.usage.inputTokens,
+                        outputTokens = result.usage.outputTokens,
+                        promptVer = PROMPT_VER_PLAN,
+                    )
                     val plan = PlanResult(
                         items = parsed.items,
                         note = parsed.note,
@@ -269,7 +281,20 @@ class PlanGenerator(context: Context) {
                     persist(todayKey, plan, summary.target)
                     return@withContext plan
                 }
-                // items 为空 / 解析失败 → 视失败（保留缓存或走兜底）
+                // HTTP 通了但 JSON 没用（解析为空 / items 空）→ 改记 schema_invalid，
+                // 再走兜底/缓存。否则埋点会显示"成功"，模型开始吐坏 JSON 这类回归
+                // 在数据上看不出来。
+                app.eventRepository.recordPlanCall(
+                    model = config.model,
+                    attempts = 1,
+                    latencyMs = latencyMs,
+                    status = EventRepository.STATUS_SCHEMA_INVALID,
+                    httpCode = 200,
+                    inputTokens = result.usage.inputTokens,
+                    outputTokens = result.usage.outputTokens,
+                    errorHead = result.content.take(200),
+                    promptVer = PROMPT_VER_PLAN,
+                )
                 failWithFallbackOrCache(todayKey, summary)
             }
 
@@ -285,6 +310,7 @@ class PlanGenerator(context: Context) {
                     },
                     httpCode = result.httpCode,
                     errorHead = result.message,
+                    promptVer = PROMPT_VER_PLAN,
                 )
                 failWithFallbackOrCache(todayKey, summary)
             }
@@ -621,9 +647,9 @@ class PlanGenerator(context: Context) {
     private suspend fun goalInt(metric: String, fallback: Int): Int =
         db.goalDao().getByMetric(metric)?.targetValue?.toInt()?.takeIf { it > 0 } ?: fallback
 
+    /** 日界线小时。**唯一夹取入口** = [dayStartHourOf]（禁止在别处再写 coerceIn）。 */
     private suspend fun dayStartHour(): Int =
-        db.settingsDao().get(SettingsKeys.DAY_START)
-            ?.toIntOrNull()?.coerceIn(0, 12) ?: DEFAULT_DAY_START_HOUR
+        dayStartHourOf(db.settingsDao().get(SettingsKeys.DAY_START))
 
     /** 主目标名（增重 / 减重 / 保持）。prompt 上下文，措辞与 TodaySummary 一致。 */
     private fun goalName(idx: Int): String = when (idx) {

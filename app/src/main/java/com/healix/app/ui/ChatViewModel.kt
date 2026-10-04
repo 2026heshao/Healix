@@ -283,6 +283,8 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                         inputTokens = reply.inputTokens,
                         outputTokens = reply.outputTokens,
                         errorHead = reply.errorHead,
+                        // 对话链 prompt 版本 —— ChatEngine.systemPrompt 内容对应版本。
+                        promptVer = PROMPT_VER_CHAT,
                     )
                     when (reply.state) {
                         ChatEngine.State.Ok -> completeWithText(reply.text, hits.firstOrNull())
@@ -375,9 +377,9 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             val app = getApplication<Application>()
             try {
                 val now = System.currentTimeMillis()
-                val dayStart = db.settingsDao()
-                    .get(com.healix.app.db.SettingsKeys.DAY_START)?.toIntOrNull()
-                    ?: com.healix.app.parse.DEFAULT_DAY_START_HOUR
+                val dayStart = com.healix.app.parse.dayStartHourOf(
+                    db.settingsDao().get(com.healix.app.db.SettingsKeys.DAY_START),
+                )
                 db.eventDao().insertIgnore(
                     EventEntity(
                         clientEventId = java.util.UUID.randomUUID().toString(),

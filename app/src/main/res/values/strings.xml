@@ -65,8 +65,6 @@
     <string name="preset_empty">还没有预设，点下方「新建」加一条</string>
     <string name="preset_new_title">新建预设</string>
     <string name="preset_edit_title">编辑预设</string>
-    <string name="preset_name_hint">名称（如：早餐 鸡蛋×2+牛奶）</string>
-    <string name="preset_kcal_hint">热量（kcal）</string>
     <string name="preset_delete_confirm">删除预设「%1$s」？不可恢复。</string>
     <string name="presets_entry_count">%1$d 条</string>
     <string name="presets_entry_none">未创建</string>
@@ -160,6 +158,9 @@
     <string name="plan_update">更新</string>
     <string name="plan_updating">更新中</string>
     <string name="plan_source_ai">AI 计划</string>
+    <!-- 本地兜底计划的来源名：让用户看得出 kcal 是估算（§2 口径 a）。
+         ⚠️ 不复用 mode_simplified_local —— 那条训练页共用，改了会串味。 -->
+    <string name="plan_source_estimated">本地简化 · 热量为估算</string>
     <string name="plan_source_line">%1$s · %2$s 生成</string>
     <string name="plan_update_failed">更新失败，仍显示上一次的计划</string>
     <!-- 无旧版可回退时（刚建的本地兜底）：不能说「仍显示上一次的计划」 -->
@@ -179,6 +180,8 @@
     <string name="setting_age">年龄</string>
     <string name="setting_activity">活动系数</string>
     <string name="setting_day_start">日界线</string>
+    <!-- 日界线等整数输入的越界拒绝提示（SettingsActivity.editInt 的 range 校验） -->
+    <string name="setting_value_out_of_range">请输入 %1$d 到 %2$d 之间的整数</string>
     <string name="setting_target_kcal">每日目标摄入</string>
     <string name="setting_background">我的情况</string>
     <string name="setting_background_hint">写给自己看的背景。AI 出计划和建议时会参考它。</string>

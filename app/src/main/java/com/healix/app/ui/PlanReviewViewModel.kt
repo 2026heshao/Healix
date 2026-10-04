@@ -7,8 +7,8 @@ import com.healix.app.HealixApp
 import com.healix.app.R
 import com.healix.app.db.GoalDefaults
 import com.healix.app.db.SettingsKeys
-import com.healix.app.parse.DEFAULT_DAY_START_HOUR
 import com.healix.app.parse.dayKeyOf
+import com.healix.app.parse.dayStartHourOf
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -145,6 +145,10 @@ class PlanReviewViewModel(app: Application) : AndroidViewModel(app) {
             //    写同一个 StateFlow；一旦 reload 在「更新」在途时完成，会把 updating 覆盖回
             //    false、短暂解除按钮禁用，使 updatePlan 的在途守卫失效。故 updating 一律不写，
             //    保持 updatePlan 的权威值。
+            //    刷新时**就地重算** quotaExhausted 真值（见 B3）：配额按日限额，刷新路径本就在
+            //    做多次查询，canExtract() 成本可忽略。这样"仍不足 / 已跨日恢复 / 刚用尽"三态都正确，
+            //    避免跨零点后横幅仍挂着过期的「今日配额已用尽」。
+            val quotaExhausted = !container.quotaGuard.canExtract()
             _plan.value = if (result == null) {
                 _plan.value.copy(
                     items = emptyList(),
@@ -153,6 +157,7 @@ class PlanReviewViewModel(app: Application) : AndroidViewModel(app) {
                     generatedAt = 0L,
                     failed = false,
                     fromCache = false,
+                    quotaExhausted = quotaExhausted,
                 )
             } else {
                 _plan.value.copy(
@@ -163,6 +168,7 @@ class PlanReviewViewModel(app: Application) : AndroidViewModel(app) {
                     generatedAt = result.generatedAt,
                     failed = false,
                     fromCache = false,
+                    quotaExhausted = quotaExhausted,
                 )
             }
         }
@@ -208,7 +214,6 @@ class PlanReviewViewModel(app: Application) : AndroidViewModel(app) {
                 updating = false,
                 failed = result.failed,
                 fromCache = result.fromCache,
-                quotaExhausted = result.quotaExhausted,
             )
         }
     }
@@ -225,8 +230,10 @@ class PlanReviewViewModel(app: Application) : AndroidViewModel(app) {
         if (item.type != "meal" && item.type != "exercise") return
         viewModelScope.launch(Dispatchers.IO) {
             val now = System.currentTimeMillis()
-            val dayStart = db.settingsDao().get(SettingsKeys.DAY_START)?.toIntOrNull()
-                ?: DEFAULT_DAY_START_HOUR
+            // 日界线走唯一入口 dayStartHourOf（§1 收口）。
+            val dayStart = dayStartHourOf(db.settingsDao().get(SettingsKeys.DAY_START))
+            // 口径 (a)：行为不变 —— kcal 照写（`item.kcal`）。注意它可能来自**兜底计划的估算**
+            // （见 PlanGenerator.localTimeline 的 KDoc）；用户点「记一笔」前，来源行已标注为估算。
             val raw = "${item.title}（${item.detail}）"
 
             db.eventDao().insertIgnore(
@@ -270,6 +277,8 @@ class PlanReviewViewModel(app: Application) : AndroidViewModel(app) {
                 runCatching { planner.completedDows(it) }.getOrDefault(emptySet())
             } ?: emptySet()
 
+            // 刷新时**就地重算** quotaExhausted 真值（B3）：配额按日限额，训练 Tab 刷新本就
+            // 在查数据库，canExtract() 成本可忽略；避免跨零点后横幅仍挂过期提示。
             _training.value = _training.value.copy(
                 hasPlan = plan != null,
                 generating = false,
@@ -280,6 +289,7 @@ class PlanReviewViewModel(app: Application) : AndroidViewModel(app) {
                 goalLabel = goal,
                 completed = completed,
                 todayDow = planner.todayDow(),
+                quotaExhausted = !container.quotaGuard.canExtract(),
             )
         }
     }
