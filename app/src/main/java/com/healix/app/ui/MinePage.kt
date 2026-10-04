@@ -11,6 +11,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.healix.app.HealixApp
 import com.healix.app.R
+import com.healix.app.repo.ResourceStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -32,6 +33,7 @@ internal class MinePage(
 ) {
 
     private val rowStatusDetail = root.findViewById<View>(R.id.rowStatusDetail)
+    private val rowResources = root.findViewById<View>(R.id.rowResources)
     private val rowKnowledge = root.findViewById<View>(R.id.rowKnowledge)
     private val rowExport = root.findViewById<View>(R.id.rowExport)
     private val rowSettings = root.findViewById<View>(R.id.rowSettings)
@@ -53,6 +55,14 @@ internal class MinePage(
             onOpenStatus()
         }
         rowStatusDetail.bindPressScale()
+
+        // ── 数据：资源清单（手头食物/药物/运动条件，AI 自动读取）──
+        rowResources.findViewById<TextView>(R.id.label).setText(R.string.resources_title)
+        rowResources.findViewById<View>(R.id.chevron).visibility = View.VISIBLE
+        rowResources.setOnClickListener {
+            TabBar.openSecondary(activity, Intent(activity, ResourceActivity::class.java))
+        }
+        rowResources.bindPressScale()
 
         // ── 数据：知识库（唯一入口迁移至此，11.1）──
         rowKnowledge.findViewById<TextView>(R.id.label).setText(R.string.knowledge_title)
@@ -95,6 +105,30 @@ internal class MinePage(
         rowNotify.bindPressScale()
 
         observeKnowledgeCount()
+        observeResourceCount()
+    }
+
+    /**
+     * 资源清单入口值：三类（食物/药物/运动条件）里已填几类。
+     * repeatOnLifecycle(STARTED) 每次回到「我的」页重读一次 ——
+     * 从资源清单页返回后计数即时刷新（settings 无 Flow 观察者，用重读代替）。
+     * 0 类显示「未填写」（text_3，与知识库 0 份同一空态口径）。
+     */
+    private fun observeResourceCount() {
+        val value = rowResources.findViewById<TextView>(R.id.value)
+        (activity as LifecycleOwner).lifecycleScope.launch {
+            activity.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                val filled = ResourceStore.filledCount(container.database)
+                value.text = if (filled > 0) {
+                    activity.getString(R.string.resources_entry_count, filled)
+                } else {
+                    activity.getString(R.string.resources_entry_none)
+                }
+                value.setTextColor(
+                    container.getColor(if (filled > 0) R.color.text_2 else R.color.text_3),
+                )
+            }
+        }
     }    /** 状态详情副行：与首页状态行同源（HomeStatus 摘要态直接复用文案）。 */
     fun bindStatus(owner: LifecycleOwner, status: HomeStatus) {
         val value = rowStatusDetail.findViewById<TextView>(R.id.value)

@@ -150,9 +150,25 @@
     <string name="setting_profile_allergens">忌口 / 过敏</string>
     <string name="setting_profile_pain">疼痛 / 不适</string>
     <string name="setting_profile_scene">就餐场景</string>
-    <string name="setting_profile_gear">可用器材</string>
     <string name="setting_profile_sleep">作息</string>
     <string name="setting_profile_sleep_value">%1$s 睡 · %2$s 起</string>
+    <!-- 「可用器材」行并入「我的」页 · 资源清单，设置页留指针 -->
+    <string name="setting_resources_pointer">食物、药物与运动条件在「我的」页 · 资源清单里填写，AI 会自动读取。</string>
+
+    <!-- 资源清单（白板式手动声明，AI 自动读取） -->
+    <string name="resources_title">资源清单</string>
+    <string name="resources_food_label">手头现成的食物</string>
+    <string name="resources_food_hint">家里有什么、常买什么，随手写。AI 推荐吃什么会优先从这里选。</string>
+    <string name="resources_food_ph">鸡蛋、牛奶、全麦面包\n冻鸡胸 · 大米 · 挂面</string>
+    <string name="resources_meds_label">常备药物</string>
+    <string name="resources_meds_hint">只作为“你有什么”的事实参考 —— AI 不会给剂量建议、不推断疾病。</string>
+    <string name="resources_meds_ph">布洛芬 · 蒙脱石散 · 创可贴</string>
+    <string name="resources_sport_label">运动条件</string>
+    <string name="resources_sport_hint">有什么器材、在哪练、什么时段方便，一行一样都行。</string>
+    <string name="resources_sport_ph">弹力带、哑铃 10kg\n家里练 · 晚 8 点后有空</string>
+    <string name="resources_footer">以上内容只保存在本机，AI 回答时自动读取；留空的项目按“没有声明”处理。</string>
+    <string name="resources_entry_count">已填 %1$d/3 类</string>
+    <string name="resources_entry_none">未填写</string>
     <string name="setting_profile_bed_label">就寝时间（如 00:30）</string>
     <string name="setting_profile_wake_label">起床时间（如 7:30）</string>
     <string name="setting_profile_scene_fixed">未固定</string>

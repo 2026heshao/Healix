@@ -88,9 +88,8 @@ class SettingsActivity : AppCompatActivity() {
             editProfileTags(SettingsKeys.PROFILE_PAIN, R.string.setting_profile_pain)
         }
         setupRow(binding.rowProfileScene, R.string.setting_profile_scene) { chooseProfileScene() }
-        setupRow(binding.rowProfileGear, R.string.setting_profile_gear) {
-            editProfileTags(SettingsKeys.PROFILE_GEAR, R.string.setting_profile_gear)
-        }
+        // 「可用器材」行已并入「我的」页 · 资源清单（运动条件）；旧数据由
+        // ResourceStore.sport() 兜底读取，设置页不再暴露该行。
         setupRow(binding.rowProfileSleep, R.string.setting_profile_sleep) { editProfileSleep() }
 
         setupBackground()
@@ -221,7 +220,6 @@ class SettingsActivity : AppCompatActivity() {
                     binding.rowProfileAllergens.value.text = v.profileAllergens.joinToString("、").ifBlank { "—" }
                     binding.rowProfilePain.value.text = v.profilePain.joinToString("、").ifBlank { "—" }
                     binding.rowProfileScene.value.text = v.profileScene.ifBlank { "—" }
-                    binding.rowProfileGear.value.text = v.profileGear.joinToString("、").ifBlank { "—" }
                     binding.rowProfileSleep.value.text = when {
                         v.profileSleepBed.isNotBlank() && v.profileSleepWake.isNotBlank() ->
                             getString(
@@ -459,8 +457,7 @@ class SettingsActivity : AppCompatActivity() {
         val current = when (key) {
             SettingsKeys.PROFILE_ALLERGENS -> v.profileAllergens
             SettingsKeys.PROFILE_PAIN -> v.profilePain
-            SettingsKeys.PROFILE_GEAR -> v.profileGear
-            else -> emptyList()
+            else -> emptyList() // 器材行已并入资源清单（ResourceStore.sport 兜底读旧值）
         }
         showFieldDialog(
             labelRes,

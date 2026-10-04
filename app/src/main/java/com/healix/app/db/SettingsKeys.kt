@@ -105,8 +105,25 @@ object SettingsKeys {
     /** 就餐场景（标量：宿舍 / 食堂 / 外卖 / 自己做饭）。软背景段。 */
     const val PROFILE_SCENE = "profile_scene"
 
-    /** 可用器材（JSON 数组）。硬约束段：运动建议只用这些器材。 */
+    /** 可用器材（JSON 数组）。已被 PROFILE_SPORT（自由文本）取代 ——
+     *  仅作为旧数据迁移兜底保留：sport 为空时读它（ResourceStore.sport）。
+     *  禁止在新 UI 上再写这个 key。 */
     const val PROFILE_GEAR = "profile_gear"
+
+    // ── 资源清单（白板式手动声明，AI 自动读取）─────────────────────────
+    /**
+     * 三类均为**自由文本**（多行，想到什么写什么）—— 与画像的标签形态不同：
+     * 手头清单的本质是"随手补"，结构化反而没人填。
+     * 空串 = 未填写，注入 prompt 时整段省略。
+     */
+    /** 手头现成的食物（推荐池，优先级高于 F7 自动常吃池）。 */
+    const val PROFILE_FOODS = "profile_foods"
+
+    /** 常备药物（仅作事实参考；AI 行为边界由 ChatEngine 规则 10 承担）。 */
+    const val PROFILE_MEDS = "profile_meds"
+
+    /** 运动条件（器材 + 场地 + 可用时段，取代原「可用器材」行）。 */
+    const val PROFILE_SPORT = "profile_sport"
 
     /** 就寝时间（标量 `HH:mm`）。软背景段。 */
     const val PROFILE_SLEEP_BED = "profile_sleep_bed"

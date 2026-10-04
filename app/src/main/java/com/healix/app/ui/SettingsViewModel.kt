@@ -69,8 +69,6 @@ data class SettingsValues(
     val profilePain: List<String> = emptyList(),
     /** 就餐场景（软背景段）。空 = 未固定。 */
     val profileScene: String = "",
-    /** 可用器材（硬约束段，运动建议只用这些）。 */
-    val profileGear: List<String> = emptyList(),
     /** 就寝时间（软背景段，HH:mm）。空 = 未设置。 */
     val profileSleepBed: String = "",
     /** 起床时间（软背景段，HH:mm）。空 = 未设置。 */
@@ -265,7 +263,6 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
             profileAllergens = parseProfileList(all[SettingsKeys.PROFILE_ALLERGENS]),
             profilePain = parseProfileList(all[SettingsKeys.PROFILE_PAIN]),
             profileScene = all[SettingsKeys.PROFILE_SCENE].orEmpty(),
-            profileGear = parseProfileList(all[SettingsKeys.PROFILE_GEAR]),
             profileSleepBed = all[SettingsKeys.PROFILE_SLEEP_BED].orEmpty(),
             profileSleepWake = all[SettingsKeys.PROFILE_SLEEP_WAKE].orEmpty(),
         )

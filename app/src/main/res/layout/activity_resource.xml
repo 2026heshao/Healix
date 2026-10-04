@@ -1,0 +1,159 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    资源清单页（白板式手动声明）：三类自由文本区（食物/药物/运动条件），
+    想到什么写什么，AI 自动读取（对话注入 + 计划行动条）。
+    结构照 activity_settings：56dp 头部 + 滚动区；输入区复用
+    Widget.Healix.BlockInput 与背景项同一形态（失焦/onPause 落库）。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/bg"
+    android:fitsSystemWindows="true"
+    android:orientation="vertical">
+
+    <RelativeLayout
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:paddingEnd="@dimen/screen_margin">
+
+        <ImageButton
+            android:id="@+id/btnBack"
+            android:layout_width="@dimen/touch_min"
+            android:layout_height="@dimen/touch_min"
+            android:layout_centerVertical="true"
+            android:layout_marginStart="8dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/back"
+            android:padding="14dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_back" />
+
+        <TextView
+            style="@style/Text.Title"
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:layout_marginStart="4dp"
+            android:layout_toEndOf="@id/btnBack"
+            android:gravity="center_vertical"
+            android:text="@string/resources_title" />
+    </RelativeLayout>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/divider"
+        android:background="@color/line" />
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:clipToPadding="false"
+        android:paddingBottom="28dp"
+        android:scrollbars="none">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingStart="@dimen/screen_margin"
+            android:paddingEnd="@dimen/screen_margin">
+
+            <!-- ── 常备食物 ── -->
+            <TextView
+                style="@style/Text.Body"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingTop="16dp"
+                android:text="@string/resources_food_label" />
+
+            <TextView
+                style="@style/Text.Secondary"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:text="@string/resources_food_hint" />
+
+            <EditText
+                android:id="@+id/editFoods"
+                style="@style/Widget.Healix.BlockInput"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:gravity="top|start"
+                android:hint="@string/resources_food_ph"
+                android:importantForAutofill="no"
+                android:inputType="textMultiLine"
+                android:maxLines="10"
+                android:minLines="4"
+                android:scrollbars="vertical" />
+
+            <!-- ── 常备药物 ── -->
+            <TextView
+                style="@style/Text.Body"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingTop="20dp"
+                android:text="@string/resources_meds_label" />
+
+            <TextView
+                style="@style/Text.Secondary"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:text="@string/resources_meds_hint" />
+
+            <EditText
+                android:id="@+id/editMeds"
+                style="@style/Widget.Healix.BlockInput"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:gravity="top|start"
+                android:hint="@string/resources_meds_ph"
+                android:importantForAutofill="no"
+                android:inputType="textMultiLine"
+                android:maxLines="8"
+                android:minLines="3"
+                android:scrollbars="vertical" />
+
+            <!-- ── 运动条件 ── -->
+            <TextView
+                style="@style/Text.Body"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingTop="20dp"
+                android:text="@string/resources_sport_label" />
+
+            <TextView
+                style="@style/Text.Secondary"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:text="@string/resources_sport_hint" />
+
+            <EditText
+                android:id="@+id/editSport"
+                style="@style/Widget.Healix.BlockInput"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:gravity="top|start"
+                android:hint="@string/resources_sport_ph"
+                android:importantForAutofill="no"
+                android:inputType="textMultiLine"
+                android:maxLines="8"
+                android:minLines="3"
+                android:scrollbars="vertical" />
+
+            <!-- 读取说明：让"AI 自动读取"可见；药物边界（PRD §5.7）一并说清 -->
+            <TextView
+                style="@style/Text.Caption"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:paddingBottom="8dp"
+                android:text="@string/resources_footer" />
+        </LinearLayout>
+    </ScrollView>
+</LinearLayout>

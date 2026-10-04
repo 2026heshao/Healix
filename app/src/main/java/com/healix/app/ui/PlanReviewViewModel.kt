@@ -9,6 +9,7 @@ import com.healix.app.db.GoalDefaults
 import com.healix.app.db.SettingsKeys
 import com.healix.app.repo.parseFoodsJson
 import com.healix.app.rules.FoodPool
+import com.healix.app.repo.ResourceStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -221,16 +222,18 @@ class PlanReviewViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch(Dispatchers.IO) {
             val summary = TodaySummary.build(getApplication())
 
-            // 行动条数据源（F8）：食物来自 F7 常吃池，器材/疼痛/作息来自 F6 画像
+            // 行动条数据源（F8 + 资源清单）：食物 = 手动清单优先、F7 常吃池垫后；
+            // 运动条件/疼痛/作息来自画像与资源清单（读端统一 ResourceStore）。
             val pool = runCatching { FoodPool.build(getApplication()) }.getOrDefault(emptyList())
-            val gear = listFrom(db.settingsDao().get(SettingsKeys.PROFILE_GEAR))
+            val manualFoods = ResourceStore.splitItems(ResourceStore.foods(db))
+            val sport = ResourceStore.sport(db)
             val pain = listFrom(db.settingsDao().get(SettingsKeys.PROFILE_PAIN))
             val bedTime = db.settingsDao().get(SettingsKeys.PROFILE_SLEEP_BED).orEmpty()
 
             // ── 计划：本地规则生成（AI 未接入时的兜底，不能空白）─────────
             val note = buildNote(summary)
             _plan.value = PlanUiState(
-                items = buildLocalPlan(summary, pool, gear, pain, bedTime),
+                items = buildLocalPlan(summary, manualFoods, pool, sport, pain, bedTime),
                 note = note,
                 gapLeft = if (summary.gap > 0) summary.gap else 0,
                 source = "fallback",
@@ -250,15 +253,17 @@ class PlanReviewViewModel(app: Application) : AndroidViewModel(app) {
     private fun listFrom(json: String?): List<String> = parseFoodsJson(json.orEmpty())
 
     /**
-     * 本地规则计划（功能补充 1.7）+ 行动条三要素（功能清单 2 F8）：
+     * 本地规则计划（功能补充 1.7）+ 行动条三要素（功能清单 2 F8 + 资源清单）：
      * **做什么（用你有什么）+ 大概多久 + 一句为什么是现在**。
-     * 「用你有什么」：食物取自 F7 常吃池、器材取自 F6 画像；
-     * 疼痛部位（F9）存在时不给任何部位训练，改恢复性建议。
+     * 「用你有什么」：食物 = 手动清单（一定买得到）优先、常吃池垫后；
+     * 运动条件（器材/场地/时段）取代原器材行；疼痛部位（F9）存在时不给任何
+     * 部位训练，改恢复性建议。
      */
     private fun buildLocalPlan(
         s: TodaySummary,
+        manualFoods: List<String>,
         pool: List<String>,
-        gear: List<String>,
+        sport: String,
         pain: List<String>,
         bedTime: String,
     ): List<PlanItemUi> {
@@ -276,7 +281,7 @@ class PlanReviewViewModel(app: Application) : AndroidViewModel(app) {
         }
 
         if (s.gap <= 0) {
-            return listOf(tailItem(gear, pain))
+            return listOf(tailItem(sport, pain))
         }
 
         val items = mutableListOf<PlanItemUi>()
@@ -285,7 +290,7 @@ class PlanReviewViewModel(app: Application) : AndroidViewModel(app) {
             items += PlanItemUi(
                 type = "meal",
                 title = "晚餐：主食 + 蛋白质",
-                detail = mealDetail(pool, "熟米饭 200g + 鸡胸或牛肉 150g + 一份绿叶菜"),
+                detail = mealDetail(manualFoods, pool, "熟米饭 200g + 鸡胸或牛肉 150g + 一份绿叶菜"),
                 kcal = 650,
                 duration = "约 20 分钟",
                 whyNow = "还差 ${s.gap} kcal，这一顿补上一大半",
@@ -294,7 +299,7 @@ class PlanReviewViewModel(app: Application) : AndroidViewModel(app) {
             items += PlanItemUi(
                 type = "meal",
                 title = "晚餐：正常一份主食",
-                detail = mealDetail(pool, "面食或米饭一份 + 一个鸡蛋"),
+                detail = mealDetail(manualFoods, pool, "面食或米饭一份 + 一个鸡蛋"),
                 kcal = 450,
                 duration = "约 15 分钟",
                 whyNow = "缺口不大，一顿补齐",
@@ -306,7 +311,7 @@ class PlanReviewViewModel(app: Application) : AndroidViewModel(app) {
             items += PlanItemUi(
                 type = "meal",
                 title = "加餐：睡前补充",
-                detail = mealDetail(pool, "蛋白粉 1 勺 + 香蕉 2 根"),
+                detail = mealDetail(manualFoods, pool, "蛋白粉 1 勺 + 香蕉 1 根"),
                 kcal = 400,
                 duration = "约 5 分钟",
                 whyNow = "离睡眠还有几个小时，小份加餐好消化",
@@ -328,8 +333,8 @@ class PlanReviewViewModel(app: Application) : AndroidViewModel(app) {
         return items
     }
 
-    /** 热量已达标时的收尾条目：疼痛（F9）→ 恢复；否则训练（器材来自 F6 画像）。 */
-    private fun tailItem(gear: List<String>, pain: List<String>): PlanItemUi = when {
+    /** 热量已达标时的收尾条目：疼痛（F9）→ 恢复；否则训练（条件来自资源清单）。 */
+    private fun tailItem(sport: String, pain: List<String>): PlanItemUi = when {
         pain.isNotEmpty() -> PlanItemUi(
             type = "sleep",
             title = "恢复：补水 + 早睡",
@@ -341,10 +346,10 @@ class PlanReviewViewModel(app: Application) : AndroidViewModel(app) {
         else -> PlanItemUi(
             type = "exercise",
             title = "练：力量训练 30 分钟",
-            detail = if (gear.isEmpty()) {
-                "深蹲 + 卧推，注意组间休息"
+            detail = if (sport.isBlank()) {
+                "深蹲 + 俯卧撑，自重就够"
             } else {
-                "用你有的器材：${gear.joinToString("、")}"
+                "按你的条件练：${sport.lineSequence().joinToString("；")}"
             },
             kcal = 200,
             duration = "约 30 分钟",
@@ -353,13 +358,15 @@ class PlanReviewViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
-     * 食物建议明细：常吃池非空时优先从池里选（F7「他吃过 = 他买得到」；
-     * F8 验收要求行动条里的食物能在池子里找到来源），按平常的量，不编克数。
-     * 池为空（记录太少）回落到既有建议并保持原样。
+     * 食物建议明细：手动清单（资源清单，"我现在就有"）优先于常吃池
+     *（F7「他吃过 = 他买得到」）；都为空时回落既有建议，不编食物。
      */
-    private fun mealDetail(pool: List<String>, fallback: String): String =
-        if (pool.isEmpty()) fallback
-        else "优先常吃：${pool.take(3).joinToString("、")}（按平常的量）"
+    private fun mealDetail(manual: List<String>, pool: List<String>, fallback: String): String =
+        when {
+            manual.isNotEmpty() -> "用你手头的：${manual.take(3).joinToString("、")}（按平常的量）"
+            pool.isNotEmpty() -> "优先常吃：${pool.take(3).joinToString("、")}（按平常的量）"
+            else -> fallback
+        }
 
     private fun trim(v: Double): String =
         if (v == v.toLong().toDouble()) v.toLong().toString()

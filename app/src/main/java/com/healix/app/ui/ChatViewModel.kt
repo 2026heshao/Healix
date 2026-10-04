@@ -90,18 +90,19 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 "${h.docTitle}（第 ${h.pageNo} 页）：${h.content}"
             }
 
-            // 结构化画像（F6）：硬约束段（忌口/疼痛/器材）+ 软背景段（场景/作息）
-            // 拼进 background 通道（空值整段省略，沿用 systemPrompt 的空省略先例）。
-            // 不给 ChatEngine.reply 增参 —— 避免与知识库侧的签名改动互相踩。
+            // 结构化画像（F6）：硬约束段（忌口/疼痛/运动条件）+ 软背景段（场景/作息/
+            // 手头食物/常备药物）拼进 background 通道（空值整段省略，沿用 systemPrompt
+            // 的空省略先例）。不给 ChatEngine.reply 增参 —— 避免与知识库侧的签名改动互相踩。
+            // 资源清单读端统一走 ResourceStore（sport 含旧 profile_gear 迁移兜底）。
             val allergens = parseFoodsJson(
                 db.settingsDao().get(com.healix.app.db.SettingsKeys.PROFILE_ALLERGENS).orEmpty(),
             )
             val pain = parseFoodsJson(
                 db.settingsDao().get(com.healix.app.db.SettingsKeys.PROFILE_PAIN).orEmpty(),
             )
-            val gear = parseFoodsJson(
-                db.settingsDao().get(com.healix.app.db.SettingsKeys.PROFILE_GEAR).orEmpty(),
-            )
+            val sport = com.healix.app.repo.ResourceStore.sport(db)
+            val foodsAtHand = com.healix.app.repo.ResourceStore.foods(db)
+            val medsAtHand = com.healix.app.repo.ResourceStore.meds(db)
             val scene = db.settingsDao()
                 .get(com.healix.app.db.SettingsKeys.PROFILE_SCENE).orEmpty()
             val bed = db.settingsDao()
@@ -123,8 +124,11 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                                 "优先恢复性建议——睡眠、补水）：${pain.joinToString("、")}",
                         )
                     }
-                    if (gear.isNotEmpty()) {
-                        add("- 可用器材（运动建议只用这些）：${gear.joinToString("、")}")
+                    if (sport.isNotEmpty()) {
+                        add(
+                            "- 运动条件（运动建议只用这些器材/场地，时段可用则优先）：\n" +
+                                sport.lineSequence().map { "  $it" }.joinToString("\n"),
+                        )
                     }
                 }
                 if (hardHead.isNotEmpty()) {
@@ -132,7 +136,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                     hardHead.forEach { appendLine(it) }
                     appendLine()
                 }
-                // 软背景段：场景 / 作息 / 补充说明
+                // 软背景段：场景 / 作息 / 手头食物 / 常备药物 / 补充说明
                 if (scene.isNotBlank()) appendLine("就餐场景：$scene")
                 if (bed.isNotBlank() || wake.isNotBlank()) {
                     append("作息：")
@@ -140,6 +144,17 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                     if (bed.isNotBlank() && wake.isNotBlank()) append(" · ")
                     if (wake.isNotBlank()) append("$wake 起")
                     appendLine()
+                }
+                // 资源清单（白板式手动声明）：食物是推荐池且优先于自动常吃池
+                //（ChatEngine 规则 5 的优先级措辞）；药物仅作事实参考，
+                // 行为边界（不给剂量/不推断疾病）由规则 10 承担。
+                if (foodsAtHand.isNotBlank()) {
+                    appendLine("手头现成的食物（推荐优先从这里选）：")
+                    foodsAtHand.lineSequence().forEach { appendLine("  $it") }
+                }
+                if (medsAtHand.isNotBlank()) {
+                    appendLine("常备药物（仅作既有事实参考）：")
+                    medsAtHand.lineSequence().forEach { appendLine("  $it") }
                 }
                 append(backgroundText)
             }.trim()

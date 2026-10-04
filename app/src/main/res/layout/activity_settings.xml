@@ -267,11 +267,16 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content" />
 
-            <include
-                android:id="@+id/rowProfileGear"
-                layout="@layout/row_setting_value"
+            <!-- 「可用器材」行已并入「我的」页 · 资源清单（运动条件，白板式自由文本）。
+                 旧数据由 ResourceStore.sport() 非破坏性兜底读取，这里只留指针。 -->
+            <TextView
+                style="@style/Text.Secondary"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
+                android:layout_height="wrap_content"
+                android:paddingStart="@dimen/screen_margin"
+                android:paddingEnd="@dimen/screen_margin"
+                android:paddingTop="8dp"
+                android:text="@string/setting_resources_pointer" />
 
             <include
                 android:id="@+id/rowProfileSleep"

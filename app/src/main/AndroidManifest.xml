@@ -63,6 +63,11 @@
             android:name=".ui.KnowledgeBaseActivity"
             android:exported="false" />
 
+        <!-- 资源清单页：手头食物/药物/运动条件的白板输入，AI 自动读取 -->
+        <activity
+            android:name=".ui.ResourceActivity"
+            android:exported="false" />
+
         <activity
             android:name=".ui.DebugActivity"
             android:exported="false" />
