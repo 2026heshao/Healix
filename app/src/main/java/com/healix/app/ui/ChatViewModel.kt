@@ -328,7 +328,11 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    private fun persistAssistant(content: String) = persist("assistant", content)
+    // ⚠️ 必须 suspend：表达式体 `fun x() = persist(...)` 是「非 suspend 调 suspend」，
+    // 本地检查器抓不到这个形态，CI #31 实证 —— 别改回非 suspend 单行函数。
+    private suspend fun persistAssistant(content: String) {
+        persist("assistant", content)
+    }
 
     private suspend fun persist(role: String, content: String) {
         try {
