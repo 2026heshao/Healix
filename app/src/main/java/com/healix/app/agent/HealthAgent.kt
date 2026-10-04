@@ -23,8 +23,11 @@ import org.json.JSONObject
  * ChatViewModel 调 [EventRepository.submit] 走完整抽取链（pending → done），
  * 与「记一笔」共用同一条数据管道；点取消则什么都不发生。
  * Agent 自身**无权直接写入** events 表。
+ *
+ * public（非 internal）：ChatViewModel 的公开流 [ChatViewModel.proposal]
+ * 要暴露它 —— Kotlin 禁止 public 成员暴露 internal 类型。
  */
-internal data class LogProposal(val rawText: String)
+data class LogProposal(val rawText: String)
 
 /** Agent 循环的结果（调用方 ChatViewModel 按分支落库 / 回退）。 */
 internal sealed interface AgentOutcome {
@@ -91,7 +94,10 @@ internal object ToolRegistry {
                 name = NAME_QUERY_STATS,
                 description = "重新读取今日健康摘要（摄入/消耗/运动次数/睡眠/体重等" +
                     "本地统计数字）。记录刚发生变化、需要最新数字时用。",
-                parameters = mapOf("type" to "object", "properties" to mapOf()),
+                parameters = mapOf(
+                    "type" to "object",
+                    "properties" to mapOf<String, Any?>(),
+                ),
             ),
         ),
         ToolDef(
