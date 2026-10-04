@@ -36,6 +36,10 @@ class ChatActivity : AppCompatActivity() {
     private lateinit var adapter: ChatAdapter
     private lateinit var vm: ChatViewModel
 
+    /** §5.3：快捷问答第 2 行的当前时段词。进入时取一次、onResume 重算；
+     *  点按回调读本字段，刷新后即用新文案发送（避免跨时段文案过期）。 */
+    private var quickMealText: String = ""
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityChatBinding.inflate(layoutInflater)
@@ -68,15 +72,49 @@ class ChatActivity : AppCompatActivity() {
         // 下午[14,18) 加餐 / 晚[18,23) 晚餐 / 深夜[23,5) 夜间饮食。
         // 纯本地换文案，不调 AI、不占配额。
         val quickMeal = getString(timeBucketMealRes())
+        quickMealText = quickMeal
         binding.quickDinner.text = quickMeal
         binding.quickToday.setOnClickListener { send(getString(R.string.quick_today_ok)) }
-        binding.quickDinner.setOnClickListener { send(quickMeal) }
+        binding.quickDinner.setOnClickListener { send(quickMealText) }
         binding.quickWeek.setOnClickListener { send(getString(R.string.quick_week)) }
 
         // 微扩展 D：模型调用失败时，提示条变成重试入口（文案见 observe() 的 retryAvailable 分支）
         binding.simplifiedBar.setOnClickListener { vm.retryLast() }
 
         observe()
+    }
+
+    /**
+     * P0-B 跨零点顺延：回到前台时重算"今天"。
+     *
+     * VM 的 `isToday` 是 `stateIn` 缓存 —— 跨零点后不会自动重发，输入条会
+     * 一直停在"只读"态。这里调 [ChatViewModel.refreshToday]：若用户仍停留在
+     * "旧今天"视图，顺延到今天并触发 `_selectedDate` 重订阅；停在历史会话则不动。
+     * 顺带把顶部日期标签刷成当刻今天（历史态由 isToday 订阅分支负责换文案）。
+     *
+     * ⚠️ 只此一个 onResume —— Wave4 的 refreshQuickMeal()（§5.3）在本方法内追加，
+     * 不要新增第二个 onResume。
+     */
+    override fun onResume() {
+        super.onResume()
+        vm.refreshToday()
+        if (vm.isToday.value) {
+            binding.sessionLabel.text = HealixDate.sessionLabel(LocalDate.now())
+        }
+        // §5.3：跨时段停留后重算快捷问答第 2 行的时段词（不做定时器）
+        refreshQuickMeal()
+    }
+
+    /**
+     * §5.3：快捷问答第 2 行时段词在进入时取一次，跨时段停留（如 13:50 进、
+     * 14:10 仍在）会过期。onResume 时重算并刷新文案；点按回调读 [quickMealText]
+     * 字段，刷新后即用新文案发送。
+     */
+    private fun refreshQuickMeal() {
+        val text = getString(timeBucketMealRes())
+        if (text == quickMealText) return
+        quickMealText = text
+        binding.quickDinner.text = text
     }
 
     /**
@@ -169,18 +207,15 @@ class ChatActivity : AppCompatActivity() {
                 }
 
                 // S3–S4：propose_log 拟稿确认 —— 确认后走完整抽取链（与「记一笔」同管道）
+                // §5.1：确认类弹窗改底色容器 ActionConfirmSheet（取代系统 AlertDialog）
                 launch {
                     vm.proposal.collect { proposal ->
-                        androidx.appcompat.app.AlertDialog.Builder(this@ChatActivity)
-                            .setMessage(getString(R.string.proposal_confirm, proposal.rawText))
-                            .setPositiveButton(R.string.confirm) { _: android.content.DialogInterface, _: Int ->
-                                vm.confirmProposal(proposal)
-                            }
-                            .setNegativeButton(
-                                R.string.cancel,
-                                null as android.content.DialogInterface.OnClickListener?,
-                            )
-                            .show()
+                        val sheet = ActionConfirmSheet.newInstance(
+                            getString(R.string.proposal_sheet_title),
+                            getString(R.string.proposal_confirm, proposal.rawText),
+                        )
+                        sheet.onConfirm = { vm.confirmProposal(proposal) }
+                        sheet.show(supportFragmentManager, ActionConfirmSheet.TAG)
                     }
                 }
 
@@ -331,19 +366,28 @@ class ChatAdapter : RecyclerView.Adapter<ChatAdapter.VH>() {
         val ctx = holder.text.context
         val isUser = m.role == "user"
 
-        // ── 来源标注（F12，10.4 ①）────────────────────────────────
-        // 来源信息由消息体约定分隔符承载：content 末行 `来源：标题 · 第 N 页`。
-        // 渲染时识别：拆出末行做 13sp text_2 的可点 span（→ 知识库页），
-        // 未命中不出现；正文不含来源行。content 本身仍是纯文本。
+        // ── 来源 / 工具角标标注（F12 10.4 ① + §4.5）────────────────
+        // 消息体用「末行承载机器可读元数据」的既有约定：`来源：标题 · 第 N 页`
+        // （可点跳知识库页）恒为最后一行，`查阅：本次问了 N 项数据` 紧随其前。
+        // 渲染时从末尾最多剥两行做 span，正文不含这些元数据行（content 仍是纯文本）。
         val lines = m.content.split("\n")
-        val sourceLine = if (!isUser && lines.size >= 2) {
-            lines.last().takeIf { it.startsWith("来源：") }
-        } else {
-            null
+        var sourceLine: String? = null
+        var badgeLine: String? = null
+        var bodyEnd = lines.size
+        if (!isUser && lines.size >= 2) {
+            if (lines[lines.size - 1].startsWith("来源：")) {
+                sourceLine = lines[lines.size - 1]
+                bodyEnd--
+            }
+            if (bodyEnd - 1 >= 1 && lines[bodyEnd - 1].startsWith("查阅：")) {
+                badgeLine = lines[bodyEnd - 1]
+                bodyEnd--
+            }
         }
-        val body = if (sourceLine != null) lines.dropLast(1).joinToString("\n") else m.content
-        holder.text.text = if (sourceLine != null) {
-            sourceSpannable(ctx, holder.text, body, sourceLine)
+        val hasMeta = sourceLine != null || badgeLine != null
+        val body = if (hasMeta) lines.subList(0, bodyEnd).joinToString("\n") else m.content
+        holder.text.text = if (hasMeta) {
+            metaSpannable(ctx, holder.text, body, badgeLine, sourceLine)
         } else {
             body
         }
@@ -408,40 +452,71 @@ class ChatAdapter : RecyclerView.Adapter<ChatAdapter.VH>() {
     ) : RecyclerView.ViewHolder(row)
 
     /**
-     * 来源行 span：13sp（相对正文 15sp 缩放）、text_2 色、可点跳知识库页。
-     * 与正文隔一个换行（气泡内无法对 span 加 4dp 间距，取 10.4 ① 的近似实现）。
+     * 正文末行元数据 span（从末尾最多两行）：
+     * - `查阅：本次问了 N 项数据`（§4.5 工具使用可见性）：12sp、`text_3`，无点击；
+     * - `来源：标题 · 第 N 页`（F12 10.4 ①）：13sp、`text_2`，可点跳知识库页。
+     * `来源：` 恒在 `查阅：` 之后（末行）。与正文隔一个换行（气泡内无法对 span
+     * 加 4dp 间距，取 10.4 ① 的近似实现）。
      */
-    private fun sourceSpannable(
+    private fun metaSpannable(
         ctx: android.content.Context,
         text: android.widget.TextView,
         body: String,
-        sourceLine: String,
+        badgeLine: String?,
+        sourceLine: String?,
     ): CharSequence {
-        val sp = android.text.SpannableString("$body\n$sourceLine")
-        val start = body.length + 1
-        sp.setSpan(
-            android.text.style.RelativeSizeSpan(13f / 15f), start, sp.length,
-            android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
-        )
-        sp.setSpan(
-            android.text.style.ForegroundColorSpan(
-                androidx.core.content.ContextCompat.getColor(ctx, R.color.text_2),
-            ),
-            start, sp.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
-        )
-        sp.setSpan(
-            object : android.text.style.ClickableSpan() {
-                override fun onClick(widget: View) {
-                    ctx.startActivity(android.content.Intent(ctx, KnowledgeBaseActivity::class.java))
-                }
+        val sb = StringBuilder(body)
+        if (badgeLine != null) sb.append("\n").append(badgeLine)
+        var sourceStart = -1
+        if (sourceLine != null) {
+            sourceStart = sb.length + 1
+            sb.append("\n").append(sourceLine)
+        }
+        val sp = android.text.SpannableString(sb.toString())
 
-                override fun updateDrawState(ds: android.text.TextPaint) {
-                    // 保持 text_2 色与常规字重，不加下划线（可点但不花哨）
-                    ds.isUnderlineText = false
-                }
-            },
-            start, sp.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
-        )
+        // 查阅角标：12sp（相对正文 15sp 缩放）、text_3
+        if (badgeLine != null) {
+            val start = body.length + 1
+            val end = start + badgeLine.length
+            sp.setSpan(
+                android.text.style.RelativeSizeSpan(12f / 15f), start, end,
+                android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
+            )
+            sp.setSpan(
+                android.text.style.ForegroundColorSpan(
+                    androidx.core.content.ContextCompat.getColor(ctx, R.color.text_3),
+                ),
+                start, end, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
+            )
+        }
+
+        // 来源行：13sp、text_2、可点跳知识库页
+        if (sourceLine != null) {
+            sp.setSpan(
+                android.text.style.RelativeSizeSpan(13f / 15f), sourceStart, sp.length,
+                android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
+            )
+            sp.setSpan(
+                android.text.style.ForegroundColorSpan(
+                    androidx.core.content.ContextCompat.getColor(ctx, R.color.text_2),
+                ),
+                sourceStart, sp.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
+            )
+            sp.setSpan(
+                object : android.text.style.ClickableSpan() {
+                    override fun onClick(widget: View) {
+                        ctx.startActivity(android.content.Intent(ctx, KnowledgeBaseActivity::class.java))
+                    }
+
+                    override fun updateDrawState(ds: android.text.TextPaint) {
+                        // 保持 text_2 色与常规字重，不加下划线（可点但不花哨）
+                        ds.isUnderlineText = false
+                    }
+                },
+                sourceStart, sp.length, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
+            )
+        }
+
         // 仅在存在可点来源行时启用 MovementMethod（避免影响普通气泡的手势）。
         // 复用时 item 可能没有来源行，所以每次绑定都按当前状态重设。
         text.movementMethod = if (sourceLine != null) {

@@ -6,6 +6,7 @@
     底复用 bg_card（surface + 8dp 圆角 + 1dp line 描边），按钮底复用 bg_btn_primary。
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widgetRoot"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@drawable/bg_card"

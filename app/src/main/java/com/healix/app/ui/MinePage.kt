@@ -36,6 +36,7 @@ internal class MinePage(
     private val rowResources = root.findViewById<View>(R.id.rowResources)
     private val rowPresets = root.findViewById<View>(R.id.rowPresets)
     private val rowKnowledge = root.findViewById<View>(R.id.rowKnowledge)
+    private val rowPersonalInfo = root.findViewById<View>(R.id.rowPersonalInfo)
     private val rowExport = root.findViewById<View>(R.id.rowExport)
     private val rowSettings = root.findViewById<View>(R.id.rowSettings)
     private val rowDebug = root.findViewById<View>(R.id.rowDebug)
@@ -84,6 +85,19 @@ internal class MinePage(
         }
         rowKnowledge.bindPressScale()
 
+        // ── 数据：个人信息（P1：设置页「个人 / 我的情况」两组迁至此）──
+        // 体重入口写 events(type=body)，其余画像/身高/年龄/活动/卡路里读 settings 表
+        // （键名值域零改动）；副行 = 身高 / 当前体重的组合摘要（见 observePersonalInfo）。
+        rowPersonalInfo.findViewById<TextView>(R.id.label).setText(R.string.personal_info_title)
+        rowPersonalInfo.findViewById<View>(R.id.chevron).visibility = View.VISIBLE
+        rowPersonalInfo.setOnClickListener {
+            TabBar.openSecondary(
+                activity,
+                Intent(activity, PersonalInfoActivity::class.java),
+            )
+        }
+        rowPersonalInfo.bindPressScale()
+
         // ── 数据：导出备份（与设置页同一 ExportWriter 管道，JSON / SAF）──
         rowExport.findViewById<TextView>(R.id.label).setText(R.string.export_backup)
         rowExport.findViewById<TextView>(R.id.value).text = "JSON"
@@ -116,6 +130,7 @@ internal class MinePage(
         observeKnowledgeCount()
         observeResourceCount()
         observePresetsCount()
+        observePersonalInfo()
     }
 
     /**
@@ -199,6 +214,45 @@ internal class MinePage(
             }
         }
     }
+
+    /**
+     * 个人信息入口值（P1）：身高 / 当前体重的组合副行。
+     *
+     * 走 `repeatOnLifecycle(STARTED)` 重读 —— settings 无 Flow，从个人信息页返回后
+     * 副行即时刷新（与资源清单入口同一模式，见 [observeResourceCount]）。
+     * 体重取最近一条 events(type=body)，口径与个人信息页「当前体重」一致。
+     */
+    private fun observePersonalInfo() {
+        val value = rowPersonalInfo.findViewById<TextView>(R.id.value)
+        (activity as LifecycleOwner).lifecycleScope.launch {
+            activity.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                val db = container.database
+                val height = db.settingsDao().get(com.healix.app.db.SettingsKeys.HEIGHT)
+                    ?.toIntOrNull() ?: 0
+                val today = java.time.LocalDate.now()
+                val weight = runCatching {
+                    db.eventDao().weightRowsInRange(
+                        today.minusDays(365).toString(),
+                        today.toString(),
+                    ).lastOrNull()?.weightKg ?: 0.0
+                }.getOrDefault(0.0)
+                val hasValue = height > 0 || weight > 0.0
+                value.text = when {
+                    height > 0 && weight > 0.0 ->
+                        activity.getString(R.string.personal_info_entry_both, height, trimWeight(weight))
+                    height > 0 ->
+                        activity.getString(R.string.personal_info_entry_height, height)
+                    weight > 0.0 ->
+                        activity.getString(R.string.personal_info_entry_weight, trimWeight(weight))
+                    else -> activity.getString(R.string.personal_info_entry_none)
+                }
+                value.setTextColor(container.getColor(if (hasValue) R.color.text_2 else R.color.text_3))
+            }
+        }
+    }
+
+    private fun trimWeight(v: Double): String =
+        if (v == v.toLong().toDouble()) v.toLong().toString() else v.toString()
 
     private fun exportBackup() {
         // buildJson 内部是 runBlocking 的同步 DB 读 —— 放 IO 线程，不卡主线程；

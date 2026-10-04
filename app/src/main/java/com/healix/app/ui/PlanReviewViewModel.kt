@@ -7,9 +7,8 @@ import com.healix.app.HealixApp
 import com.healix.app.R
 import com.healix.app.db.GoalDefaults
 import com.healix.app.db.SettingsKeys
-import com.healix.app.repo.parseFoodsJson
-import com.healix.app.rules.FoodPool
-import com.healix.app.repo.ResourceStore
+import com.healix.app.parse.DEFAULT_DAY_START_HOUR
+import com.healix.app.parse.dayKeyOf
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -24,21 +23,20 @@ enum class PlanTab { PLAN, TRAINING, REVIEW }
 
 /** 计划页 UI 状态。items 为空时降级为 note 纯文本。 */
 data class PlanUiState(
-    val items: List<PlanItemUi> = emptyList(),
+    val items: List<TimelineItem> = emptyList(),
     val note: String = "",
     val gapLeft: Int = 0,
-    val source: String = "fallback",
-)
-
-data class PlanItemUi(
-    val type: String,
-    val title: String,
-    val detail: String,
-    val kcal: Int,
-    /** 行动条三要素之二：大概多久（如「约 20 分钟」）；空串显示「——」。 */
-    val duration: String = "",
-    /** 行动条三要素之三：一句为什么是现在（F8）。空串不显示。 */
-    val whyNow: String = "",
+    /** ai | fallback */
+    val source: String = TrainingPlanner.SOURCE_FALLBACK,
+    val generatedAt: Long = 0L,
+    /** 正在调 AI 重排（按钮置「更新中」并禁用）。 */
+    val updating: Boolean = false,
+    /** 更新失败（保留旧计划或已走兜底）。 */
+    val failed: Boolean = false,
+    /** 展示的是缓存里的上一版（更新失败时据此区分文案：有旧版 vs 刚建的兜底）。 */
+    val fromCache: Boolean = false,
+    /** 抽取桶配额不足（不调网，保留旧计划，仅提示）。 */
+    val quotaExhausted: Boolean = false,
 )
 
 data class ReviewUiState(
@@ -66,17 +64,17 @@ data class TrainingUiState(
 /**
  * 计划 / 训练 / 复盘 ViewModel。
  *
- * 训练 Tab 的职责：
- * - 周计划整周缓存（[TrainingPlanner.loadOrGenerate]）—— 控制 AI 成本的关键
+ * - 训练 Tab：周计划整周缓存（[TrainingPlanner.loadOrGenerate]）—— 控制 AI 成本的关键
  * - 「记一笔」直写（[logTraining]）+ 5 秒撤销（[undo]），与通知栏/首页同一套心智
- *
- * ⚠️ 本类原有的 plan / review 为**本地规则生成**（AI 未接入时的兜底，不能空白）。
+ * - **计划 Tab：单条时间轴**。打开只读缓存（[PlanGenerator.loadCached]，force=false，
+ *   绝不调 AI）；用户点「更新」才调模型（[updatePlan]），失败有缓存保留、无缓存兜底。
  */
 class PlanReviewViewModel(app: Application) : AndroidViewModel(app) {
 
     private val container = HealixApp.from(app)
     private val db = container.database
     private val planner = TrainingPlanner(app)
+    private val generator = PlanGenerator(app)
 
     private val _plan = MutableStateFlow(PlanUiState())
     val plan: StateFlow<PlanUiState> = _plan.asStateFlow()
@@ -104,14 +102,140 @@ class PlanReviewViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
-     * 重新生成（计划 Tab 的刷新按钮）。
+     * 重新读本地数据（计划 Tab 的「刷新」按钮）。
      *
-     * 训练 Tab：只重新**读缓存**，不触发模型调用 —— 整周缓存是成本纪律，
-     * 要重新生成必须走空态里的「生成本周计划」按钮（[generateTraining]）。
+     * - 计划 Tab：重读缓存 / 本地兜底（**不调 AI**）。
+     * - 训练 Tab：只重新**读缓存**，不触发模型调用 —— 整周缓存是成本纪律，
+     *   要重新生成必须走空态里的「生成本周计划」按钮（[generateTraining]）。
      */
     fun refresh() {
         reload()
         loadTraining()
+    }
+
+    // ------------------------------------------------------------------
+    // 计划 Tab（时间轴）
+    // ------------------------------------------------------------------
+
+    /**
+     * 打开计划 Tab 的数据加载：**只读缓存（force=false，绝不调 AI）**。
+     * 无缓存 → 本地时间轴兜底（不落库、不调网）。
+     */
+    private fun reload() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val summary = runCatching { TodaySummary.build(getApplication()) }.getOrNull()
+                ?: return@launch
+
+            // ── 复盘：本地聚合（AI 未接入时用已有数字 + 说明）────────────
+            _review.value = ReviewUiState(
+                kcalIn = summary.kcalIn,
+                kcalOut = summary.kcalOut,
+                weightKg = summary.weightKg,
+                content = buildLocalReview(summary),
+            )
+
+            // ── 计划：只读缓存；无缓存走本地时间轴兜底 ──────────────────
+            val gapLeft = if (summary.gap > 0) summary.gap else 0
+            val key = runCatching { generator.todayKey() }.getOrNull()
+            val cached = key?.let { runCatching { generator.loadCached(it) }.getOrNull() }
+            val result = cached ?: runCatching { generator.localTimeline(summary) }.getOrNull()
+            _plan.value = if (result == null) {
+                PlanUiState(gapLeft = gapLeft)
+            } else {
+                PlanUiState(
+                    items = result.items,
+                    note = result.note,
+                    gapLeft = gapLeft,
+                    source = result.source,
+                    generatedAt = result.generatedAt,
+                    updating = false,
+                    failed = false,
+                )
+            }
+        }
+    }
+
+    /**
+     * 点「更新」：调 AI 重排今日时间轴（**唯一的模型调用入口**）。
+     *
+     * 先过配额护栏（`PURPOSE_PLAN` 归入抽取桶）：不足则**不调网**、保留旧计划、
+     * 仅置 [PlanUiState.quotaExhausted] 让 UI 提示。AI 失败且**有缓存**时保留缓存
+     * （不清空），无缓存时 [PlanGenerator] 内部落本地兜底。
+     */
+    fun updatePlan() {
+        viewModelScope.launch(Dispatchers.IO) {
+            _plan.value = _plan.value.copy(updating = true, failed = false, quotaExhausted = false)
+
+            if (!container.quotaGuard.canExtract()) {
+                _plan.value = _plan.value.copy(updating = false, quotaExhausted = true)
+                return@launch
+            }
+
+            val key = runCatching { generator.todayKey() }.getOrNull()
+            val summary = runCatching { TodaySummary.build(getApplication()) }.getOrNull()
+            if (key == null || summary == null) {
+                _plan.value = _plan.value.copy(updating = false, failed = true)
+                return@launch
+            }
+
+            val result = runCatching { generator.update(key, summary) }.getOrNull()
+            if (result == null) {
+                _plan.value = _plan.value.copy(updating = false, failed = true)
+                return@launch
+            }
+            _plan.value = _plan.value.copy(
+                items = result.items,
+                note = result.note,
+                source = result.source,
+                generatedAt = result.generatedAt,
+                updating = false,
+                failed = result.failed,
+                fromCache = result.fromCache,
+                quotaExhausted = result.quotaExhausted,
+            )
+        }
+    }
+
+    /**
+     * 计划 Tab 的「记一笔」：照着建议吃了/练了，点一下直接转成记录。
+     * 这是全 App 摩擦最低的路径 —— 不用打字就完成记录。
+     *
+     * ⚠️ **仅 `type ∈ {meal, exercise}` 可记**（按钮也只对这两类显示）：
+     *    `sleep`/`habit` 条目没有对应的事件语义，直写会造出 `sleepH = 0.0` 的
+     *    **假睡眠数据**，污染 `TodaySummary.sleepH` 与 `HealthAggregator`。
+     */
+    fun logSuggestion(item: TimelineItem) {
+        if (item.type != "meal" && item.type != "exercise") return
+        viewModelScope.launch(Dispatchers.IO) {
+            val now = System.currentTimeMillis()
+            val dayStart = db.settingsDao().get(SettingsKeys.DAY_START)?.toIntOrNull()
+                ?: DEFAULT_DAY_START_HOUR
+            val raw = "${item.title}（${item.detail}）"
+
+            db.eventDao().insertIgnore(
+                com.healix.app.db.EventEntity(
+                    clientEventId = java.util.UUID.randomUUID().toString(),
+                    ts = now,
+                    dayKey = dayKeyOf(now, dayStart),
+                    rawText = raw,
+                    type = item.type,
+                    timeHint = "",
+                    foods = "[]",
+                    exercise = if (item.type == "exercise") item.title else "",
+                    amount = item.detail,
+                    kcal = item.kcal,
+                    symptom = "",
+                    weightKg = 0.0,
+                    sleepH = 0.0,
+                    source = "ai_suggestion",
+                    parseStatus = "done",
+                    origin = "ai_suggestion",
+                    createdAt = now,
+                    updatedAt = now,
+                ),
+            )
+            reload()
+        }
     }
 
     // ------------------------------------------------------------------
@@ -215,211 +339,12 @@ class PlanReviewViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     // ------------------------------------------------------------------
-    // 计划 / 复盘（沿用既有本地规则实现）
+    // 复盘（本地聚合）
     // ------------------------------------------------------------------
-
-    private fun reload() {
-        viewModelScope.launch(Dispatchers.IO) {
-            val summary = TodaySummary.build(getApplication())
-
-            // 行动条数据源（F8 + 资源清单）：食物 = 手动清单优先、F7 常吃池垫后；
-            // 运动条件/疼痛/作息来自画像与资源清单（读端统一 ResourceStore）。
-            val pool = runCatching { FoodPool.build(getApplication()) }.getOrDefault(emptyList())
-            val manualFoods = ResourceStore.splitItems(ResourceStore.foods(db))
-            val sport = ResourceStore.sport(db)
-            val pain = listFrom(db.settingsDao().get(SettingsKeys.PROFILE_PAIN))
-            val bedTime = db.settingsDao().get(SettingsKeys.PROFILE_SLEEP_BED).orEmpty()
-
-            // ── 计划：本地规则生成（AI 未接入时的兜底，不能空白）─────────
-            val note = buildNote(summary)
-            _plan.value = PlanUiState(
-                items = buildLocalPlan(summary, manualFoods, pool, sport, pain, bedTime),
-                note = note,
-                gapLeft = if (summary.gap > 0) summary.gap else 0,
-                source = "fallback",
-            )
-
-            // ── 复盘：本地聚合（AI 未接入时用已有数字 + 说明）────────────
-            _review.value = ReviewUiState(
-                kcalIn = summary.kcalIn,
-                kcalOut = summary.kcalOut,
-                weightKg = summary.weightKg,
-                content = buildLocalReview(summary),
-            )
-        }
-    }
-
-    /** JSON 数组字符串 → 列表（防御性，解析失败/空串给空列表）。 */
-    private fun listFrom(json: String?): List<String> = parseFoodsJson(json.orEmpty())
-
-    /**
-     * 本地规则计划（功能补充 1.7）+ 行动条三要素（功能清单 2 F8 + 资源清单）：
-     * **做什么（用你有什么）+ 大概多久 + 一句为什么是现在**。
-     * 「用你有什么」：食物 = 手动清单（一定买得到）优先、常吃池垫后；
-     * 运动条件（器材/场地/时段）取代原器材行；疼痛部位（F9）存在时不给任何
-     * 部位训练，改恢复性建议。
-     */
-    private fun buildLocalPlan(
-        s: TodaySummary,
-        manualFoods: List<String>,
-        pool: List<String>,
-        sport: String,
-        pain: List<String>,
-        bedTime: String,
-    ): List<PlanItemUi> {
-        if (s.hasIllness) {
-            return listOf(
-                PlanItemUi(
-                    type = "meal",
-                    title = "晚餐：清淡易消化",
-                    detail = "小米粥 + 蒸蛋，避免油腻与生冷",
-                    kcal = 400,
-                    duration = "约 15 分钟",
-                    whyNow = "今天有生病记录，先恢复再训练",
-                ),
-            )
-        }
-
-        if (s.gap <= 0) {
-            return listOf(tailItem(sport, pain))
-        }
-
-        val items = mutableListOf<PlanItemUi>()
-
-        if (s.gap >= 600) {
-            items += PlanItemUi(
-                type = "meal",
-                title = "晚餐：主食 + 蛋白质",
-                detail = mealDetail(manualFoods, pool, "熟米饭 200g + 鸡胸或牛肉 150g + 一份绿叶菜"),
-                kcal = 650,
-                duration = "约 20 分钟",
-                whyNow = "还差 ${s.gap} kcal，这一顿补上一大半",
-            )
-        } else {
-            items += PlanItemUi(
-                type = "meal",
-                title = "晚餐：正常一份主食",
-                detail = mealDetail(manualFoods, pool, "面食或米饭一份 + 一个鸡蛋"),
-                kcal = 450,
-                duration = "约 15 分钟",
-                whyNow = "缺口不大，一顿补齐",
-            )
-        }
-
-        val remain = s.gap - items.sumOf { it.kcal }
-        if (remain > 200) {
-            items += PlanItemUi(
-                type = "meal",
-                title = "加餐：睡前补充",
-                detail = mealDetail(manualFoods, pool, "蛋白粉 1 勺 + 香蕉 1 根"),
-                kcal = 400,
-                duration = "约 5 分钟",
-                whyNow = "离睡眠还有几个小时，小份加餐好消化",
-            )
-        }
-
-        // 睡眠行动条：近 3 日平均睡眠不足 6.5 小时才提（有数据才建议，不猜）
-        if (s.sleepLast3.size >= 2 && s.sleepLast3.average() < 6.5) {
-            items += PlanItemUi(
-                type = "sleep",
-                title = "睡：${bedTime.ifBlank { "定点" }} 前放下手机",
-                detail = "今晚按目标就寝时间执行",
-                kcal = 0,
-                duration = "——",
-                whyNow = "近 3 天平均只睡 ${trim(s.sleepLast3.average())} 小时",
-            )
-        }
-
-        return items
-    }
-
-    /** 热量已达标时的收尾条目：疼痛（F9）→ 恢复；否则训练（条件来自资源清单）。 */
-    private fun tailItem(sport: String, pain: List<String>): PlanItemUi = when {
-        pain.isNotEmpty() -> PlanItemUi(
-            type = "sleep",
-            title = "恢复：补水 + 早睡",
-            detail = "疼痛/不适部位（${pain.joinToString("、")}）相关动作今天全部避开",
-            kcal = 0,
-            duration = "——",
-            whyNow = "恢复优先于训练（疼痛避让）",
-        )
-        else -> PlanItemUi(
-            type = "exercise",
-            title = "练：力量训练 30 分钟",
-            detail = if (sport.isBlank()) {
-                "深蹲 + 俯卧撑，自重就够"
-            } else {
-                "按你的条件练：${sport.lineSequence().joinToString("；")}"
-            },
-            kcal = 200,
-            duration = "约 30 分钟",
-            whyNow = "今天热量已达标，正好安排训练",
-        )
-    }
-
-    /**
-     * 食物建议明细：手动清单（资源清单，"我现在就有"）优先于常吃池
-     *（F7「他吃过 = 他买得到」）；都为空时回落既有建议，不编食物。
-     */
-    private fun mealDetail(manual: List<String>, pool: List<String>, fallback: String): String =
-        when {
-            manual.isNotEmpty() -> "用你手头的：${manual.take(3).joinToString("、")}（按平常的量）"
-            pool.isNotEmpty() -> "优先常吃：${pool.take(3).joinToString("、")}（按平常的量）"
-            else -> fallback
-        }
-
-    private fun trim(v: Double): String =
-        if (v == v.toLong().toDouble()) v.toLong().toString()
-        else String.format(java.util.Locale.US, "%.1f", v)
-
-    private fun buildNote(s: TodaySummary): String = when {
-        s.hasIllness -> "今天记录了不适，计划已改为清淡饮食，暂不安排高强度运动。"
-        s.recordCount == 0 -> "今天还没有记录，下面按默认目标给出建议。"
-        s.gap <= 0 -> "今天已达标，可以安排一次力量训练。"
-        s.gap >= 1500 -> "缺口较大，建议分成晚餐和加餐两次补上。"
-        else -> "按当前缺口给出了具体数量和热量，照着吃即可。"
-    }
 
     private fun buildLocalReview(s: TodaySummary): String = when {
         s.recordCount == 0 -> "今天还没有记录，无法复盘。去记一笔或点上方刷新。"
         s.gap <= 0 -> "今天摄入 ${s.kcalIn} kcal，达到目标 ${s.target} kcal，缺口已补上。"
         else -> "今天摄入 ${s.kcalIn} kcal，目标 ${s.target} kcal，还差 ${s.gap} kcal 未补上。"
-    }
-
-    /**
-     * 计划 Tab 的「记一笔」：照着建议吃了，点一下直接转成记录（UI 设计方案 8.4）。
-     * 这是全 App 摩擦最低的路径 —— 不用打字就完成记录。
-     */
-    fun logSuggestion(item: PlanItemUi) {
-        viewModelScope.launch(Dispatchers.IO) {
-            val now = System.currentTimeMillis()
-            val dayStart = db.settingsDao().get(com.healix.app.db.SettingsKeys.DAY_START)
-                ?.toIntOrNull() ?: 4
-            val raw = "${item.title}（${item.detail}）"
-
-            db.eventDao().insertIgnore(
-                com.healix.app.db.EventEntity(
-                    clientEventId = java.util.UUID.randomUUID().toString(),
-                    ts = now,
-                    dayKey = com.healix.app.parse.dayKeyOf(now, dayStart),
-                    rawText = raw,
-                    type = item.type,
-                    timeHint = "",
-                    foods = "[]",
-                    exercise = if (item.type == "exercise") item.title else "",
-                    amount = item.detail,
-                    kcal = item.kcal,
-                    symptom = "",
-                    weightKg = 0.0,
-                    sleepH = 0.0,
-                    source = "ai_suggestion",
-                    parseStatus = "done",
-                    origin = "ai_suggestion",
-                    createdAt = now,
-                    updatedAt = now,
-                ),
-            )
-            reload()
-        }
     }
 }

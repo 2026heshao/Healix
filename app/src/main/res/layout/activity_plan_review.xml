@@ -162,6 +162,51 @@
                 android:layout_height="wrap_content"
                 android:orientation="vertical">
 
+                <!-- 计划 Tab 顶部：来源行（左）+ 更新按钮（右）。「更新」= 调 AI 重排；
+                     「刷新」(btnRefresh) = 只重读本地数据，两者语义不同不冲突。 -->
+                <LinearLayout
+                    android:id="@+id/planHeader"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingStart="@dimen/screen_margin"
+                    android:paddingTop="12dp"
+                    android:paddingEnd="@dimen/screen_margin"
+                    android:paddingBottom="4dp">
+
+                    <TextView
+                        android:id="@+id/planSourceLabel"
+                        style="@style/Text.Secondary"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        tools:text="AI 计划 · 09:30 生成" />
+
+                    <TextView
+                        android:id="@+id/btnUpdatePlan"
+                        style="@style/Text.Link"
+                        android:layout_width="wrap_content"
+                        android:layout_height="@dimen/touch_min"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:gravity="center"
+                        android:minWidth="@dimen/touch_min"
+                        android:text="@string/plan_update" />
+                </LinearLayout>
+
+                <!-- 兜底/失败提示行：source=fallback 或更新失败/配额不足时可见 -->
+                <TextView
+                    android:id="@+id/planModeLabel"
+                    style="@style/Text.Secondary"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:paddingStart="@dimen/screen_margin"
+                    android:paddingEnd="@dimen/screen_margin"
+                    android:paddingBottom="8dp"
+                    android:text="@string/mode_simplified_local"
+                    android:visibility="gone"
+                    tools:visibility="visible" />
+
                 <LinearLayout
                     android:id="@+id/itemContainer"
                     android:layout_width="match_parent"

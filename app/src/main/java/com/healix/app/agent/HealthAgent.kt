@@ -32,8 +32,12 @@ data class LogProposal(val rawText: String)
 /** Agent 循环的结果（调用方 ChatViewModel 按分支落库 / 回退）。 */
 internal sealed interface AgentOutcome {
 
-    /** 模型给出最终文本回答（未调工具，或工具答完后收尾）。 */
-    data class Done(val text: String) : AgentOutcome
+    /**
+     * 模型给出最终文本回答（未调工具，或工具答完后收尾）。
+     *
+     * [toolsUsed] = 本轮 agent 实际执行的工具调用次数（>0 时气泡末行显示轻角标，§4.5）。
+     */
+    data class Done(val text: String, val toolsUsed: Int = 0) : AgentOutcome
 
     /** propose_log 已拟稿，等用户确认。text 是随附说明（落库为 assistant 消息）。 */
     data class ProposalPending(val text: String, val proposal: LogProposal) : AgentOutcome
@@ -159,11 +163,14 @@ internal object ToolRegistry {
             all.filter { it.type == typeFilter }
         }
         if (filtered.isEmpty()) return "该区间没有任何记录。"
-        // token 预算：最多回 50 条，多则提示截断
-        val shown = filtered.takeLast(50)
+        // token 预算（§4.3）：最多回 30 条（原 50），单条原文截断到 36 字，
+        // 多则提示截断 —— 单次工具结果目标 ≤ 600 token。现有行格式本就只含
+        // dayKey/类型/原文/kcal（无 id/created_at），压预算靠"降条数 + 截断原文"。
+        val shown = filtered.takeLast(30)
         val lines = shown.map { e ->
             val kcal = if (e.kcal > 0) "（${e.kcal} kcal）" else ""
-            "• ${e.dayKey} ${typeName(e.type)}：${e.rawText}$kcal"
+            val raw = if (e.rawText.length > 36) e.rawText.take(36) + "…" else e.rawText
+            "• ${e.dayKey} ${typeName(e.type)}：$raw$kcal"
         }
         val truncated = if (filtered.size > shown.size) {
             "\n（仅显示最近 ${shown.size} 条，共 ${filtered.size} 条）"
@@ -243,6 +250,8 @@ internal class HealthAgent(
 
         var lastSignature = ""
         var steps = 0
+        // 本轮实际执行的工具调用次数（§4.5 工具使用可见性），随 Done 回传给调用方
+        var toolsUsed = 0
 
         while (steps < MAX_STEPS) {
             if (System.currentTimeMillis() >= deadline) return AgentOutcome.Failed
@@ -270,7 +279,11 @@ internal class HealthAgent(
                 is ChatResult.Ok -> {
                     if (result.toolCalls.isEmpty()) {
                         val text = result.content.trim()
-                        return if (text.isEmpty()) AgentOutcome.Failed else AgentOutcome.Done(text)
+                        return if (text.isEmpty()) {
+                            AgentOutcome.Failed
+                        } else {
+                            AgentOutcome.Done(text, toolsUsed)
+                        }
                     }
 
                     messages += ChatMessage(
@@ -282,6 +295,7 @@ internal class HealthAgent(
                     var proposal: LogProposal? = null
                     for (call in result.toolCalls) {
                         val (resultText, proposed) = ToolRegistry.execute(context, call)
+                        toolsUsed++
                         messages += ChatMessage(
                             role = "tool",
                             content = resultText,
@@ -362,7 +376,7 @@ internal class HealthAgent(
 
 你可以使用工具（不必每轮都用，已有信息足够就直接回答）：
 - query_events：查某日期区间的记录原文。回答"我那天吃了什么/练了什么"必须先查证，禁止凭对话记忆编。
-- query_stats：重新取今日摘要数字。刚记录完、数字可能变了就用它。
+- query_stats：重新取今日摘要数字。今日数字已注入背景，仅当用户问的范围超出它时才调。
 - propose_log：用户让你记东西时，用用户原话拟一条草稿。草稿经用户确认后才会写入，你无权直接写入记录。
 回答里引用的数字只能来自记录原文或工具返回。
 """

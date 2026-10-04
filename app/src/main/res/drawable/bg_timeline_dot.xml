@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    时间轴圆点（增量设计附录 B）：oval，@color/line_strong。
+    整条时间轴 = 一条 1dp 竖线（@color/line）+ 若干 8dp 圆点，无卡片/无阴影。
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="oval">
+    <solid android:color="@color/line_strong" />
+    <size android:width="8dp" android:height="8dp" />
+</shape>

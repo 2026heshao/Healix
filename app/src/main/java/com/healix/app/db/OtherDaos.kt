@@ -30,6 +30,19 @@ interface LlmCallDao {
     /** 调试页 P95 计算用：取今日全部延迟样本。 */
     @Query("SELECT latency_ms FROM llm_calls WHERE ts >= :since")
     suspend fun latenciesSince(since: Long): List<Long>
+
+    /**
+     * 今日 token 合计（§4.1）。
+     *
+     * ⚠️ 返回类型**必须**是 `Long`：SQLite 的 `SUM()` 是 64 位整数，声明成 `Int`
+     * 会被 `check_projection_types` 拦下；`COALESCE(..., 0)` 保证无数据时返回 0
+     * 而非 null。列名与 `LlmCallEntity` 的 `input_tokens` / `output_tokens` 一致。
+     */
+    @Query("SELECT COALESCE(SUM(input_tokens), 0) FROM llm_calls WHERE ts >= :since")
+    suspend fun inputTokensSince(since: Long): Long
+
+    @Query("SELECT COALESCE(SUM(output_tokens), 0) FROM llm_calls WHERE ts >= :since")
+    suspend fun outputTokensSince(since: Long): Long
 }
 
 @Dao

@@ -12,7 +12,7 @@ import com.healix.app.db.ChatMessageEntity
 import com.healix.app.db.EventEntity
 import com.healix.app.db.PresetEntity
 import com.healix.app.net.NetworkStatus
-import com.healix.app.repo.parseFoodsJson
+import com.healix.app.repo.ProfileContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -65,11 +65,30 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     private val repo = container.eventRepository
     private val quota = container.quotaGuard
 
-    /** 今天。发送、落库、上下文会话都以它为准（历史会话只读）。 */
-    private val todayKey = LocalDate.now().toString()
+    /**
+     * 今天。发送、落库、上下文会话都以它为准（历史会话只读）。
+     *
+     * ⚠️ P0-B 修复（2026-10-05）：此前是**构造期字段快照**
+     * （`private val todayKey = LocalDate.now().toString()`），VM 活多久，
+     * "今天"就冻结在哪天 —— 夜里 00:00 后继续对话，消息仍落库到昨天的
+     * `session_date`。现改为**使用点现取函数**：`persist` / `executeChat` /
+     * `sessionDate` 全部调用当刻日期。
+     */
+    private fun todayKey(): String = LocalDate.now().toString()
+
+    /**
+     * 记忆"上一个今天"（P0-B 跨零点顺延判定用）。
+     *
+     * `isToday` 是 `stateIn` 缓存，值不变则**不会**重发 → 跨零点 UI 不会自动
+     * 恢复可用。用本字段记住上一天的串：`todayKey() != lastKnownToday`
+     * 说明跨了零点，若用户此前仍停留在"旧今天"视图则顺延到今天并刷新
+     * `lastKnownToday`。触发点：[refreshToday]（ChatActivity.onResume）+ [send]
+     * 起始守卫（零点后首次发送即自愈，杜绝误拦）。
+     */
+    private var lastKnownToday: String = LocalDate.now().toString()
 
     /** 当前查看的会话日期（微扩展 B）。切到过去 = 只读历史。 */
-    private val _selectedDate = MutableStateFlow(todayKey)
+    private val _selectedDate = MutableStateFlow(lastKnownToday)
     val selectedDate: StateFlow<String> = _selectedDate.asStateFlow()
 
     private val _uiState = MutableStateFlow<ChatUiState>(ChatUiState.Idle)
@@ -84,7 +103,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     /** 查看的会话是否为今天。false 时 Activity 禁用输入条与发送键。 */
     val isToday: StateFlow<Boolean> = _selectedDate
-        .map { it == todayKey }
+        .map { it == todayKey() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), true)
 
     val messages: StateFlow<List<ChatMessageEntity>> =
@@ -121,9 +140,34 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         _selectedDate.value = date
     }
 
+    /**
+     * 跨零点顺延（P0-B）：回到前台时调用（ChatActivity.onResume）。
+     *
+     * 仅当"用户仍停留在旧今天"时才把 [selectedDate] 顺延到今天 ——
+     * 停在历史会话（用户主动切过去看的）不受影响。顺延会触发 [isToday] /
+     * [messages] 随 `_selectedDate` 重订阅，输入条即时恢复可用。
+     *
+     * 不做定时器：onResume 是"用户回到前台"这一真实动作的锚点，覆盖
+     * "夜里放着不动、早上再点开"的绝大多数场景；极冷的"停在页面里跨零点"
+     * 由 [send] 起始守卫兜底。
+     */
+    fun refreshToday() {
+        val today = todayKey()
+        if (today == lastKnownToday) return
+        if (_selectedDate.value == lastKnownToday) _selectedDate.value = today
+        lastKnownToday = today
+    }
+
     fun send(text: String) {
+        // P0-B 跨零点自愈：零点后首次动作即把"旧今天"顺延到今天，
+        // 保证下面的守卫绝不会误拦用户当下的发送。
+        val today = todayKey()
+        if (today != lastKnownToday) {
+            if (_selectedDate.value == lastKnownToday) _selectedDate.value = today
+            lastKnownToday = today
+        }
         // 历史会话只读（微扩展 B）：发送永远只发生在"今天"视图
-        if (_selectedDate.value != todayKey) return
+        if (_selectedDate.value != today) return
         lastUserText = text
         _retryAvailable.value = false
         _uiState.value = ChatUiState.Thinking
@@ -179,76 +223,13 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             }
 
             // 结构化画像（F6）：硬约束段（忌口/疼痛/运动条件）+ 软背景段（场景/作息/
-            // 手头食物/常备药物）拼进 background 通道（空值整段省略，沿用 systemPrompt
-            // 的空省略先例）。不给 ChatEngine.reply 增参 —— 避免与知识库侧的签名改动互相踩。
-            // 资源清单读端统一走 ResourceStore（sport 含旧 profile_gear 迁移兜底）。
-            val allergens = parseFoodsJson(
-                db.settingsDao().get(com.healix.app.db.SettingsKeys.PROFILE_ALLERGENS).orEmpty(),
-            )
-            val pain = parseFoodsJson(
-                db.settingsDao().get(com.healix.app.db.SettingsKeys.PROFILE_PAIN).orEmpty(),
-            )
-            val sport = com.healix.app.repo.ResourceStore.sport(db)
-            val foodsAtHand = com.healix.app.repo.ResourceStore.foods(db)
-            val medsAtHand = com.healix.app.repo.ResourceStore.meds(db)
-            val scene = db.settingsDao()
-                .get(com.healix.app.db.SettingsKeys.PROFILE_SCENE).orEmpty()
-            val bed = db.settingsDao()
-                .get(com.healix.app.db.SettingsKeys.PROFILE_SLEEP_BED).orEmpty()
-            val wake = db.settingsDao()
-                .get(com.healix.app.db.SettingsKeys.PROFILE_SLEEP_WAKE).orEmpty()
-            // 背景每次现读：设置页可能刚改过，缓存会让改动不生效
-            val backgroundText = db.settingsDao().get(SettingsActivity.KEY_BACKGROUND).orEmpty()
-            val background = buildString {
-                // 硬约束段：只在有内容时出现；疼痛行内嵌 F9 硬规则语义。
-                // 「【硬约束】」标记行与硬边界 2 的「硬约束段」措辞互相呼应。
-                val hardHead = buildList {
-                    if (allergens.isNotEmpty()) {
-                        add("- 忌口/过敏/不吃（饮食建议必须绕开）：${allergens.joinToString("、")}")
-                    }
-                    if (pain.isNotEmpty()) {
-                        add(
-                            "- 疼痛/不适部位（运动建议必须避开相关动作，" +
-                                "优先恢复性建议——睡眠、补水）：${pain.joinToString("、")}",
-                        )
-                    }
-                    if (sport.isNotEmpty()) {
-                        add(
-                            "- 运动条件（运动建议只用这些器材/场地，时段可用则优先）：\n" +
-                                sport.lineSequence().map { "  $it" }.joinToString("\n"),
-                        )
-                    }
-                }
-                if (hardHead.isNotEmpty()) {
-                    appendLine("【硬约束——必须遵守】")
-                    hardHead.forEach { appendLine(it) }
-                    appendLine()
-                }
-                // 软背景段：场景 / 作息 / 手头食物 / 常备药物 / 补充说明
-                if (scene.isNotBlank()) appendLine("就餐场景：$scene")
-                if (bed.isNotBlank() || wake.isNotBlank()) {
-                    append("作息：")
-                    if (bed.isNotBlank()) append("$bed 睡")
-                    if (bed.isNotBlank() && wake.isNotBlank()) append(" · ")
-                    if (wake.isNotBlank()) append("$wake 起")
-                    appendLine()
-                }
-                // 资源清单（白板式手动声明）：食物是推荐池且优先于自动常吃池
-                //（说话方式段的优先级措辞）；药物仅作事实参考，
-                // 行为边界（不给剂量/不推断疾病）由硬边界 3 承担。
-                if (foodsAtHand.isNotBlank()) {
-                    appendLine("手头现成的食物（推荐优先从这里选）：")
-                    foodsAtHand.lineSequence().forEach { appendLine("  $it") }
-                }
-                if (medsAtHand.isNotBlank()) {
-                    appendLine("常备药物（仅作既有事实参考）：")
-                    medsAtHand.lineSequence().forEach { appendLine("  $it") }
-                }
-                append(backgroundText)
-            }.trim()
+            // 手头食物/常备药物）统一由 ProfileContext.build 拼装 —— 与计划生成同源，
+            // 避免两套口径漂移。输出逐字不变（直接进 system prompt，改字=改 AI 行为）。
+            // 不给 ChatEngine.reply 增参 —— 避免与知识库侧的签名改动互相踩。
+            val background = ProfileContext.build(db)
 
             // F2 去重后的历史窗口（agent 与单轮回退共用同一份）
-            val history = db.chatMessageDao().recentForContext(todayKey, 17)
+            val history = db.chatMessageDao().recentForContext(todayKey(), 17)
                 .withoutTrailingDuplicate(text)
 
             // ── S3–S4 第一级：有界工具循环 ────────────────────────────
@@ -256,14 +237,15 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             // 落回第二级单轮 ChatEngine（其内含第三级本地模板）。
             val outcome = HealthAgent(getApplication(), repo).run(
                 config = config,
-                sessionDate = todayKey,
+                sessionDate = todayKey(),
                 userText = text,
                 history = history,
                 background = background,
                 knowledge = knowledge,
             )
             when (outcome) {
-                is AgentOutcome.Done -> completeWithText(outcome.text, hits.firstOrNull())
+                is AgentOutcome.Done ->
+                    completeWithText(outcome.text, hits.firstOrNull(), outcome.toolsUsed)
 
                 is AgentOutcome.ProposalPending -> {
                     persistAssistant(outcome.text)
@@ -281,11 +263,26 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                     val reply = ChatEngine.reply(
                         context = getApplication(),
                         config = config,
-                        sessionDate = todayKey,
+                        sessionDate = todayKey(),
                         userText = text,
                         history = history,
                         background = background,
                         knowledge = knowledge,
+                    )
+                    // §4.1（2026-10-04 复核更正）：单轮回退路径此前不记 llm_calls，
+                    // 补一条 —— 否则配额计数与设置页「今日对话调用」会漏掉这一档。
+                    repo.recordChatCall(
+                        model = config.model,
+                        attempts = reply.attempts,
+                        latencyMs = reply.latencyMs,
+                        status = when (reply.state) {
+                            ChatEngine.State.Ok -> com.healix.app.repo.EventRepository.STATUS_OK
+                            else -> com.healix.app.repo.EventRepository.STATUS_RETRY_EXHAUSTED
+                        },
+                        httpCode = reply.httpCode,
+                        inputTokens = reply.inputTokens,
+                        outputTokens = reply.outputTokens,
+                        errorHead = reply.errorHead,
                     )
                     when (reply.state) {
                         ChatEngine.State.Ok -> completeWithText(reply.text, hits.firstOrNull())
@@ -304,14 +301,30 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             }
     }
 
-    /** 正常文本回复收口：来源行拼接（10.4 ①）+ 落库 + 状态复位。 */
-    private suspend fun completeWithText(text: String, source: com.healix.app.repo.KnowledgeHit?) {
+    /**
+     * 正常文本回复收口：正文 → （[toolsUsed] > 0 时）查阅行 → 来源行（10.4 ①）+ 落库 + 状态复位。
+     *
+     * ⚠️ 末行元数据拼接顺序被 `ChatAdapter` 的解析依赖：`来源：` **恒为最后一行**，
+     * `查阅：` 紧随其前 —— 渲染端从末尾最多剥两行。
+     */
+    private suspend fun completeWithText(
+        text: String,
+        source: com.healix.app.repo.KnowledgeHit?,
+        toolsUsed: Int = 0,
+    ) {
+        val app = getApplication<Application>()
+        // §4.5 工具使用可见性：agent 成功且真的问过数据时，末行加轻角标（零 DB 列）
+        val withBadge = if (toolsUsed > 0) {
+            text + "\n" + app.getString(R.string.chat_tool_badge, toolsUsed)
+        } else {
+            text
+        }
         val replyText = if (source != null) {
-            text + "\n" + getApplication<Application>().getString(
+            withBadge + "\n" + app.getString(
                 R.string.knowledge_source, source.docTitle, source.pageNo,
             )
         } else {
-            text
+            withBadge
         }
         persistAssistant(replyText)
         _uiState.value = ChatUiState.Idle
@@ -319,7 +332,10 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
     /**
      * 用户确认拟稿（agent propose_log）：走完整抽取链（与「记一笔」同管道），
-     * source = ai_suggestion。成功与否都经 [proposalToast] 反馈。
+     * source = ai_suggestion。
+     *
+     * §4.2 回执闭环：**成功**由本地模板回一条助理消息（零 token，不再发成功
+     * Toast，避免双反馈）；**失败**仍经 [proposalToast] 提示（行为不变）。
      */
     fun confirmProposal(proposal: LogProposal) {
         viewModelScope.launch(Dispatchers.IO) {
@@ -329,12 +345,20 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                     proposal.rawText,
                     source = com.healix.app.repo.SOURCE_AI_SUGGESTION,
                 )
-                val msg = if (result.ok) {
-                    app.getString(R.string.preset_logged, proposal.rawText)
+                if (result.ok) {
+                    // 回执口径：只提「已记下 + 本周运动还差 N 次 / 已达标」，
+                    // 不提 kcal 数字（规避隐私开关 HIDE_KCAL 的边界）。
+                    val s = TodaySummary.build(app)
+                    val gap = s.goalSessionsWeek - s.exerciseCountThisWeek
+                    val receipt = if (gap > 0) {
+                        app.getString(R.string.proposal_receipt_gap, proposal.rawText, gap)
+                    } else {
+                        app.getString(R.string.proposal_receipt_done, proposal.rawText)
+                    }
+                    persistAssistant(receipt)
                 } else {
-                    app.getString(R.string.preset_log_failed)
+                    _proposalToast.emit(app.getString(R.string.preset_log_failed))
                 }
-                _proposalToast.emit(msg)
             } catch (_: Exception) {
                 _proposalToast.emit(app.getString(R.string.preset_log_failed))
             }
@@ -394,7 +418,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         try {
             db.chatMessageDao().insert(
                 ChatMessageEntity(
-                    sessionDate = todayKey,
+                    sessionDate = todayKey(),
                     role = role,
                     content = content,
                     createdAt = System.currentTimeMillis(),

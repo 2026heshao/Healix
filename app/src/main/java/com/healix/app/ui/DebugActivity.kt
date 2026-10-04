@@ -63,6 +63,17 @@ class DebugActivity : AppCompatActivity() {
                         R.string.debug_summary, stats.first, stats.second, stats.third,
                     )
                 }
+                launch {
+                    // 今日 token 合计（§4.1）：输入 / 输出（SUM 返回 Long，无数据为 0）
+                    val tokens = withContext(Dispatchers.IO) {
+                        val since = startOfToday()
+                        val dao = container.database.llmCallDao()
+                        dao.inputTokensSince(since) to dao.outputTokensSince(since)
+                    }
+                    binding.tokenLine.text = getString(
+                        R.string.debug_tokens, tokens.first, tokens.second,
+                    )
+                }
             }
         }
     }

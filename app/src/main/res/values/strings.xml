@@ -77,8 +77,6 @@
     <!-- 设置 -->
     <string name="group_model">模型服务</string>
     <string name="group_quota">调用限制</string>
-    <string name="group_personal">个人</string>
-    <string name="group_data">数据</string>
     <string name="group_debug">调试</string>
     <string name="provider">服务商</string>
     <string name="base_url">接口地址</string>
@@ -138,7 +136,6 @@
     <string name="reparse">重新识别</string>
     <string name="close">关闭</string>
     <string name="from_chat">来自对话</string>
-    <string name="browse_presets">常用餐预设</string>
     <string name="no_record_yet">还没有记录</string>
     <string name="nodata">暂无数据</string>
     <string name="today">今天</string>
@@ -159,6 +156,14 @@
     <string name="plan_item_kcal">%1$s · 约 %2$d kcal</string>
     <string name="plan_gap_label">还差 %1$d kcal</string>
     <string name="plan_action_meta">%1$s · %2$s</string>
+    <!-- 计划 Tab 时间轴 · 顶部行（来源行 + 更新按钮）与失败/配额提示 -->
+    <string name="plan_update">更新</string>
+    <string name="plan_updating">更新中</string>
+    <string name="plan_source_ai">AI 计划</string>
+    <string name="plan_source_line">%1$s · %2$s 生成</string>
+    <string name="plan_update_failed">更新失败，仍显示上一次的计划</string>
+    <!-- 无旧版可回退时（刚建的本地兜底）：不能说「仍显示上一次的计划」 -->
+    <string name="plan_update_local_fallback">更新失败，已改用本地简化计划</string>
     <string name="review_stat_kcal_in">摄入</string>
     <string name="review_stat_kcal_out">消耗</string>
     <string name="review_stat_weight">体重</string>
@@ -187,8 +192,6 @@
     <string name="setting_profile_scene">就餐场景</string>
     <string name="setting_profile_sleep">作息</string>
     <string name="setting_profile_sleep_value">%1$s 睡 · %2$s 起</string>
-    <!-- 「可用器材」行并入「我的」页 · 资源清单，设置页留指针 -->
-    <string name="setting_resources_pointer">食物、药物与运动条件在「我的」页 · 资源清单里填写，AI 会自动读取。</string>
 
     <!-- 资源清单（白板式手动声明，AI 自动读取） -->
     <string name="resources_title">资源清单</string>
@@ -218,7 +221,6 @@
     <string name="setting_retry">重试次数</string>
     <string name="setting_retry_delay">退避初始间隔</string>
     <string name="setting_custom">自定义</string>
-    <string name="setting_untested">未测试</string>
     <string name="setting_testing">测试中…</string>
     <string name="unit_times">%1$d 次</string>
     <string name="unit_seconds">%1$s 秒</string>
@@ -239,7 +241,6 @@
     <string name="debug_summary">今日 %1$d 次 · 失败 %2$d · P95 %3$s</string>
     <string name="debug_empty">暂无调用记录</string>
     <string name="debug_retry_times">%1$d 次重试</string>
-    <string name="debug_tool_calls">%1$d 工具调用</string>
     <string name="debug_degraded">已降级</string>
 
     <!-- 导出 -->
@@ -409,6 +410,8 @@
     <string name="setting_train_goal">每周训练</string>
     <string name="setting_sleep_goal">睡眠目标</string>
     <string name="setting_water_goal">饮水目标</string>
+    <!-- 「我的目标」自由文本行（个人信息页 · 目标组）。空值占位统一 value_not_set。 -->
+    <string name="setting_goal_statement">我的目标</string>
     <string name="setting_hide_kcal">隐藏热量数字</string>
     <string name="setting_hide_weight">隐藏体重数字</string>
     <!-- 规范 9.7 / 921 行：目标组每项值下方 8dp 处 13sp text_3 的「依据提示」，
@@ -479,4 +482,25 @@
 
     <!-- ── 左滑删除（11.3）：一步删除 + 5 秒撤销，文案口径与「已记录」一致 ── -->
     <string name="undo_deleted">已删除「%1$s」</string>
+
+    <!-- ── 个人信息页（P1：设置页「个人 / 我的情况」两组迁到「我的」数据组）── -->
+    <string name="personal_info_title">个人信息</string>
+    <string name="personal_info_group_basic">基本信息</string>
+    <string name="personal_info_group_intake">每日摄入</string>
+    <string name="personal_info_entry_none">未填写</string>
+    <string name="personal_info_entry_both">身高 %1$d · 体重 %2$s kg</string>
+    <string name="personal_info_entry_height">身高 %1$d</string>
+    <string name="personal_info_entry_weight">体重 %1$s kg</string>
+
+    <!-- ── P2 AI 数据处理与决策协调（§4.2 回执 / §4.5 角标 / §4.1 token 展示）── -->
+    <!-- 回执口径：只提「已记下 + 本周运动还差 N 次 / 已达标」，不提 kcal 数字 -->
+    <string name="proposal_receipt_gap">已记下：%1$s。本周运动还差 %2$d 次</string>
+    <string name="proposal_receipt_done">已记下：%1$s。本周运动已达标</string>
+    <string name="chat_tool_badge">查阅：本次问了 %1$d 项数据</string>
+    <string name="debug_tokens">今日 token · 输入 %1$d · 输出 %2$d</string>
+
+    <!-- ── P3 §5.1 弹窗统一（ActionConfirmSheet / FieldSheet 标题与字段标签）── -->
+    <string name="proposal_sheet_title">确认记录</string>
+    <string name="preset_field_name">名称</string>
+    <string name="preset_field_kcal">热量 kcal</string>
 </resources>

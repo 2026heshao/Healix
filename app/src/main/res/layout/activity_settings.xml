@@ -154,6 +154,13 @@
                 android:paddingBottom="8dp"
                 android:text="@string/group_quota" />
 
+            <!-- 日界线（原「个人」组上移至此）：决定配额日窗口与会话切日，是系统参数 -->
+            <include
+                android:id="@+id/rowDayStart"
+                layout="@layout/row_setting_value"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+
             <include
                 android:id="@+id/rowExtractQuota"
                 layout="@layout/row_setting_value"
@@ -177,161 +184,6 @@
                 layout="@layout/row_setting_value"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content" />
-
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="@dimen/divider"
-                android:layout_marginTop="@dimen/block_gap"
-                android:background="@color/line" />
-
-            <!-- 个人 -->
-            <TextView
-                style="@style/Text.Caption"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:paddingStart="@dimen/screen_margin"
-                android:paddingEnd="@dimen/screen_margin"
-                android:paddingTop="12dp"
-                android:paddingBottom="8dp"
-                android:text="@string/group_personal" />
-
-            <!--
-                当前体重（F5 回归修正）：入口与存储分离 —— 这一行只是录入/查看入口，
-                存储走 events(type=body)（与「记一笔」同一条数据管道），
-                不在 settings 表存静态体重字段；体重的**目标值**仍在「目标」组的
-                「体重目标」（goals 表，规范 9.7 ②）。
-            -->
-            <include
-                android:id="@+id/rowCurrentWeight"
-                layout="@layout/row_setting_value"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
-
-            <include
-                android:id="@+id/rowHeight"
-                layout="@layout/row_setting_value"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
-
-            <include
-                android:id="@+id/rowAge"
-                layout="@layout/row_setting_value"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
-
-            <include
-                android:id="@+id/rowActivity"
-                layout="@layout/row_setting_value"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
-
-            <include
-                android:id="@+id/rowTargetKcal"
-                layout="@layout/row_setting_value"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
-
-            <include
-                android:id="@+id/rowDayStart"
-                layout="@layout/row_setting_value"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
-
-            <!-- 我的情况（F6 结构化画像）：硬约束（忌口/疼痛/器材）+ 软背景（场景/作息），
-                 行复用 row_setting_value，编辑复用 ConfirmSheet 同款字段弹窗（规范 9.7 ①）。 -->
-            <TextView
-                style="@style/Text.Caption"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:paddingStart="@dimen/screen_margin"
-                android:paddingEnd="@dimen/screen_margin"
-                android:paddingTop="12dp"
-                android:paddingBottom="8dp"
-                android:text="@string/setting_background" />
-
-            <include
-                android:id="@+id/rowProfileAllergens"
-                layout="@layout/row_setting_value"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
-
-            <include
-                android:id="@+id/rowProfilePain"
-                layout="@layout/row_setting_value"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
-
-            <include
-                android:id="@+id/rowProfileScene"
-                layout="@layout/row_setting_value"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
-
-            <!-- 「可用器材」行已并入「我的」页 · 资源清单（运动条件，白板式自由文本）。
-                 旧数据由 ResourceStore.sport() 非破坏性兜底读取，这里只留指针。 -->
-            <TextView
-                style="@style/Text.Secondary"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:paddingStart="@dimen/screen_margin"
-                android:paddingEnd="@dimen/screen_margin"
-                android:paddingTop="8dp"
-                android:text="@string/setting_resources_pointer" />
-
-            <include
-                android:id="@+id/rowProfileSleep"
-                layout="@layout/row_setting_value"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
-
-            <!-- 补充说明（F6 保留的自由文本）：不放进 row_setting_value：
-                 那一行是「固定行高 + 右侧值」的形态，而补充说明是多行输入框，
-                 需要备注与字数提示 —— 用独立区块。 -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:paddingStart="@dimen/screen_margin"
-                android:paddingEnd="@dimen/screen_margin"
-                android:paddingTop="12dp">
-
-                <TextView
-                    style="@style/Text.Body"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="@string/setting_profile_extra" />
-
-                <TextView
-                    style="@style/Text.Secondary"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="2dp"
-                    android:text="@string/setting_background_hint" />
-
-                <EditText
-                    android:id="@+id/editBackground"
-                    style="@style/Widget.Healix.BlockInput"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:gravity="top|start"
-                    android:hint="@string/setting_background_ph"
-                    android:importantForAutofill="no"
-                    android:inputType="textMultiLine|textCapSentences"
-                    android:maxLines="12"
-                    android:minLines="5"
-                    android:scrollbars="vertical" />
-
-                <!-- 字数提示：让 2000 上限可见，而不是输入到一半被静默截断 -->
-                <TextView
-                    android:id="@+id/backgroundCount"
-                    style="@style/Text.Caption"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:gravity="end"
-                    tools:text="0 / 2000" />
-            </LinearLayout>
 
             <!-- ══ 目标 ★v4（规范 9.7 ①）══
                  读写落在 goals 表（不是 settings 表）：目标有"起始值 / 目标值 / 主目标"
@@ -464,7 +316,8 @@
                 android:layout_height="wrap_content" />
 
             <!-- v6（11.1）：「数据 / 调试 / 知识库」三组迁「我的」页（view_mine_page.xml），
-                 设置页回归纯配置（模型服务 / 调用限制 / 个人 / 我的情况 / 目标 / 提醒 / 隐私）。 -->
+                 设置页回归纯配置（模型服务 / 调用限制 / 目标 / 提醒 / 隐私）。
+                 v7（下一轮 §5.1）：「个人 / 我的情况」两组亦迁「我的」页 · 个人信息。 -->
         </LinearLayout>
     </ScrollView>
 

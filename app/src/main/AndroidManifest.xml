@@ -55,6 +55,11 @@
             android:name=".ui.SettingsActivity"
             android:exported="false" />
 
+        <!-- 个人信息页（P1）：设置页「个人 / 我的情况」两组迁至此，入口在「我的」页数据组 -->
+        <activity
+            android:name=".ui.PersonalInfoActivity"
+            android:exported="false" />
+
         <!--
             知识库管理页（设计规范系统 10.3，F12）。
             v6（11.1）后单入口在「我的」页；解析纯本地，飞行模式下全流程可用。

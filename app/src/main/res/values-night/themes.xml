@@ -3,6 +3,9 @@
 <resources>
     <style name="Theme.Healix" parent="Theme.MaterialComponents.NoActionBar">
         <item name="android:colorBackground">@color/bg</item>
+        <!-- 窗口背景不透明（夜晚模式是整套重定义，styles 不跨资源限定符合并 → 必须在此再写一次）：
+             转场首帧即不透明，消除二级页双窗口模型下的"露出上一个 Activity"叠影来源。 -->
+        <item name="android:windowBackground">@color/bg</item>
         <item name="android:textColorPrimary">@color/text_1</item>
         <item name="android:textColorSecondary">@color/text_2</item>
         <item name="android:textColorHint">@color/text_2</item>

@@ -69,6 +69,8 @@ class HealixWidgetProvider : AppWidgetProvider() {
                 ),
             )
             views.setOnClickPendingIntent(R.id.btnAdd, logIntent(context))
+            // §5.2 整卡点击：点卡片看状态（进「记录」Tab，不带聚焦），点按钮直达速记
+            views.setOnClickPendingIntent(R.id.widgetRoot, openIntent(context))
             return views
         }
 
@@ -81,6 +83,24 @@ class HealixWidgetProvider : AppWidgetProvider() {
                     addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
                     putExtra(TabBar.EXTRA_TAB, TabBar.TAB_RECORD)
                     putExtra(MainActivity.EXTRA_FOCUS_INPUT, true)
+                },
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+
+        /**
+         * 整卡点击（§5.2）→ 主界面「记录」Tab。
+         *
+         * ⚠️ **不带** `EXTRA_FOCUS_INPUT`（区别于 [logIntent] 按钮：点卡片看状态、
+         * 点按钮直达速记），且 requestCode 用 1 与按钮的 0 区分，避免
+         * PendingIntent 复用导致「整卡也聚焦输入框」。
+         */
+        private fun openIntent(context: Context): PendingIntent =
+            PendingIntent.getActivity(
+                context,
+                1,
+                Intent(context, MainActivity::class.java).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                    putExtra(TabBar.EXTRA_TAB, TabBar.TAB_RECORD)
                 },
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )

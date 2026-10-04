@@ -13,12 +13,10 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
-import androidx.core.widget.doAfterTextChanged
 import com.healix.app.HealixApp
 import com.healix.app.R
 import com.healix.app.databinding.ActivitySettingsBinding
 import com.healix.app.databinding.RowSettingValueBinding
-import com.healix.app.databinding.RowSheetFieldBinding
 import com.healix.app.db.GoalMetrics
 import com.healix.app.db.ReminderEntity
 import com.healix.app.db.SettingsKeys
@@ -39,9 +37,6 @@ class SettingsActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivitySettingsBinding
     private lateinit var vm: SettingsViewModel
-
-    /** 背景项：最近一次已落库的内容，用于避免重复写入。 */
-    private var lastSavedBackground: String = ""
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -64,37 +59,13 @@ class SettingsActivity : AppCompatActivity() {
         // ── 调用限制 ──────────────────────────────────────────────
         // 配额口径改造（2026-10-05）：每日上限改为护栏内置常量（QuotaGuard.DEFAULT_*），
         // 不再提供设置项；这两行只读展示今日实际调用量，值在 observe() 回填。
+        // 日界线（原「个人」组）上移到本组顶部：它决定配额日窗口与会话切日，
+        // 是系统参数而非个人信息（P1 迁移决策 2）。
+        setupRow(binding.rowDayStart, R.string.setting_day_start) { editInt(KEY_DAY_START, R.string.setting_day_start) }
         binding.rowExtractQuota.label.setText(R.string.setting_today_extract)
         binding.rowChatQuota.label.setText(R.string.setting_today_chat)
         setupRow(binding.rowRetry, R.string.setting_retry) { editInt(KEY_RETRY, R.string.setting_retry) }
         setupRow(binding.rowRetryDelay, R.string.setting_retry_delay) { editDecimal(KEY_RETRY_DELAY, R.string.setting_retry_delay) }
-
-        // ── 个人 ─────────────────────────────────────────────────
-        // 当前体重（F5 回归修正）：入口与存储分离 —— 点击弹数值输入，
-        // 确认后写一条 events(type=body)（与「记一笔」同一条数据管道），
-        // 不在 settings 存静态体重字段；体重目标仍在「目标」组。
-        setupRow(binding.rowCurrentWeight, R.string.setting_current_weight) { editCurrentWeight() }
-        setupRow(binding.rowHeight, R.string.setting_height) { editInt(KEY_HEIGHT, R.string.setting_height) }
-        setupRow(binding.rowAge, R.string.setting_age) { editInt(KEY_AGE, R.string.setting_age) }
-        setupRow(binding.rowActivity, R.string.setting_activity) { chooseActivity() }
-        setupRow(binding.rowTargetKcal, R.string.setting_target_kcal) { editInt(KEY_TARGET_KCAL, R.string.setting_target_kcal) }
-        setupRow(binding.rowDayStart, R.string.setting_day_start) { editInt(KEY_DAY_START, R.string.setting_day_start) }
-
-        // ── 我的情况（结构化画像，F6）────────────────────────────
-        // 硬约束（忌口/疼痛/器材）结构化，软背景（场景/作息/补充说明）轻量填写。
-        // 标签编辑复用 ConfirmSheet 同款字段弹窗，顿号/逗号分隔输入。
-        setupRow(binding.rowProfileAllergens, R.string.setting_profile_allergens) {
-            editProfileTags(SettingsKeys.PROFILE_ALLERGENS, R.string.setting_profile_allergens)
-        }
-        setupRow(binding.rowProfilePain, R.string.setting_profile_pain) {
-            editProfileTags(SettingsKeys.PROFILE_PAIN, R.string.setting_profile_pain)
-        }
-        setupRow(binding.rowProfileScene, R.string.setting_profile_scene) { chooseProfileScene() }
-        // 「可用器材」行已并入「我的」页 · 资源清单（运动条件）；旧数据由
-        // ResourceStore.sport() 兜底读取，设置页不再暴露该行。
-        setupRow(binding.rowProfileSleep, R.string.setting_profile_sleep) { editProfileSleep() }
-
-        setupBackground()
 
         // ── 目标（goals 表）──────────────────────────────────────
         setupRow(binding.rowGoalPrimary, R.string.setting_primary_goal) { choosePrimaryGoal() }
@@ -129,58 +100,6 @@ class SettingsActivity : AppCompatActivity() {
         row.root.setOnClickListener { onClick() }
     }
 
-    /**
-     * 背景项（自由文本，多行）。
-     *
-     * 与其它设置项的区别：它是一个**常驻输入框**而不是弹窗 ——
-     * 背景往往是几行零散信息，弹窗里写长文本体验差（且弹窗会被软键盘顶变形）。
-     *
-     * 保存时机：**失焦**（onFocusChange）+ **返回键退出前**（onPause 兜底）。
-     * 不做 TextWatcher 实时写库 —— 每次按键写一次 SQLite 是无谓的 IO。
-     *
-     * 上限 [BACKGROUND_MAX] 字：超过就硬截断。
-     * 截断必须在**输入时**做，不能只在保存时做 —— 否则用户看到 2500 字打进去、
-     * 存下来只剩 2000，属于静默丢数据（违反"不丢用户数据"的项目约束）。
-     */
-    private fun setupBackground() {
-        val edit = binding.editBackground
-
-        // 输入时即截断 + 实时更新字数（CharSequence 长度按 UTF-16，中文 1 字 = 1）
-        edit.filters = arrayOf(
-            android.text.InputFilter.LengthFilter(BACKGROUND_MAX)
-        )
-        edit.doAfterTextChanged { text ->
-            binding.backgroundCount.text = getString(
-                R.string.setting_background_count,
-                text?.length ?: 0,
-                BACKGROUND_MAX,
-            )
-        }
-        // 首帧先把计数显示为已有内容的长度（否则显示 0/N 与实际不符）
-        binding.backgroundCount.text = getString(
-            R.string.setting_background_count, edit.text.length, BACKGROUND_MAX,
-        )
-
-        // 失焦保存
-        edit.setOnFocusChangeListener { _, hasFocus ->
-            if (!hasFocus) saveBackground()
-        }
-    }
-
-    /** 把输入框内容落库。内容没变则不写（避免无谓 IO 与 StateFlow 抖动）。 */
-    private fun saveBackground() {
-        val text = binding.editBackground.text.toString().trim()
-        if (text == lastSavedBackground) return
-        lastSavedBackground = text
-        vm.put(KEY_BACKGROUND, text)
-    }
-
-    override fun onPause() {
-        // 兜底：用户直接按返回 / 切后台时不走失焦回调，这里补一次
-        super.onPause()
-        if (::binding.isInitialized) saveBackground()
-    }
-
     /** v6 11.2：二级页返回走 in_back 转场（覆盖返回键与手势返回）。 */
     override fun finish() {
         super.finish()
@@ -194,46 +113,11 @@ class SettingsActivity : AppCompatActivity() {
                     binding.rowProvider.value.text = providerLabel(v.provider)
                     binding.rowBaseUrl.value.text = v.baseUrl.ifBlank { "—" }
                     binding.rowModel.value.text = v.model.ifBlank { "—" }
-                    binding.rowApiKey.value.text = if (v.hasApiKey) MASK else getString(R.string.no_provider_config).let { "未设置" }
+                    binding.rowApiKey.value.text = if (v.hasApiKey) MASK else getString(R.string.value_not_set)
                     binding.rowExtractQuota.value.text = getString(R.string.unit_times, v.usedExtractToday)
                     binding.rowChatQuota.value.text = getString(R.string.unit_times, v.usedChatToday)
                     binding.rowRetry.value.text = getString(R.string.unit_times, v.retry)
                     binding.rowRetryDelay.value.text = getString(R.string.unit_seconds, trim(v.retryDelay))
-                    binding.rowHeight.value.text = if (v.height > 0) getString(R.string.unit_cm, v.height) else "—"
-                    binding.rowAge.value.text = if (v.age > 0) getString(R.string.unit_years, v.age) else "—"
-                    // 当前体重行（F5）：有记录显示「值 · 相对时间」；从未记录显示灰色「未记录」
-                    if (v.latestWeightKg > 0) {
-                        binding.rowCurrentWeight.value.text = getString(
-                            R.string.setting_current_weight_value,
-                            trim(v.latestWeightKg),
-                            agoLabel(v.latestWeightDayKey),
-                        )
-                        binding.rowCurrentWeight.value.setTextColor(
-                            ContextCompat.getColor(this@SettingsActivity, R.color.text_2)
-                        )
-                    } else {
-                        binding.rowCurrentWeight.value.text = getString(R.string.setting_weight_none)
-                        binding.rowCurrentWeight.value.setTextColor(
-                            ContextCompat.getColor(this@SettingsActivity, R.color.text_3)
-                        )
-                    }
-
-                    // 我的情况（F6）：画像行右侧值；未填写显示「—」
-                    binding.rowProfileAllergens.value.text = v.profileAllergens.joinToString("、").ifBlank { "—" }
-                    binding.rowProfilePain.value.text = v.profilePain.joinToString("、").ifBlank { "—" }
-                    binding.rowProfileScene.value.text = v.profileScene.ifBlank { "—" }
-                    binding.rowProfileSleep.value.text = when {
-                        v.profileSleepBed.isNotBlank() && v.profileSleepWake.isNotBlank() ->
-                            getString(
-                                R.string.setting_profile_sleep_value,
-                                v.profileSleepBed,
-                                v.profileSleepWake,
-                            )
-                        else -> listOf(v.profileSleepBed, v.profileSleepWake)
-                            .firstOrNull { it.isNotBlank() } ?: "—"
-                    }
-                    binding.rowActivity.value.text = activityLabel(v.activity)
-                    binding.rowTargetKcal.value.text = getString(R.string.plan_item_kcal, "", v.targetKcal).trimStart(' ', '·')
                     binding.rowDayStart.value.text = getString(R.string.unit_hour_clock, v.dayStart)
 
                     // 隐私：右侧值文字即状态，点击切换（不引入 Switch，规范 9.7 ④）
@@ -241,16 +125,6 @@ class SettingsActivity : AppCompatActivity() {
                         getString(if (v.hideKcal) R.string.value_hidden else R.string.value_shown)
                     binding.rowHideWeight.value.text =
                         getString(if (v.hideWeight) R.string.value_hidden else R.string.value_shown)
-
-                    // 背景：只在「用户没在编辑」时回填。
-                    // 否则 vm.reload() 触发的回填会把用户正在敲的字覆写掉。
-                    if (!binding.editBackground.hasFocus() &&
-                        binding.editBackground.text.toString() != v.background
-                    ) {
-                        binding.editBackground.setText(v.background)
-                        binding.editBackground.setSelection(v.background.length)
-                        lastSavedBackground = v.background
-                    }
                 }
             }
         }
@@ -384,21 +258,6 @@ class SettingsActivity : AppCompatActivity() {
             .show()
     }
 
-    /**
-     * 「当前体重」编辑弹窗（F5）：复用 ConfirmSheet 同款字段行（[showFieldDialog]）。
-     * 回显最近一条记录值；确认后经 [SettingsViewModel.saveCurrentWeight]
-     * 写一条 events(type=body)，走与「记一笔」相同的数据管道。
-     */
-    private fun editCurrentWeight() {
-        val initial = trimOrEmpty(vm.values.value.latestWeightKg)
-        showFieldDialog(
-            R.string.setting_current_weight,
-            listOf(FieldSpec(R.string.setting_weight, initial, NUMBER_DECIMAL)),
-        ) { raw ->
-            raw.firstOrNull()?.toDoubleOrNull()?.let { vm.saveCurrentWeight(it) }
-        }
-    }
-
     private fun editGoalWeight() {
         val initial = trimOrEmpty(currentTarget(GoalMetrics.WEIGHT_KG, 0.0))
         showFieldDialog(
@@ -444,81 +303,6 @@ class SettingsActivity : AppCompatActivity() {
         ) { raw ->
             raw.firstOrNull()?.toIntOrNull()?.let { vm.setGoalTarget(GoalMetrics.WATER_ML, it.toDouble()) }
         }
-    }
-
-    // ── 我的情况（结构化画像，F6）─────────────────────────────────
-
-    /**
-     * 标签类画像编辑（忌口 / 疼痛 / 器材）。
-     * 复用 ConfirmSheet 同款字段弹窗（[showFieldDialog]），顿号/逗号分隔输入 ——
-     * 功能清单 F6 明确不做花式 chip 编辑器。空输入 = 清空该字段
-     * （[SettingsViewModel.put] 对空串执行 remove）。
-     */
-    private fun editProfileTags(key: String, labelRes: Int) {
-        val v = vm.values.value
-        val current = when (key) {
-            SettingsKeys.PROFILE_ALLERGENS -> v.profileAllergens
-            SettingsKeys.PROFILE_PAIN -> v.profilePain
-            else -> emptyList() // 器材行已并入资源清单（ResourceStore.sport 兜底读旧值）
-        }
-        showFieldDialog(
-            labelRes,
-            listOf(FieldSpec(labelRes, current.joinToString("、"), InputType.TYPE_CLASS_TEXT)),
-        ) { raw ->
-            val items = raw.getOrNull(0).orEmpty()
-                .split("、", ",", "，", ";", "；", "/", "|")
-                .map { it.trim() }
-                .filter { it.isNotEmpty() }
-                .distinct()
-            vm.put(key, listToJson(items))
-        }
-    }
-
-    /** 就餐场景单选（F6：宿舍 / 食堂 / 外卖 / 自己做饭；首项「未固定」清空）。 */
-    private fun chooseProfileScene() {
-        val options = resources.getStringArray(R.array.profile_scenes)
-        val items = arrayOf<CharSequence>(
-            getString(R.string.setting_profile_scene_fixed),
-            *options.map { it as CharSequence }.toTypedArray(),
-        )
-        AlertDialog.Builder(this)
-            .setTitle(R.string.setting_profile_scene)
-            .setItems(items) { _, which ->
-                vm.put(SettingsKeys.PROFILE_SCENE, if (which == 0) "" else options[which - 1])
-            }
-            .setNegativeButton(R.string.cancel, null as DialogInterface.OnClickListener?)
-            .show()
-    }
-
-    /**
-     * 作息两时间（F6 软背景）：就寝 / 起床，`HH:mm` 输入。
-     * 清空输入 = 清除该项；非空但格式不合法的项跳过（不猜）。
-     */
-    private fun editProfileSleep() {
-        val v = vm.values.value
-        showFieldDialog(
-            R.string.setting_profile_sleep,
-            listOf(
-                FieldSpec(R.string.setting_profile_bed_label, v.profileSleepBed, InputType.TYPE_CLASS_TEXT),
-                FieldSpec(R.string.setting_profile_wake_label, v.profileSleepWake, InputType.TYPE_CLASS_TEXT),
-            ),
-        ) { raw ->
-            val bed = raw.getOrNull(0).orEmpty().trim()
-            val wake = raw.getOrNull(1).orEmpty().trim()
-            listOf(
-                SettingsKeys.PROFILE_SLEEP_BED to bed,
-                SettingsKeys.PROFILE_SLEEP_WAKE to wake,
-            ).forEach { (k, value) ->
-                if (value.isBlank() || TIME_RE.matches(value)) vm.put(k, value)
-            }
-        }
-    }
-
-    /** List → JSON 数组字符串（与 AI 抽取的 foods 存储形态同构）。 */
-    private fun listToJson(items: List<String>): String {
-        val arr = org.json.JSONArray()
-        items.forEach { arr.put(it) }
-        return arr.toString()
     }
 
     // ── 提醒渲染与编辑 ────────────────────────────────────────────
@@ -589,31 +373,19 @@ class SettingsActivity : AppCompatActivity() {
         }
     }
 
-    /** 复用 ConfirmSheet 的字段行（`row_sheet_field`）做数值 / 文本编辑。 */
+    /**
+     * 字段编辑弹窗（§5.1 弹窗统一）：委托 [FieldSheet] 底色容器载体，
+     * 与个人信息页 / 预设管理页共用同一组件（不再用系统 AlertDialog，
+     * 落实设计规范「无底色容器原则」）。[FieldSpec] 为既有私有入参规格，
+     * 转换为 [FieldSheet.FieldSpec] 后下传；[onOk] 收到的字段顺序与 specs 一致。
+     */
     private fun showFieldDialog(titleRes: Int, specs: List<FieldSpec>, onOk: (List<String>) -> Unit) {
-        val container = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            val pad = (20 * resources.displayMetrics.density).toInt()
-            setPadding(pad, pad / 2, pad, 0)
-        }
-        val inputs = mutableListOf<EditText>()
-        specs.forEach { spec ->
-            val b = RowSheetFieldBinding.inflate(layoutInflater, container, false)
-            b.fieldLabel.setText(spec.labelRes)
-            b.fieldValue.setText(spec.initial)
-            b.fieldValue.inputType = spec.inputType
-            b.fieldValue.setSelection(b.fieldValue.text.length)
-            container.addView(b.root)
-            inputs += b.fieldValue
-        }
-        AlertDialog.Builder(this)
-            .setTitle(titleRes)
-            .setView(container)
-            .setPositiveButton(R.string.confirm) { _: DialogInterface, _: Int ->
-                onOk(inputs.map { it.text.toString().trim() })
-            }
-            .setNegativeButton(R.string.cancel, null as DialogInterface.OnClickListener?)
-            .show()
+        val sheet = FieldSheet.newInstance(
+            titleRes,
+            specs.map { FieldSheet.FieldSpec(it.labelRes, it.initial, it.inputType) },
+        )
+        sheet.onResult = onOk
+        sheet.show(supportFragmentManager, FieldSheet.TAG)
     }
 
     /** 字段行规格（label 用资源 id，避免硬编码中文）。 */
@@ -622,22 +394,6 @@ class SettingsActivity : AppCompatActivity() {
     /** 毫秒时间戳 → `yyyy-MM-dd`（本地时区）。 */
     private fun dateLabel(ts: Long): String =
         Instant.ofEpochMilli(ts).atZone(ZoneId.systemDefault()).toLocalDate().toString()
-
-    /**
-     * day_key（yyyy-MM-dd）→ 相对时间：「今天」/「N 天前」。
-     * 解析失败按"很久以前"处理（返回空串占位，让上层拼接后仍可读）。
-     */
-    private fun agoLabel(dayKey: String): String {
-        if (dayKey.isBlank()) return ""
-        val days = runCatching {
-            java.time.temporal.ChronoUnit.DAYS.between(LocalDate.parse(dayKey), LocalDate.now())
-        }.getOrDefault(-1L)
-        return when {
-            days < 0 -> ""
-            days <= 0 -> getString(R.string.setting_weight_ago_today)
-            else -> getString(R.string.setting_weight_ago_days, days)
-        }
-    }
 
     /** `yyyy-MM-dd` → 当天 0 点的毫秒时间戳；空或解析失败返回 null（不猜）。 */
     private fun parseDate(s: String): Long? {
@@ -776,27 +532,12 @@ class SettingsActivity : AppCompatActivity() {
             .show()
     }
 
-    private fun chooseActivity() {
-        val labels = resources.getStringArray(R.array.activity_levels)
-        AlertDialog.Builder(this)
-            .setTitle(R.string.setting_activity)
-            .setItems(labels) { _, which -> vm.put(KEY_ACTIVITY, ACTIVITY_VALUES[which]) }
-            .setNegativeButton(R.string.cancel, null as android.content.DialogInterface.OnClickListener?)
-            .show()
-    }
-
     private fun providerLabel(id: String): String = when (id) {
         "zhipu" -> "智谱 GLM"
         "deepseek" -> "DeepSeek"
         "openrouter" -> "OpenRouter"
         "siliconflow" -> "SiliconFlow"
         else -> getString(R.string.setting_custom)
-    }
-
-    private fun activityLabel(value: String): String {
-        val labels = resources.getStringArray(R.array.activity_levels)
-        val idx = ACTIVITY_VALUES.indexOf(value)
-        return labels.getOrElse(idx) { labels[0] }
     }
 
     private fun trim(v: Double): String =
@@ -828,24 +569,11 @@ class SettingsActivity : AppCompatActivity() {
         const val KEY_HIDE_KCAL = SettingsKeys.HIDE_KCAL
         const val KEY_HIDE_WEIGHT = SettingsKeys.HIDE_WEIGHT
 
-        /**
-         * 背景字数上限。
-         * 2000 字中文约 2000-2600 token，对免费档是可控的开销；
-         * 再长会挤占今日摘要与历史窗口的预算。
-         */
-        const val BACKGROUND_MAX = 2000
-
-        /** 活动系数（总方案第五节 BMR 公式）。 */
-        val ACTIVITY_VALUES = listOf("1.2", "1.375", "1.55", "1.725")
-
         /** 一天的毫秒数，用于提醒临期（≤7 天）判定。 */
         private const val DAY_MS = 24L * 60 * 60 * 1000
 
         private const val NUMBER_INT = InputType.TYPE_CLASS_NUMBER
         private const val NUMBER_DECIMAL =
             InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
-
-        /** 作息时间格式（F6）：`HH:mm`，如 `00:30` / `7:30`。 */
-        private val TIME_RE = Regex("""\d{1,2}:\d{2}""")
     }
 }

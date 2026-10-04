@@ -124,6 +124,18 @@
                 android:background="@color/line" />
 
             <include
+                android:id="@+id/rowPersonalInfo"
+                layout="@layout/row_setting_value"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="@dimen/divider"
+                android:layout_marginStart="@dimen/screen_margin"
+                android:background="@color/line" />
+
+            <include
                 android:id="@+id/rowExport"
                 layout="@layout/row_setting_value"
                 android:layout_width="match_parent"

@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    前进转场（设计规范 11.2）：新页 translateX(22%)→0 + 透明度 0.3→1。
-    时长对应原型 dur_slow 变量（400ms）。由 startActivity 后 overridePendingTransition 注入。
+    前进转场（设计规范 11.2）：新页 translateX(22%)→0。
+    ⚠️ 仅位移、恒不透明 —— 不加 alpha。Android 是双窗口共存模型，
+       入场窗口一旦半透明，被盖住的旧窗口会透出，形成"页面叠影"。
+       时长对应原型 dur_slow（400ms）。由 startActivity 后 overridePendingTransition 注入。
 -->
 <set xmlns:android="http://schemas.android.com/apk/res/android"
     android:interpolator="@android:interpolator/decelerate_cubic"
@@ -11,8 +13,4 @@
     <translate
         android:fromXDelta="22%"
         android:toXDelta="0" />
-
-    <alpha
-        android:fromAlpha="0.3"
-        android:toAlpha="1.0" />
 </set>

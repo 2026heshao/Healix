@@ -52,6 +52,8 @@ data class SettingsValues(
     val dayStart: Int = 4,
     /** 用户背景（自由文本）。空 = 未填写，走原 prompt 路径。 */
     val background: String = "",
+    /** 自由文本目标（「我的目标」，settings 键 GOAL_STATEMENT）。空 = 未填写。 */
+    val goalStatement: String = "",
     val debugSummary: String = "",
     /** 隐私：隐藏热量数字（settings 键 HIDE_KCAL）。 */
     val hideKcal: Boolean = false,
@@ -257,6 +259,7 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
             targetKcal = all[SettingsActivity.KEY_TARGET_KCAL]?.toIntOrNull() ?: 2500,
             dayStart = all[SettingsActivity.KEY_DAY_START]?.toIntOrNull() ?: 4,
             background = all[SettingsActivity.KEY_BACKGROUND].orEmpty(),
+            goalStatement = all[SettingsKeys.GOAL_STATEMENT].orEmpty(),
             debugSummary = "今日 ${quotas.usedToday()} 次 · 失败 ${quotas.failedToday()}",
             hideKcal = all[SettingsActivity.KEY_HIDE_KCAL] == "true",
             hideWeight = all[SettingsActivity.KEY_HIDE_WEIGHT] == "true",

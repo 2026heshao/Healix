@@ -112,15 +112,21 @@ internal object TabBar {
         }
     }
 
-    /** 助理页 → 其它 Tab：记录 = 返回栈顶下的主界面；我的 = 重开主界面并定位。 */
+    /**
+     * 助理页 → 其它 Tab（记录 / 我的）。
+     *
+     * ⚠️ P0-A 修复（2026-10-05）：此前只对 TAB_MINE 带 `EXTRA_TAB`，TAB_RECORD
+     * 走裸 `finish()` —— MainActivity 恢复到"离开时所在的 Tab"（多为「我的」），
+     * 于是助理页点「记录」被弹回「我的」。现对**两个目标都**带 `EXTRA_TAB`，
+     * 下游 `MainActivity.onNewIntent`（已处理两种 extra）、`showTab` 同 Tab
+     * no-op 守卫、`onCreate` 冷启动兜底全部现成，无需再动。
+     */
     private fun chatTo(activity: Activity, target: Int) {
-        if (target == TAB_MINE) {
-            activity.startActivity(
-                Intent(activity, MainActivity::class.java)
-                    .putExtra(EXTRA_TAB, TAB_MINE)
-                    .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
-            )
-        }
+        activity.startActivity(
+            Intent(activity, MainActivity::class.java)
+                .putExtra(EXTRA_TAB, target)
+                .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+        )
         activity.finish()
         activity.overridePendingTransition(R.anim.in_tab, R.anim.hold)
     }

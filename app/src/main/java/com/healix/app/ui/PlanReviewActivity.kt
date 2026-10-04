@@ -40,6 +40,7 @@ class PlanReviewActivity : AppCompatActivity() {
         binding.tabReview.setOnClickListener { selectTab(PlanTab.REVIEW) }
         binding.btnGenerate.setOnClickListener { vm.generateTraining() }
         binding.btnTrainingRetry.setOnClickListener { vm.generateTraining() }
+        binding.btnUpdatePlan.setOnClickListener { vm.updatePlan() }
 
         selectTab(PlanTab.PLAN)
         observe()
@@ -94,10 +95,8 @@ class PlanReviewActivity : AppCompatActivity() {
                         } else {
                             getString(R.string.plan_reached)
                         }
-                        renderPlanItems(plan)
-                        binding.planNote.text = plan.note
-                        binding.planNote.visibility =
-                            if (plan.note.isNullOrBlank()) View.GONE else View.VISIBLE
+                        renderPlanHeader(plan)
+                        renderTimeline(plan)
                     }
                 }
 
@@ -137,41 +136,107 @@ class PlanReviewActivity : AppCompatActivity() {
     }
 
     // ------------------------------------------------------------------
-    // 计划 / 复盘渲染（沿用既有实现）
+    // 计划 Tab 渲染（单条时间轴）
     // ------------------------------------------------------------------
 
-    private fun renderPlanItems(plan: PlanUiState) {
+    /** 计划 Tab 顶部：来源行（左）+ 更新按钮（右）+ 兜底/失败提示行。 */
+    private fun renderPlanHeader(plan: PlanUiState) {
+        // 更新按钮：生成中置「更新中」并禁用（与训练页「生成本周计划」一致）
+        binding.btnUpdatePlan.isEnabled = !plan.updating
+        binding.btnUpdatePlan.text = getString(
+            if (plan.updating) R.string.plan_updating else R.string.plan_update,
+        )
+
+        // 来源行：来源名 · HH:mm 生成（无条目时不显示）
+        val hasItems = plan.items.isNotEmpty()
+        binding.planSourceLabel.visibility = if (hasItems) View.VISIBLE else View.GONE
+        if (hasItems) {
+            val srcName = if (plan.source == TrainingPlanner.SOURCE_AI) {
+                getString(R.string.plan_source_ai)
+            } else {
+                getString(R.string.mode_simplified_local)
+            }
+            val time = if (plan.generatedAt > 0) hhmm(plan.generatedAt) else "--:--"
+            binding.planSourceLabel.text = getString(R.string.plan_source_line, srcName, time)
+        }
+
+        // 提示行：失败 / 配额不足 / 兜底模式，取最相关的一条
+        val hint = when {
+            // 有旧版 → 屏幕上确实还是旧版；无旧版 → 这是刚建的本地兜底，
+            // 不能说「仍显示上一次的计划」（那是谎话）
+            plan.failed && plan.fromCache -> getString(R.string.plan_update_failed)
+            plan.failed -> getString(R.string.plan_update_local_fallback)
+            plan.quotaExhausted -> getString(R.string.quota_exhausted_short)
+            plan.source == TrainingPlanner.SOURCE_FALLBACK -> getString(R.string.mode_simplified_local)
+            else -> null
+        }
+        binding.planModeLabel.visibility = if (hint == null) View.GONE else View.VISIBLE
+        if (hint != null) binding.planModeLabel.text = hint
+    }
+
+    /**
+     * 计划 Tab 内容：一条按 `HH:mm` 的时间轴（吃/练/睡排在同一条轴上）。
+     *
+     * 渲染约定（增量设计附录 B）：`time` 为空 → 时间列与线/点 `GONE`；`meta` 复用
+     * `plan_action_meta`（duration 空则「——」、why 空则不显示）；仅 `meal`/`exercise`
+     * 显示「记一笔」；**最后一项** `tlLine` 置 `INVISIBLE`（不让竖线拖出屏幕）。
+     */
+    private fun renderTimeline(plan: PlanUiState) {
         binding.itemContainer.removeAllViews()
         if (plan.items.isEmpty()) {
             binding.planNote.text = getString(R.string.nodata)
+            binding.planNote.visibility = View.VISIBLE
             return
         }
-        for (item in plan.items) {
+        val lastIndex = plan.items.lastIndex
+        plan.items.forEachIndexed { index, item ->
             val row = layoutInflater.inflate(
-                R.layout.item_plan_suggestion, binding.itemContainer, false,
+                R.layout.item_plan_timeline, binding.itemContainer, false,
             )
-            val title = row.findViewById<TextView>(R.id.itemTitle)
-            val detail = row.findViewById<TextView>(R.id.itemDetail)
-            val meta = row.findViewById<TextView>(R.id.itemMeta)
+            val time = row.findViewById<TextView>(R.id.tlTime)
+            val rail = row.findViewById<View>(R.id.tlRail)
+            val line = row.findViewById<View>(R.id.tlLine)
+            val title = row.findViewById<TextView>(R.id.tlTitle)
+            val detail = row.findViewById<TextView>(R.id.tlDetail)
+            val meta = row.findViewById<TextView>(R.id.tlMeta)
             val logBtn = row.findViewById<TextView>(R.id.btnLogThis)
 
-            title.text = getString(R.string.plan_item_kcal, item.title, item.kcal)
+            // 时间列：旧数据 time 可能为空 → 时间列与线/点整块隐藏
+            val hasTime = item.time.isNotBlank()
+            time.text = item.time
+            time.visibility = if (hasTime) View.VISIBLE else View.GONE
+            rail.visibility = if (hasTime) View.VISIBLE else View.GONE
+
+            // 最后一项的竖线不外露（保留占位，不影响对齐）
+            if (index == lastIndex) line.visibility = View.INVISIBLE
+
+            title.text = item.title
             detail.text = item.detail
-            // 行动条三要素之二三（F8）：大概多久 · 为什么是现在；两者都空则不占行
+            detail.visibility = if (item.detail.isBlank()) View.GONE else View.VISIBLE
+
+            // meta：duration · why；两者都空则不占行
             val durationText = item.duration.ifBlank { "——" }
-            meta.text = if (item.whyNow.isBlank()) {
+            meta.text = if (item.why.isBlank()) {
                 durationText
             } else {
-                getString(R.string.plan_action_meta, durationText, item.whyNow)
+                getString(R.string.plan_action_meta, durationText, item.why)
             }
-            meta.visibility = if (item.duration.isBlank() && item.whyNow.isBlank()) {
+            meta.visibility = if (item.duration.isBlank() && item.why.isBlank()) {
                 View.GONE
             } else {
                 View.VISIBLE
             }
-            logBtn.setOnClickListener { vm.logSuggestion(item) }
+
+            // 「记一笔」仅对 meal / exercise 显示（sleep/habit 直写会造出假数据）
+            val canLog = item.type == "meal" || item.type == "exercise"
+            logBtn.visibility = if (canLog) View.VISIBLE else View.GONE
+            if (canLog) logBtn.setOnClickListener { vm.logSuggestion(item) }
+
             binding.itemContainer.addView(row)
         }
+
+        binding.planNote.text = plan.note
+        binding.planNote.visibility = if (plan.note.isBlank()) View.GONE else View.VISIBLE
     }
 
     // ------------------------------------------------------------------
@@ -283,6 +348,14 @@ class PlanReviewActivity : AppCompatActivity() {
     private fun color(resId: Int): Int = ContextCompat.getColor(this, resId)
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+
+    /** epoch millis → 本地 `HH:mm`（24 小时制两位补零，与时间轴同口径）。 */
+    private fun hhmm(ts: Long): String {
+        val t = java.time.Instant.ofEpochMilli(ts)
+            .atZone(java.time.ZoneId.systemDefault())
+            .toLocalTime()
+        return String.format(java.util.Locale.US, "%02d:%02d", t.hour, t.minute)
+    }
 
     private fun trimNumber(v: Double): String =
         if (v == v.toLong().toDouble()) v.toLong().toString() else v.toString()

@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    后退转场的离场侧（设计规范 11.2）：二级页 0→22% + 淡出。
+    后退转场的离场侧（设计规范 11.2）：二级页 0→22%。
+    ⚠️ 仅位移、恒不透明（去掉 alpha 淡出）。
     与 in_back（返回页 -22%→0）配对，形成"退出"方向感。
 -->
 <set xmlns:android="http://schemas.android.com/apk/res/android"
@@ -11,8 +12,4 @@
     <translate
         android:fromXDelta="0"
         android:toXDelta="22%" />
-
-    <alpha
-        android:fromAlpha="1.0"
-        android:toAlpha="0.3" />
 </set>

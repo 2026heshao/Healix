@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    时间轴条目（增量设计附录 B）：时间列 + 圆点/竖线 + 标题/明细/meta + 记一笔。
+    无卡片、无阴影；竖线用 1dp @color/line，圆点用 bg_timeline_dot(@color/line_strong)。
+    ⚠️ tlRail 是线+点的容器，为"无时间(旧数据)时整列隐藏"提供整块可见性锚点。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal">
+
+    <!-- 左：时间列 -->
+    <TextView
+        android:id="@+id/tlTime"
+        style="@style/Text.Secondary"
+        android:layout_width="52dp"
+        android:layout_height="wrap_content"
+        android:gravity="end"
+        android:paddingTop="14dp"
+        android:paddingEnd="8dp"
+        tools:text="18:30" />
+
+    <!-- 中：竖线 + 圆点 -->
+    <FrameLayout
+        android:id="@+id/tlRail"
+        android:layout_width="16dp"
+        android:layout_height="match_parent"
+        android:paddingTop="14dp">
+
+        <View
+            android:id="@+id/tlLine"
+            android:layout_width="1dp"
+            android:layout_height="match_parent"
+            android:layout_gravity="center_horizontal"
+            android:background="@color/line" />
+
+        <View
+            android:id="@+id/tlDot"
+            android:layout_width="8dp"
+            android:layout_height="8dp"
+            android:layout_gravity="center_horizontal|top"
+            android:background="@drawable/bg_timeline_dot" />
+    </FrameLayout>
+
+    <!-- 右：内容 -->
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:paddingStart="8dp"
+        android:paddingTop="12dp"
+        android:paddingEnd="@dimen/screen_margin"
+        android:paddingBottom="16dp">
+
+        <TextView
+            android:id="@+id/tlTitle"
+            style="@style/Text.Body"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            tools:text="力量训练" />
+
+        <TextView
+            android:id="@+id/tlDetail"
+            style="@style/Text.Secondary"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            tools:text="深蹲 4×8 / 卧推 4×8" />
+
+        <TextView
+            android:id="@+id/tlMeta"
+            style="@style/Text.Secondary"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            tools:text="约 30 分钟 · 午餐后 6 小时，状态正好" />
+
+        <TextView
+            android:id="@+id/btnLogThis"
+            style="@style/Text.Link"
+            android:layout_width="wrap_content"
+            android:layout_height="@dimen/touch_min"
+            android:layout_gravity="end"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:gravity="center"
+            android:minWidth="@dimen/touch_min"
+            android:text="@string/log_this" />
+    </LinearLayout>
+</LinearLayout>

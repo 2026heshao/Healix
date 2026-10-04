@@ -50,8 +50,21 @@
         android:paddingStart="@dimen/screen_margin"
         android:paddingEnd="@dimen/screen_margin"
         android:paddingTop="14dp"
-        android:paddingBottom="14dp"
+        android:paddingBottom="4dp"
         tools:text="今日 7 次 · 失败 1 · P95 1.8s" />
+
+    <!-- 今日 token 合计（§4.1）：输入 / 输出 -->
+    <TextView
+        android:id="@+id/tokenLine"
+        style="@style/Text.Secondary"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:fontFamily="monospace"
+        android:paddingStart="@dimen/screen_margin"
+        android:paddingEnd="@dimen/screen_margin"
+        android:paddingTop="0dp"
+        android:paddingBottom="14dp"
+        tools:text="今日 token · 输入 1200 · 输出 800" />
 
     <View
         android:layout_width="match_parent"

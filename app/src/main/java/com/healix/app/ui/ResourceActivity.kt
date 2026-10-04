@@ -19,7 +19,7 @@ import kotlinx.coroutines.launch
  * AI 每次回答与计划自动读取（ChatViewModel / PlanReviewViewModel 走
  * [ResourceStore] 统一读口）。
  *
- * 保存时机与设置页背景项同一套（[SettingsActivity.setupBackground] 先例）：
+ * 资源清单的填写与「我的」页 · 个人信息里的背景项保存时机一致：
  * **失焦** + **onPause 兜底**，内容没变不写库。不做 TextWatcher 实时写 ——
  * 每键一次 SQLite 是无谓 IO。
  */

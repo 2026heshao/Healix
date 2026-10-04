@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    后退转场（设计规范 11.2）：返回到的页面 translateX(-22%)→0 + 透明度 0.3→1。
-    时长对应原型 dur_slow 变量（400ms）。由二级页 finish 后 overridePendingTransition 注入。
+    后退转场（设计规范 11.2）：返回到的页面 translateX(-22%)→0。
+    ⚠️ 仅位移、恒不透明（不加 alpha）。时长 dur_slow（400ms）。
+    由二级页 finish 后 overridePendingTransition 注入。
 -->
 <set xmlns:android="http://schemas.android.com/apk/res/android"
     android:interpolator="@android:interpolator/decelerate_cubic"
@@ -11,8 +12,4 @@
     <translate
         android:fromXDelta="-22%"
         android:toXDelta="0" />
-
-    <alpha
-        android:fromAlpha="0.3"
-        android:toAlpha="1.0" />
 </set>

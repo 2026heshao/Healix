@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    前进转场的离场侧（设计规范 11.2）：被盖住的页面 0→-22% + 淡出。
+    前进转场的离场侧（设计规范 11.2）：被盖住的页面 0→-22%。
+    ⚠️ 仅位移、恒不透明（去掉 alpha 淡出，避免左侧条带半透明露出下方）。
     与 in_fwd（新页 22%→0）配对，形成"推入"方向感。
 -->
 <set xmlns:android="http://schemas.android.com/apk/res/android"
@@ -11,8 +12,4 @@
     <translate
         android:fromXDelta="0"
         android:toXDelta="-22%" />
-
-    <alpha
-        android:fromAlpha="1.0"
-        android:toAlpha="0.3" />
 </set>

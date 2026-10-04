@@ -734,6 +734,38 @@ class EventRepository(private val context: Context) {
     }
 
     /**
+     * 计划链（purpose=plan）的调用埋点。计划页「更新」每次 provider 往返都记一条
+     * （成功与失败都记），是配额计数（`QuotaGuard.canExtract`，plan 归入抽取桶）
+     * 与调试页的数据来源。
+     *
+     * ⚠️ 与 [recordChatCall] 同管道（都转发私有 [recordCall]），只是 purpose 固定为
+     *    [PURPOSE_PLAN]；块体转发（转发 suspend 调用禁止 `= call()` 表达式体）。
+     */
+    suspend fun recordPlanCall(
+        model: String,
+        attempts: Int,
+        latencyMs: Long,
+        status: String,
+        httpCode: Int? = null,
+        inputTokens: Int? = null,
+        outputTokens: Int? = null,
+        errorHead: String? = null,
+    ) {
+        recordCall(
+            purpose = PURPOSE_PLAN,
+            eventId = null,
+            model = model,
+            attempts = attempts,
+            latencyMs = latencyMs,
+            status = status,
+            httpCode = httpCode,
+            inputTokens = inputTokens,
+            outputTokens = outputTokens,
+            errorHead = errorHead,
+        )
+    }
+
+    /**
      * 组装 provider 配置。
      *
      * baseUrl / model 来自 settings 表（非敏感，可导出迁移）；

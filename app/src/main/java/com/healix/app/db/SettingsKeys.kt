@@ -161,4 +161,14 @@ object SettingsKeys {
      * 保证用户至少真的看到过一眼。
      */
     const val GOAL_SOURCE_SEEN = "goal_source_seen"
+
+    // ── 自由文本目标（「我的目标」，本轮新增；唯一新增键）──────────────────
+    /**
+     * 用户自由文本目标（如「想练出马甲线」「年底前跑半马」）。
+     *
+     * ⚠️ 为什么必须落 settings 表：`goals.target_value` 是 `REAL`（无文本列），
+     *    自由文本目标无处可放。这是本模块**唯一新增的 settings 键**，不得改名/改值域；
+     *    空串 = 未填写，注入 prompt 时整段省略（与 [BACKGROUND] 同口径）。
+     */
+    const val GOAL_STATEMENT = "goal_statement"
 }

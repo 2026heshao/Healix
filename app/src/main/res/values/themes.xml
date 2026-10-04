@@ -10,6 +10,9 @@
     <style name="Theme.Healix" parent="Theme.MaterialComponents.Light.NoActionBar">
         <!-- 底色与文本 -->
         <item name="android:colorBackground">@color/bg</item>
+        <!-- 窗口背景不透明：转场首帧（内容尚未绘制时）也露出底色而非上一个 Activity，
+             消除二级页双窗口模型下的第二条"叠影"来源（见 11.2）。 -->
+        <item name="android:windowBackground">@color/bg</item>
         <item name="android:textColorPrimary">@color/text_1</item>
         <item name="android:textColorSecondary">@color/text_2</item>
         <item name="android:textColorHint">@color/text_2</item>

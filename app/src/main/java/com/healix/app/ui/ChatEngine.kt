@@ -27,7 +27,23 @@ internal object ChatEngine {
 
     enum class State { Ok, Queued, Degraded }
 
-    data class Reply(val text: String, val state: State)
+    /**
+     * 单轮回复结果。
+     *
+     * ⚠️ `2026-10-04` 起增补 usage / latency / httpCode / attempts / errorHead ——
+     * 用于**单轮回退路径补记 llm_calls**（§4.1）。全部有默认值，旧调用点
+     * （只读 `text` / `state`）无需改动。
+     */
+    data class Reply(
+        val text: String,
+        val state: State,
+        val latencyMs: Long = 0,
+        val inputTokens: Int? = null,
+        val outputTokens: Int? = null,
+        val httpCode: Int? = null,
+        val attempts: Int = 0,
+        val errorHead: String? = null,
+    )
 
     /**
      * 单轮回复。**不抛异常** —— 失败时返回本地模板回答并标记 Degraded。
@@ -67,6 +83,7 @@ internal object ChatEngine {
             add(ChatMessage(role = "user", content = userText))
         }
 
+        val startedAt = System.currentTimeMillis()
         val result = provider.chat(
             ChatRequest(
                 messages = messages,
@@ -77,23 +94,54 @@ internal object ChatEngine {
                 temperature = 0.7,
             ),
         )
+        val latencyMs = System.currentTimeMillis() - startedAt
 
         return when (result) {
             is ChatResult.Ok -> {
                 val text = result.content.trim()
                 if (text.isEmpty()) {
-                    Reply(localFallback(context), State.Degraded)
+                    Reply(
+                        text = localFallback(context),
+                        state = State.Degraded,
+                        latencyMs = latencyMs,
+                        inputTokens = result.usage.inputTokens,
+                        outputTokens = result.usage.outputTokens,
+                        httpCode = 200,
+                        attempts = 1,
+                    )
                 } else {
-                    Reply(text, State.Ok)
+                    Reply(
+                        text = text,
+                        state = State.Ok,
+                        latencyMs = latencyMs,
+                        inputTokens = result.usage.inputTokens,
+                        outputTokens = result.usage.outputTokens,
+                        httpCode = 200,
+                        attempts = 1,
+                    )
                 }
             }
 
             is ChatResult.Err -> when (result.kind) {
                 com.healix.app.net.ErrKind.RATE_LIMIT ->
                     // 限流是"排队中"而不是失败 —— 交给 UI 显示预估秒数
-                    Reply(result.message, State.Queued)
+                    Reply(
+                        text = result.message,
+                        state = State.Queued,
+                        latencyMs = latencyMs,
+                        httpCode = result.httpCode,
+                        attempts = result.attempts,
+                        errorHead = result.message,
+                    )
 
-                else -> Reply(localFallback(context), State.Degraded)
+                else -> Reply(
+                    text = localFallback(context),
+                    state = State.Degraded,
+                    latencyMs = latencyMs,
+                    httpCode = result.httpCode,
+                    attempts = result.attempts,
+                    errorHead = result.message,
+                )
             }
         }
     }

@@ -5,10 +5,7 @@ import android.text.InputType
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.EditText
-import android.widget.LinearLayout
 import android.widget.TextView
-import androidx.appcompat.app.AlertDialog
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -62,45 +59,33 @@ internal class PresetManageActivity : androidx.appcompat.app.AppCompatActivity()
     }
 
     /**
-     * 编辑器弹窗：preset == null 表示新建。名称必填（空则不落库，直接关 ——
-     * 与 SettingsActivity.editApiKey「空输入不保存」同一口径）；
-     * kcal 可空，空/非法按 0 处理。
+     * 编辑器弹窗（§5.1 统一）：preset == null 表示新建。走 [FieldSheet] 底色容器
+     * 载体（取代系统 AlertDialog）。名称必填（空则不落库，直接关 —— 与
+     * SettingsActivity.editApiKey「空输入不保存」同一口径）；kcal 可空，空/非法按 0 处理。
      */
     private fun showEditor(preset: PresetEntity?) {
-        val nameInput = EditText(this).apply {
-            hint = getString(R.string.preset_name_hint)
-            inputType = InputType.TYPE_CLASS_TEXT
-            setText(preset?.name.orEmpty())
-            setSelection(text.length)
+        val specs = listOf(
+            FieldSheet.FieldSpec(
+                R.string.preset_field_name,
+                preset?.name.orEmpty(),
+                InputType.TYPE_CLASS_TEXT,
+            ),
+            FieldSheet.FieldSpec(
+                R.string.preset_field_kcal,
+                if (preset != null && preset.kcal > 0) preset.kcal.toString() else "",
+                InputType.TYPE_CLASS_NUMBER,
+            ),
+        )
+        val sheet = FieldSheet.newInstance(
+            if (preset == null) R.string.preset_new_title else R.string.preset_edit_title,
+            specs,
+        )
+        sheet.onResult = { raw ->
+            val name = raw.getOrNull(0).orEmpty().trim()
+            val kcal = raw.getOrNull(1)?.toIntOrNull()?.coerceAtLeast(0) ?: 0
+            if (name.isNotEmpty()) save(preset, name, kcal)
         }
-        val kcalInput = EditText(this).apply {
-            hint = getString(R.string.preset_kcal_hint)
-            inputType = InputType.TYPE_CLASS_NUMBER
-            if (preset != null && preset.kcal > 0) setText(preset.kcal.toString())
-        }
-        val container = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            val pad = (20 * resources.displayMetrics.density).toInt()
-            setPadding(pad, pad / 2, pad, 0)
-            addView(nameInput)
-            addView(kcalInput)
-        }
-        val title = if (preset == null) R.string.preset_new_title else R.string.preset_edit_title
-        AlertDialog.Builder(this)
-            .setTitle(title)
-            .setView(container)
-            // ⚠️ 必须带类型 lambda（SettingsActivity.showDialog 注释实证：null 单参会歧义）
-            .setPositiveButton(R.string.confirm) { _: android.content.DialogInterface, _: Int ->
-                val name = nameInput.text.toString().trim()
-                if (name.isEmpty()) return@setPositiveButton
-                val kcal = kcalInput.text.toString().trim().toIntOrNull()?.coerceAtLeast(0) ?: 0
-                save(preset, name, kcal)
-            }
-            .setNegativeButton(
-                R.string.cancel,
-                null as android.content.DialogInterface.OnClickListener?,
-            )
-            .show()
+        sheet.show(supportFragmentManager, FieldSheet.TAG)
     }
 
     /** 落库（编辑复用 id 走 REPLACE；新建 id=0 自增）。useCount/lastUsed 保留原值。 */
@@ -119,20 +104,19 @@ internal class PresetManageActivity : androidx.appcompat.app.AppCompatActivity()
         }
     }
 
+    /** 删除二次确认（§5.1 统一）：走 [ActionConfirmSheet] 底色容器（取代系统 AlertDialog）。 */
     private fun confirmDelete(preset: PresetEntity) {
-        AlertDialog.Builder(this)
-            .setMessage(getString(R.string.preset_delete_confirm, preset.name))
-            .setPositiveButton(R.string.confirm) { _: android.content.DialogInterface, _: Int ->
-                val db = HealixApp.from(this).database
-                lifecycleScope.launch(Dispatchers.IO) {
-                    db.presetDao().delete(preset.id)
-                }
+        val sheet = ActionConfirmSheet.newInstance(
+            getString(R.string.delete),
+            getString(R.string.preset_delete_confirm, preset.name),
+        )
+        sheet.onConfirm = {
+            val db = HealixApp.from(this).database
+            lifecycleScope.launch(Dispatchers.IO) {
+                db.presetDao().delete(preset.id)
             }
-            .setNegativeButton(
-                R.string.cancel,
-                null as android.content.DialogInterface.OnClickListener?,
-            )
-            .show()
+        }
+        sheet.show(supportFragmentManager, ActionConfirmSheet.TAG)
     }
 
     /** v6 11.2：二级页返回走 in_back 转场（ResourceActivity 同款）。 */
