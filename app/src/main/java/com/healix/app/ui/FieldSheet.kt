@@ -102,6 +102,23 @@ class FieldSheet : BottomSheetDialogFragment() {
         _binding = null
     }
 
+    /**
+     * 字段行规格（label 用资源 id，避免硬编码中文）。
+     * `maxLength = 0` 表示不限制（默认，向后兼容既有调用点）。
+     *
+     * ⚠️ 必须作为 [FieldSheet] 的**直接嵌套类**，不能放进 companion object：
+     * 外部（PersonalInfoActivity / PresetManageActivity / SettingsActivity）一律以
+     * `FieldSheet.FieldSpec` 限定引用，而 companion object 内部声明的嵌套类
+     * **无法经外层类名访问** —— CI run#35 的 29 条 `Unresolved reference 'FieldSpec'`
+     * 及级联 `Symbol not found for FieldSheet.FieldSpec` 即由此而来。
+     */
+    data class FieldSpec(
+        val labelRes: Int,
+        val initial: String,
+        val inputType: Int,
+        val maxLength: Int = 0,
+    )
+
     companion object {
         const val TAG = "FieldSheet"
 
@@ -110,17 +127,6 @@ class FieldSheet : BottomSheetDialogFragment() {
         private const val ARG_INITIALS = "field_initials"
         private const val ARG_TYPES = "field_types"
         private const val ARG_MAXLENS = "field_max_lens"
-
-        /**
-         * 字段行规格（label 用资源 id，避免硬编码中文）。
-         * `maxLength = 0` 表示不限制（默认，向后兼容既有调用点）。
-         */
-        data class FieldSpec(
-            val labelRes: Int,
-            val initial: String,
-            val inputType: Int,
-            val maxLength: Int = 0,
-        )
 
         fun newInstance(titleRes: Int, specs: List<FieldSpec>): FieldSheet =
             FieldSheet().apply {
