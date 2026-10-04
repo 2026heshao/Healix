@@ -24,7 +24,7 @@ import kotlin.math.abs
  * 纯 onTouch 实现，不引入 Gesture / ViewPager 等新库。
  * 每个列表（RecyclerView）持有 1 个实例，所有行共享 → 天然"全局单开"。
  */
-internal class SwipeController(context: Context) {
+class SwipeController(context: Context) {
 
     /** 最近一次有效拖拽的时间戳：300ms 内的 click 视为拖拽余波。 */
     var swipeTs: Long = 0L
@@ -76,6 +76,12 @@ internal class SwipeController(context: Context) {
 
     /** 拖完 300ms 内的点击：吞掉（V4 断言）。 */
     fun clickAllowed(): Boolean = System.currentTimeMillis() - swipeTs >= 300
+
+    /** 无条件收起当前滑开的行（点「编辑/删除」后调用，避免带着滑开态进二级页）。 */
+    fun closeAll() {
+        openRow?.let { snap(it, 0f) }
+        openRow = null
+    }
 
     /**
      * 收起所有滑开的行（按下列表其它区域时由宿主调用）。
