@@ -1,0 +1,154 @@
+%% Healix v8 增量 —— 关键调用流程
+
+%% ============================================================
+%% 1. Tab 切换（需求 2，零动画，高亮在 ACTION_DOWN）
+%% ============================================================
+sequenceDiagram
+    participant U as 用户
+    participant TB as TabBar(宿主级)
+    participant MA as MainActivity
+    participant NH as NavHost
+    participant FM as FragmentManager
+
+    U->>TB: ACTION_DOWN「助理」
+    TB-->>U: tabAssistant 立即高亮(text_1)
+    U->>TB: ACTION_UP
+    TB->>MA: selectTab(TAB_ASSISTANT)
+    MA->>NH: showTab(TAB_ASSISTANT)
+    NH->>FM: hide(recordFragment) + show(assistantFragment)
+    Note over FM: 无 setCustomAnimations、无 startActivity
+    FM-->>U: 助理页 ≤1 帧可见；记录页实例保留
+
+%% ============================================================
+%% 2. 进入二级页 + 返回（需求 1，180ms）
+%% ============================================================
+sequenceDiagram
+    participant U as 用户
+    participant MA as MainActivity
+    participant NH as NavHost
+    participant FM as FragmentManager
+    participant F as SettingsFragment
+
+    U->>MA: 点首页「设置」
+    MA->>NH: openSecondary(SettingsFragment, null)
+    NH->>FM: replace(pageContainer, F, "SettingsFragment")
+    FM->>FM: addToBackStack("SettingsFragment")
+    FM->>FM: setCustomAnimations(in_fwd,out_fwd,in_back,out_back)  // 180ms
+    NH->>MA: pageContainer.VISIBLE=true / tabbar.GONE
+    F-->>U: 首帧=骨架（onViewCreated 只绑定，DB 读取在 IO 回填）
+
+    U->>MA: 返回键
+    MA->>MA: onBackPressedDispatcher -> handleBack()
+    MA->>NH: popOrSwitch()
+    alt 返回栈非空
+        NH->>FM: popBackStack()
+        FM-->>U: 出栈回 Tab 页（180ms）
+        NH->>MA: pageContainer.GONE / tabbar.VISIBLE
+    else 栈空且 currentTab != RECORD
+        NH->>MA: selectTab(TAB_RECORD)
+    else 栈空且已是 RECORD
+        MA->>MA: finish()
+    end
+
+%% ============================================================
+%% 3. 桌面小工具「记一笔」-> Tab 选择 + 聚焦速记框
+%% ============================================================
+sequenceDiagram
+    participant W as HealixWidgetProvider
+    participant MA as MainActivity
+    participant NH as NavHost
+    participant RF as RecordFragment
+
+    W->>MA: Intent(MainActivity).putExtra(TabBar.EXTRA_TAB, TAB_RECORD).putExtra(MainActivity.EXTRA_FOCUS_INPUT, true)
+    alt 冷启动
+        MA->>MA: onCreate: currentTab = getIntExtra(EXTRA_TAB, RECORD)
+        MA->>NH: showTabImmediate(currentTab)
+        MA->>MA: pendingFocusInput = getBooleanExtra(EXTRA_FOCUS_INPUT, false)
+    else 已在栈顶
+        MA->>MA: onNewIntent: 读 extra -> selectTab(RECORD); pendingFocusInput=true
+    end
+    MA->>RF: requestFocusInput()（若 pendingFocusInput 且 currentTab==RECORD）
+    RF-->>RF: binding.input.requestFocus() + showSoftInput
+
+%% ============================================================
+%% 4. 需求 7 自动重排（配额不变式：一次往返恰好 1 行 llm_calls）
+%% ============================================================
+sequenceDiagram
+    participant F as PlanReviewFragment
+    participant VM as PlanReviewViewModel
+    participant DB as Room
+    participant SK as SettingsKeys
+    participant PG as PlanGenerator
+    participant Q as QuotaGuard
+    participant LLM as OpenAiCompatProvider
+
+    F->>VM: onViewCreated -> refreshLocal()
+    VM->>PG: loadCached(todayKey)
+    alt 有缓存
+        PG-->>VM: PlanResult(fromCache=true)
+    else 无缓存
+        PG-->>VM: localTimeline(summary)  // 本地兜底，0 AI
+    end
+    VM->>VM: TimelineMerger.merge(plan, training, completedDows, todayDow)  // 本地即时，0 AI
+    F-->>F: 渲染统一时间轴（训练日与今日计划同轴）
+
+    Note over VM: 仅当 (无缓存 或 generatedAt 距今>12h)
+    VM->>SK: get(PLAN_AUTO_RERANK_DAY)
+    alt marker == todayKey
+        VM-->>VM: 跳过（同 day_key 至多 1 次）
+    else 允许
+        VM->>Q: canExtract()
+        alt 配额允许 且 provider 已配置 且 在线
+            VM->>SK: put(PLAN_AUTO_RERANK_DAY, todayKey)  // 触发前落标记
+            VM->>PG: update(todayKey, summary)  // 唯一模型入口
+            PG->>LLM: chat(PROMPT_PLAN)  // 1 次往返
+            LLM-->>PG: Ok / Err
+            PG->>DB: recordPlanCall(...)  // 移位写法：恰好 1 行 llm_calls
+            PG-->>VM: PlanResult
+            VM->>VM: TimelineMerger.merge(...)
+        else 不允许
+            VM-->>VM: 保持本地结果
+        end
+    end
+
+%% ============================================================
+%% 5. 需求 8 导入（合并去重）
+%% ============================================================
+sequenceDiagram
+    participant U as 用户
+    participant MF as MineFragment
+    participant IR as ImportReader
+    participant DB as Room
+    participant SR as SecretStore
+
+    U->>MF: 点「导入数据」
+    MF->>IR: launchOpenDocument(activity)  // ACTION_OPEN_DOCUMENT, application/json
+    U->>IR: 选文件
+    IR->>IR: onActivityResult -> importJson(uri)
+    Note over IR: 校验 format/version；不读取 API Key
+    IR->>DB: events INSERT OR IGNORE（client_event_id UNIQUE）-> 幂等
+    IR->>DB: presets/plans/reviews/goals/reminders/training_plans upsert（合并，不覆盖）
+    IR->>DB: settings 仅写非敏感键
+    IR-->>MF: ImportResult(inserted, skipped, failed, message)
+    MF-->>U: Toast「导入 N 条，跳过 M 条」
+    Note over MF: API Key 不在导入文件 -> 提示去设置页重填
+
+%% ============================================================
+%% 6. 迁移前自动 DB 快照
+%% ============================================================
+sequenceDiagram
+    participant App as HealixApp.onCreate
+    participant DB as AppDatabase.build()
+    participant SN as DbSnapshot
+    participant FS as filesDir/snapshot
+
+    App->>DB: get(context)
+    DB->>DB: synchronized { build(context) }
+    DB->>SN: maybeSnapshot(context, CURRENT_VERSION=3)
+    SN->>SN: 只读打开 healix.db 读 user_version
+    alt user_version < 3
+        SN->>FS: 复制 healix.db(+ -wal/-shm) -> snapshot/healix-<v>-<ts>.db
+        SN->>FS: 保留最近 N=2 份，删更旧
+    end
+    Note over SN: 全流程 runCatching{...}，失败仅告警，绝不阻塞启动
+    DB->>DB: Room.databaseBuilder(...).addMigrations(*MIGRATIONS).build()

@@ -1,0 +1,260 @@
+classDiagram
+    direction TB
+
+    %% ===== 导航宿主 =====
+    class MainActivity {
+        -binding: ActivityMainBinding
+        -nav: NavHost
+        -currentTab: Int
+        -askedNotifPermission: Boolean
+        -pendingFocusInput: Boolean
+        +onCreate(Bundle)
+        +onNewIntent(Intent)
+        +onActivityResult(int,int,Intent)
+        +onResume()
+        +selectTab(Int)
+        +openSecondary(Fragment, Bundle)
+        +setTabbarVisible(Boolean)
+        +handleBack()
+        +focusRecordInput()
+    }
+    class NavHost {
+        +TAB_RECORD = 0
+        +TAB_ASSISTANT = 1
+        +TAB_MINE = 2
+        +addTabFragments()
+        +showTab(Int)
+        +openSecondary(Fragment, Bundle)
+        +popOrSwitch()
+        +backStackEmpty(): Boolean
+        +currentTab(): Int
+    }
+    class ImeGuard {
+        +bind(root: View, inputBar: View, onIme: (Boolean)->Unit)
+        +unbind(root: View)
+    }
+
+    %% ===== 常驻 Tab =====
+    class RecordFragment {
+        +requestFocusInput()
+        +onViewCreated()
+    }
+    class AssistantFragment
+    class MineFragment
+
+    %% ===== 二级页 =====
+    class SettingsFragment
+    class PlanReviewFragment
+    class PersonalInfoFragment
+    class KnowledgeBaseFragment
+    class ResourceFragment
+    class PresetManageFragment
+    class DebugFragment
+    class StatusDetailFragment {
+        +newInstance(defaultTab: String): StatusDetailFragment
+    }
+
+    %% ===== ViewModel =====
+    class MainViewModel {
+        +todayDayKeyFlow: StateFlow~String~
+        +events: StateFlow~List~EventEntity~~
+        +summary: StateFlow~MainSummary~
+        +homeStatus: StateFlow~HomeStatus~
+        +hideKcal: StateFlow~Boolean~
+        +homeGoal: StateFlow~HomeGoal~
+        +subGoals: StateFlow~List~SubGoal~~
+        +refresh()
+        +scanSignals()
+        +acknowledgeSignals()
+        +submit(String)
+        +logPreset(PresetEntity)
+    }
+    class SettingsViewModel {
+        +values: StateFlow~SettingsValues~
+        +goals: StateFlow~List~GoalEntity~~
+        +reminders: StateFlow~List~ReminderEntity~~
+        +setPrimaryGoal(Int)
+        +setGoalTarget(metric, Double)
+        +archiveGoal(metric)
+        +restoreGoal(metric)
+        +saveCurrentWeight(Double)
+        +put(key, value)
+        +deleteReminder(Long)
+        -ensureGoalDefaultsIfEmpty()
+    }
+    class PlanReviewViewModel {
+        +timeline: StateFlow~List~TimelineEntry~~
+        +planMeta: StateFlow~PlanMeta~
+        +refreshLocal()
+        +maybeAutoRerank()
+        +logSuggestion(TimelineEntry)
+        +undo(clientEventId)
+    }
+    class ChatViewModel {
+        +messages: StateFlow~List~ChatMessageEntity~~
+        +send(String)
+    }
+
+    %% ===== 数据/DAO =====
+    class GoalDao {
+        <<interface>>
+        +upsert(GoalEntity): Long
+        +observeActive(): Flow~List~GoalEntity~~
+        +listActive(): List~GoalEntity~~
+        +getByMetric(metric): GoalEntity?
+        +observeByMetric(metric): Flow~GoalEntity?~
+        +setTarget(metric, value, now)
+        +setPrimary(metric, now)
+        +countActive(): Int
+        +archiveGoal(metric, now)
+        +restoreGoal(metric, now)
+        +observeArchived(): Flow~List~GoalEntity~~
+    }
+    class EventDao {
+        <<interface>>
+        +insertIgnore(EventEntity): Long
+        +observeByDay(dayKey): Flow~List~EventEntity~~
+        +listByTypeInRange(type, from, to): List~EventEntity~~
+        +weightRowsInRange(from, to): List~EventEntity~~
+        +countByTypeInRange(type, from, to): Int
+        +listAll(): List~EventEntity~~
+    }
+    class AppDatabase {
+        <<abstract>>
+        +version = 3
+        +get(context): AppDatabase
+        -build(context): AppDatabase
+        +eventDao() EventDao
+        +goalDao() GoalDao
+    }
+
+    %% ===== 设置键 =====
+    class SettingsKeys {
+        <<object>>
+        +GOAL_SETUP_DONE = "goal_setup_done"
+        +PLAN_AUTO_RERANK_DAY = "plan_auto_rerank_day"
+        +HIDE_KCAL
+        +HIDE_WEIGHT
+        +GOAL_SOURCE_SEEN
+        +GOAL_STATEMENT
+        +DAY_START
+    }
+
+    %% ===== 需求 7 =====
+    class TimelineEntry {
+        +dayIndex: Int
+        +sortKey: String
+        +timeLabel: String
+        +type: String
+        +title: String
+        +detail: String
+        +meta: String
+        +source: String
+        +canLog: Boolean
+        +done: Boolean
+    }
+    class TimelineMerger {
+        <<object>>
+        +merge(plan, training, completedDows, todayDow): List~TimelineEntry~
+    }
+    class PlanGenerator {
+        +todayKey(): String
+        +loadCached(todayKey): PlanResult?
+        +localTimeline(summary): PlanResult
+        +update(todayKey, summary): PlanResult
+    }
+    class MuscleRecovery {
+        <<object>>
+        +musclesOf(rawText, exercise): List~String~
+        +summary(rows, now): String
+    }
+
+    %% ===== 需求 8 =====
+    class ImportReader {
+        <<object>>
+        +launchOpenDocument(activity)
+        +onActivityResult(ctx, req, res, uri): Boolean
+        +importJson(ctx, uri): ImportResult
+    }
+    class ImportResult {
+        +inserted: Int
+        +skipped: Int
+        +failed: Int
+        +message: String
+    }
+    class ExportWriter {
+        <<object>>
+        +buildJson(ctx): String
+        +launchCreateDocument(activity, json)
+        +onActivityResult(ctx, req, res, uri): Boolean
+    }
+    class DbSnapshot {
+        <<object>>
+        +maybeSnapshot(ctx, currentVersion)
+        -keepRecent(n)
+    }
+
+    %% ===== 需求 5 =====
+    class HomeGoal {
+        +modeName: String
+        +statement: String
+    }
+    class SubGoal {
+        +key: String
+        +label: String
+        +values: List~Double~
+        +doneText: String
+        +hidden: Boolean
+    }
+    class GoalSetupSheet
+
+    %% ===== 需求 9 =====
+    class MedicalSummary {
+        <<object>>
+        +buildLocal(ctx, fromDay, toDay): String
+        +buildWithAi(ctx, fromDay, toDay): String
+    }
+
+    %% ===== 关系 =====
+    MainActivity --> NavHost : owns
+    MainActivity --> ImeGuard : owns
+    NavHost --> RecordFragment : add/show/hide
+    NavHost --> AssistantFragment : add/show/hide
+    NavHost --> MineFragment : add/show/hide
+    NavHost --> SettingsFragment : replace+backstack
+    NavHost --> PlanReviewFragment : replace+backstack
+    NavHost --> PersonalInfoFragment : replace+backstack
+    NavHost --> KnowledgeBaseFragment : replace+backstack
+    NavHost --> ResourceFragment : replace+backstack
+    NavHost --> PresetManageFragment : replace+backstack
+    NavHost --> DebugFragment : replace+backstack
+    NavHost --> StatusDetailFragment : replace+backstack
+
+    RecordFragment --> MainViewModel
+    RecordFragment --> GoalSetupSheet
+    RecordFragment --> ImeGuard
+    AssistantFragment --> ChatViewModel
+    AssistantFragment --> ImeGuard
+    MineFragment --> MainViewModel
+    MineFragment --> ImportReader
+    MineFragment --> MedicalSummary
+    SettingsFragment --> SettingsViewModel
+    PlanReviewFragment --> PlanReviewViewModel
+    StatusDetailFragment --> SettingsViewModel
+
+    MainViewModel ..> SubGoal
+    MainViewModel ..> HomeGoal
+    MainViewModel ..> SettingsKeys
+    SettingsViewModel ..> GoalDao
+    SettingsViewModel ..> SettingsKeys
+    PlanReviewViewModel --> PlanGenerator
+    PlanReviewViewModel --> TimelineMerger
+    PlanReviewViewModel ..> TimelineEntry
+    PlanReviewViewModel ..> SettingsKeys
+    TimelineMerger ..> TimelineEntry
+    TimelineMerger ..> MuscleRecovery
+    ImportReader ..> ExportWriter : format 兼容
+    ImportReader ..> ImportResult
+    AppDatabase --> DbSnapshot : build() 前调用
+    AppDatabase --> EventDao
+    AppDatabase --> GoalDao
