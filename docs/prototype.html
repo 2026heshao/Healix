@@ -423,6 +423,40 @@ body{
 .centerhint{
   padding:60px 20px;text-align:center;font-size:13px;color:var(--text_2);
 }
+/* ---- v6 交互重构（第十一章）：转场/按压/卡片/滑删 —— 零新颜色令牌 ---- */
+/* 按压缩放：变色 + 微缩（scale .985），触感更实 */
+.item,.row,.docrow,.btn-primary,.planhint,.quick div{
+  transition:background var(--dur_fast) var(--ease),transform .12s var(--ease),color var(--dur_fast) var(--ease);
+}
+.item:active,.row:active,.docrow:active,.btn-primary:active,
+.planhint:active,.quick div:active{transform:scale(.985)}
+/* 页面转场：前进推入 / 后退滑出 / Tab 淡入上移 */
+@keyframes in_fwd{from{transform:translateX(22%);opacity:.3}to{transform:none;opacity:1}}
+@keyframes in_back{from{transform:translateX(-22%);opacity:.3}to{transform:none;opacity:1}}
+@keyframes in_tab{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.screen.a-fwd{animation:in_fwd var(--dur_slow) var(--ease)}
+.screen.a-back{animation:in_back var(--dur_slow) var(--ease)}
+.screen.a-tab{animation:in_tab var(--dur_normal) var(--ease)}
+/* 全局 3 Tab：绝对定位盖底，go() 控制显隐 */
+#tabbar{position:absolute;left:0;right:0;bottom:0;z-index:6;box-shadow:0 -1px 0 var(--line)}
+#s-chat > .chat,#s-mine > .body{padding-bottom:80px}
+/* 输入条抬升到 tabbar 之上，不再被全局导航遮挡 */
+#s-home > .inputbar,#s-chat > .inputbar{margin-bottom:64px;border-bottom:1px solid var(--line)}
+/* 卡片分组：圆角 16dp 容器，分组呼吸感 */
+.card{margin:0 16px 16px;border:1px solid var(--line);border-radius:16px;background:var(--surface);overflow:hidden}
+.card .row:last-child{border-radius:0 0 16px 16px}
+/* 左滑操作：item 白底左移露出下层按钮（编辑/删除） */
+.swipewrap{position:relative;overflow:hidden}
+.swipe-acts{position:absolute;top:0;right:0;bottom:0;display:flex}
+.swipe-acts button{width:72px;border:none;color:#fff;font-size:13px;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;font-family:inherit}
+.swipe-acts .a-edit{background:var(--text_3)}
+.swipe-acts .a-del{background:var(--negative)}
+.swipewrap .item{position:relative;background:var(--surface);transition:transform var(--dur_fast) var(--ease),background var(--dur_fast) var(--ease)}
+/* 底部弹盘 grabber：可下拉关闭 */
+.sheet{touch-action:none}
+.sheet .handle{cursor:grab}
+
 /* ---- 知识库（v5r3 · 第十章）零新令牌 ---- */
 .docrow{padding:12px 20px;border-bottom:1px solid var(--line);cursor:pointer}
 .docrow:active{background:var(--press)}
@@ -451,6 +485,7 @@ body{
   <ul class="navlist" id="nav">
     <li class="on" data-s="home">主界面</li>
     <li data-s="chat">对话页 <span class="tag">Agent</span></li>
+    <li data-s="mine">我的 <span class="tag">v6</span></li>
     <li data-s="plan">计划 / 训练 / 回顾</li>
     <li data-s="status">状态详情 <span class="tag">v4</span></li>
     <li data-s="settings">设置 <span class="tag">Provider</span></li>
@@ -476,10 +511,13 @@ body{
     · 主界面状态行可点 → 状态详情页（两态原地切换，高度不变）<br>
     · 计划页 →「训练」Tab →「记一笔」单击直写 + 5 秒内可撤销<br>
     · 状态详情页 4 段 Tab：运动 / 睡眠 / 体重 / 身体<br>
+    　 设置页「个人」组：点<b>当前体重</b> = 写一条体重记录（入口写记录，不是设置字段）；<b>知识库</b>组的入口通向知识库页<br>
     · 对话页：输入「我中午吃了牛肉面」也是直写；AI 提议（回复下方的「记一笔」）才需确认<br>
     · 设置页可切换服务商、点「测试连通性」；主界面预设横条可横向滚动<br>
     · <b>知识库</b>：点「＋ 添加 PDF 文件」→ 立即入列「解析中」→ 2s 后<b>同一行原地</b>变就绪/失败（失败点第二行重试）；<br>
-    　 点文档行 → 操作弹窗（删除需二次确认）；勾「对话引用知识库」后对话回复末尾带来源行
+    　 点文档行 → 操作弹窗（删除需二次确认）；勾「对话引用知识库」后对话回复末尾带来源行<br>
+    · <b>v6 交互重构</b>：底部 3 Tab（记录/助理/我的）；页面切换有方向性转场；<br>
+    　 首页记录行<b>左滑</b>露出编辑/删除（删除可撤销）；点行按压有缩放反馈；弹盘可下拉关闭
   </div>
 </div>
 
@@ -493,9 +531,6 @@ body{
   <!-- ============ 主界面 ============ -->
   <div class="screen on" id="s-home">
     <div class="appbar"><span>10月3日 周五</span>
-      <button class="iconbtn" onclick="go('settings')" aria-label="设置">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-      </button>
     </div>
     <div class="presetbar">
       <span onclick="toastHome(this)">牛肉面</span><span onclick="toastHome(this)">鸡蛋灌饼</span>
@@ -530,19 +565,12 @@ body{
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M7 17L17 7"/><path d="M8 7h9v9"/></svg>
       </button>
     </div>
-    <div class="tabbar">
-      <div class="on" onclick="go('home')">记录</div>
-      <div onclick="go('chat')">助理</div>
-    </div>
   </div>
 
   <!-- ============ 对话页 ============ -->
   <div class="screen" id="s-chat">
     <div class="appbar">
-      <button class="iconbtn" onclick="go('home')" aria-label="返回">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M15 18l-6-6 6-6"/></svg>
-      </button>
-      <span style="position:absolute;left:50%;transform:translateX(-50%)">助理</span>
+      <span style="position:absolute;left:20px">助理</span>
       <span class="right">今天</span>
     </div>
     <div class="body chat" id="chatBody">
@@ -563,7 +591,7 @@ body{
   <!-- ============ 计划 / 训练 / 回顾 ============ -->
   <div class="screen" id="s-plan">
     <div class="appbar">
-      <button class="iconbtn" onclick="go('home')" aria-label="返回">
+      <button class="iconbtn" onclick="go('home','back')" aria-label="返回">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M15 18l-6-6 6-6"/></svg>
       </button>
       <span style="position:absolute;left:50%;transform:translateX(-50%)">今日</span>
@@ -578,7 +606,7 @@ body{
     <!-- ★v4：内联撤销条（规范 9.6）—— 训练「记一笔」单击直写后的反馈 -->
     <div class="undobar" id="undoBar" style="display:none">
       <span id="undoText"></span>
-      <span class="undo" onclick="undoTraining()">撤销</span>
+      <span class="undo" onclick="undoAct()">撤销</span>
     </div>
     <div class="body" id="planBody"></div>
   </div>
@@ -586,7 +614,7 @@ body{
   <!-- ============ 状态详情 ★v4 ============ -->
   <div class="screen" id="s-status">
     <div class="appbar">
-      <button class="iconbtn" onclick="go('home')" aria-label="返回">
+      <button class="iconbtn" onclick="go('home','back')" aria-label="返回">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M15 18l-6-6 6-6"/></svg>
       </button>
       <span style="position:absolute;left:50%;transform:translateX(-50%)">状态</span>
@@ -608,7 +636,7 @@ body{
   <!-- ============ 设置 ============ -->
   <div class="screen" id="s-settings">
     <div class="appbar">
-      <button class="iconbtn" onclick="go('home')" aria-label="返回">
+      <button class="iconbtn" onclick="go('mine','back')" aria-label="返回">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M15 18l-6-6 6-6"/></svg>
       </button>
       <span style="position:absolute;left:50%;transform:translateX(-50%)">设置</span>
@@ -638,10 +666,15 @@ body{
       <div class="row"><span>重试次数</span><span class="val"><input value="5 次" style="width:90px"></span></div>
       <div class="row"><span>退避初始间隔</span><span class="val"><input value="1.5 秒" style="width:90px"></span></div>
 
-      <!-- ★v4：「体重」已从「个人」移出 —— 它是记录数据不是基础信息，见规范 9.7 -->
+      <!-- ★v5r2（规范 9.7 ② 修订）：「当前体重」入口回归「个人」组首行。
+           行为 = 写一条 events(type=body) 记录（与记一笔同一路径），入口与存储分离；
+           右侧显示最近一次记录值 · 时间，不是可编辑的静态字段 —— 趋势图/BMI/AI 摘要吃同一条数据 -->
       <div class="grouptitle">个人</div>
+      <div class="row" onclick="logWeight(this)"><span>当前体重</span><span class="val" id="weightVal">58.2 kg · 今天 08:10 ›</span></div>
       <div class="row"><span>身高 / 年龄 / 活动系数</span><span class="val">178cm · 21 · 轻度 ›</span></div>
       <div class="row"><span>日界线</span><span class="val">4:00 ›</span></div>
+
+      <!-- v6：知识库入口迁至「我的」页（3 Tab 后的单入口归宿）；设置页回归纯配置 -->
 
       <div class="grouptitle">目标　<span style="color:var(--text_3)">v4</span></div>
       <div class="row"><span>主目标</span><span class="val">增重 ›</span></div>
@@ -664,12 +697,7 @@ body{
       <div class="row" onclick="toggleHide(this)"><span>隐藏热量数字</span><span class="val">显示 ›</span></div>
       <div class="row" onclick="toggleHide(this)"><span>隐藏体重数字</span><span class="val">显示 ›</span></div>
 
-      <div class="grouptitle">数据</div>
-      <div class="row"><span>导出备份</span><span class="val">JSON ›</span></div>
-
-      <div class="grouptitle">调试</div>
-      <div class="row" onclick="go('debug')"><span>今日调用</span><span class="val">7 次 · 失败 1 ›</span></div>
-      <div class="row" onclick="go('debug')"><span>最近调用记录</span><span class="val">›</span></div>
+      <!-- v6：「数据」与「调试」两组迁至「我的」页 -->
       <div style="height:28px"></div>
     </div>
   </div>
@@ -677,7 +705,7 @@ body{
   <!-- ============ 调试 ============ -->
   <div class="screen" id="s-debug">
     <div class="appbar">
-      <button class="iconbtn" onclick="go('settings')" aria-label="返回">
+      <button class="iconbtn" onclick="go('mine','back')" aria-label="返回">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M15 18l-6-6 6-6"/></svg>
       </button>
       <span style="position:absolute;left:50%;transform:translateX(-50%)">调试</span>
@@ -698,7 +726,7 @@ body{
   <!-- ============ 通知栏录入 ============ -->
   <div class="screen" id="s-notify">
     <div class="appbar">
-      <button class="iconbtn" onclick="go('home')" aria-label="返回">
+      <button class="iconbtn" onclick="go('mine','back')" aria-label="返回">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M15 18l-6-6 6-6"/></svg>
       </button>
       <span style="position:absolute;left:50%;transform:translateX(-50%)">通知栏</span>
@@ -729,7 +757,7 @@ body{
   <!-- ============ 知识库（v5r3 · 第十章） ============ -->
   <div class="screen" id="s-knowledge">
     <div class="appbar">
-      <button class="iconbtn" onclick="go('settings')" aria-label="返回">
+      <button class="iconbtn" onclick="go('mine','back')" aria-label="返回">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M15 18l-6-6 6-6"/></svg>
       </button>
       <span style="position:absolute;left:50%;transform:translateX(-50%)">知识库</span>
@@ -762,6 +790,45 @@ body{
         扫描版 PDF 没有文字层，无法提取 —— 换文字版即可。
       </div>
     </div>
+  </div>
+
+  <!-- ============ 我的（v6 · 3 Tab：高频页一击直达） ============ -->
+  <div class="screen" id="s-mine">
+    <div class="appbar">
+      <span style="position:absolute;left:20px;font-size:22px">我的</span>
+      <span class="right"></span>
+    </div>
+    <div class="body">
+      <div class="grouptitle">概览</div>
+      <div class="card">
+        <div class="row" style="height:72px" onclick="go('status','fwd')">
+          <span>状态详情<span style="display:block;font-size:12px;color:var(--text_3);margin-top:3px;font-weight:400">运动 2/3 · 睡眠 7.2h · 体重 58.2kg</span></span>
+          <span class="val">›</span>
+        </div>
+      </div>
+      <div class="grouptitle">数据</div>
+      <div class="card">
+        <div class="row" onclick="go('knowledge','fwd')"><span>知识库</span><span class="val kb-count">3 份文档 ›</span></div>
+        <div class="sep indent"></div>
+        <div class="row"><span>导出备份</span><span class="val">JSON ›</span></div>
+      </div>
+      <div class="grouptitle">应用</div>
+      <div class="card">
+        <div class="row" onclick="go('settings','fwd')"><span>设置</span><span class="val">›</span></div>
+        <div class="sep indent"></div>
+        <div class="row" onclick="go('debug','fwd')"><span>调试</span><span class="val">今日调用 7 次 ›</span></div>
+        <div class="sep indent"></div>
+        <div class="row" onclick="go('notify','fwd')"><span>通知栏录入</span><span class="val">›</span></div>
+      </div>
+      <div style="height:28px"></div>
+    </div>
+  </div>
+
+  <!-- 全局底部导航（v6 · 3 Tab）：go() 控制显隐，二级页自动隐藏 -->
+  <div class="tabbar" id="tabbar" style="display:none">
+    <div data-t="home" class="on" onclick="go('home')">记录</div>
+    <div data-t="chat" onclick="go('chat')">助理</div>
+    <div data-t="mine" onclick="go('mine')">我的</div>
   </div>
 
   <!-- 确认弹窗 -->
@@ -809,25 +876,37 @@ body{
   "use strict";
 
   var $ = function(id){ return document.getElementById(id); };
-  var SCREENS = ["home","chat","plan","status","settings","debug","notify","knowledge"];
+  var SCREENS = ["home","chat","mine","plan","status","settings","debug","notify","knowledge"];
 
-  // ---------- 屏幕切换 ----------
-  window.go = function(name){
+  // ---------- 屏幕切换（v6：方向性转场 + 全局 3 Tab 显隐） ----------
+  var TABS = ["home","chat","mine"];
+  window.go = function(name, dir){
     SCREENS.forEach(function(s){
       var el = $("s-" + s);
-      if (el) el.classList.toggle("on", s === name);
+      if (!el) return;
+      var turningOn = (s === name) && !el.classList.contains("on");
+      el.classList.remove("a-fwd","a-back","a-tab");
+      if (turningOn){
+        void el.offsetWidth;                      // 强制 reflow：同页反复进出也重播动画
+        el.classList.add(dir === "back" ? "a-back"
+                       : (TABS.indexOf(name) >= 0 ? "a-tab" : "a-fwd"));
+      }
+      el.classList.toggle("on", s === name);
     });
     Array.prototype.forEach.call($("nav").children, function(li){
       li.classList.toggle("on", li.getAttribute("data-s") === name);
     });
-    if (window.__navSync) syncTabs(name);
+    var tb = $("tabbar");
+    if (tb) tb.style.display = TABS.indexOf(name) >= 0 ? "flex" : "none";
+    syncTabs(name);
   };
 
   function syncTabs(name){
-    var bar = document.querySelector("#s-home .tabbar");
+    var bar = $("tabbar");
     if (!bar) return;
-    bar.children[0].classList.toggle("on", name === "home");
-    bar.children[1].classList.toggle("on", name === "chat");
+    Array.prototype.forEach.call(bar.children, function(d){
+      d.classList.toggle("on", d.getAttribute("data-t") === name);
+    });
   }
   window.__navSync = true;
 
@@ -902,17 +981,109 @@ body{
     var box = $("homelist");
     var empty = $("optEmpty").checked;
     box.innerHTML = EVENTS.filter(function(){ return !empty; }).map(function(e){
-      return '<div class="item" onclick="editRow(\'' + e.cid + '\')">' +
+      return '<div class="swipewrap">' +
+        '<div class="swipe-acts"><button class="a-edit" onclick="editRow(\'' + e.cid + '\')">编辑</button>' +
+        '<button class="a-del" onclick="delRow(\'' + e.cid + '\')">删除</button></div>' +
+        '<div class="item" data-cid="' + e.cid + '" onclick="itemTap(\'' + e.cid + '\')">' +
         '<span class="dot" style="background:' + e.dot + '"></span>' +
         '<div class="bodycol"><div class="meta"><span>' + esc(e.label) + '</span><span>' +
         esc(e.time) + '</span></div><div class="main">' + esc(e.main) +
-        '</div>' + rowStatusHtml(e) + '</div></div>' +
+        '</div>' + rowStatusHtml(e) + '</div></div></div>' +
         '<div class="sep indent"></div>';
     }).join("");
     $("supervise").style.display = empty ? "flex" : "none";
     $("superviseSep").style.display = empty ? "block" : "none";
     $("surplus").innerHTML = empty ? '+0<span>kcal</span>' : '+320<span>kcal</span>';
   }
+
+  // ---------- v6 左滑操作：拖拽露出 编辑/删除，松手吸附或回弹 ----------
+  var swipeTs = 0;   // 最近一次有效拖拽时间戳：300ms 内屏蔽 click，防误触编辑
+  (function(){
+    var cur = null, sx = 0, moved = false, openItem = null;
+    function closeSwipe(it){ it.__open = false; it.style.transform = ""; }
+    document.addEventListener("pointerdown", function(ev){
+      var it = ev.target && ev.target.closest ? ev.target.closest(".swipewrap .item") : null;
+      if (!it){
+        if (openItem){ closeSwipe(openItem); openItem = null; }
+        return;
+      }
+      if (openItem && openItem !== it){ closeSwipe(openItem); openItem = null; }
+      cur = it; sx = ev.clientX; moved = false;
+    });
+    document.addEventListener("pointermove", function(ev){
+      if (!cur) return;
+      var dx = ev.clientX - sx;
+      if (Math.abs(dx) > 8) moved = true;
+      var base = cur.__open ? -144 : 0;
+      var t = Math.max(-144, Math.min(0, base + dx));
+      cur.style.transition = "none";
+      cur.style.transform = "translateX(" + t + "px)";
+    });
+    document.addEventListener("pointerup", function(ev){
+      if (!cur) return;
+      var dx = ev.clientX - sx;
+      cur.style.transition = "";
+      var stick = (cur.__open ? dx > -72 : dx < -72);
+      cur.__open = stick;
+      cur.style.transform = stick ? "translateX(-144px)" : "";
+      if (stick) openItem = cur; else openItem = null;
+      if (moved){ swipeTs = Date.now(); }
+      cur = null;
+    });
+  })();
+  window.itemTap = function(cid){
+    if (Date.now() - swipeTs < 300) return;   // 刚拖完，不是点击
+    editRow(cid);
+  };
+
+  // ---------- v6 删除 + 撤销（复用 undobar，与训练记录撤销共用分派） ----------
+  var delCache = null;
+  window.delRow = function(cid){
+    var i = -1;
+    for (var k = 0; k < EVENTS.length; k++) if (EVENTS[k].cid === cid){ i = k; break; }
+    if (i < 0) return;
+    delCache = { ev: EVENTS[i], idx: i };
+    EVENTS.splice(i, 1);
+    renderHome();
+    $("undoText").textContent = "已删除「" + String(delCache.ev.main || delCache.ev.label).slice(0, 14) + "」";
+    $("undoBar").style.display = "flex";
+    clearTimeout(undoTimer);
+    undoTimer = setTimeout(function(){ $("undoBar").style.display = "none"; delCache = null; }, 5000);
+  };
+  window.undoAct = function(){
+    $("undoBar").style.display = "none";
+    clearTimeout(undoTimer);
+    if (delCache){
+      EVENTS.splice(Math.min(delCache.idx, EVENTS.length), 0, delCache.ev);
+      delCache = null;
+      renderHome();
+      return;
+    }
+    if (undoState && undoState.btn){ undoTraining(); }
+  };
+
+  // ---------- v6 弹盘 grabber：下拉超过 80px 关闭 ----------
+  (function(){
+    var sheet = document.querySelector("#scrim .sheet");
+    if (!sheet) return;
+    var sy = 0, drag = false;
+    sheet.addEventListener("pointerdown", function(ev){
+      if (ev.target.closest("input,button,select,label")) return;
+      sy = ev.clientY; drag = true; sheet.style.transition = "none";
+    });
+    document.addEventListener("pointermove", function(ev){
+      if (!drag) return;
+      var dy = Math.max(0, ev.clientY - sy);
+      sheet.style.transform = "translateY(" + dy + "px)";
+    });
+    document.addEventListener("pointerup", function(ev){
+      if (!drag) return;
+      drag = false; sheet.style.transition = "";
+      var dy = ev.clientY - sy;
+      sheet.style.transform = "";
+      if (dy > 80) closeSheet();
+    });
+  })();
 
   // 预设横条：点一下 = 一条记录，同样直写（与速记框行为一致）
   window.toastHome = function(el){
@@ -942,6 +1113,33 @@ body{
     return d;
   }
 
+  // ---------- 当前体重入口（v5r2 · 规范 9.7 ②）：点击 = 写一条 body 记录，非设置字段 ----------
+  var kW = 58.2;
+  window.logWeight = function(row){
+    kW = Math.round((kW + 0.2) * 10) / 10;   // 演示：每次 +0.2
+    EVENTS.unshift({
+      cid: newCid(), status: "done", type: "body", label: "体重",
+      dot: "var(--dot_body)", time: now(),
+      main: "记录了当前体重", sum: kW + " kg", kcal: "",
+    });
+    renderHome();
+    var v = $("weightVal");
+    v.textContent = kW + " kg · 刚刚 ›";
+    v.style.color = "var(--accent)";          // 与 toastHome 同款瞬时反馈
+    setTimeout(function(){ v.style.color = ""; }, 400);
+  };
+
+  // 知识库入口行计数同步（设置页 ↔ 知识库页一致）
+  window.kSyncCount = function(){
+    var els = document.querySelectorAll(".kb-count");
+    if (!els.length) return;
+    var n = $("kbList").querySelectorAll(".docrow").length;
+    Array.prototype.forEach.call(els, function(el){
+      el.textContent = n ? (n + " 份文档 ›") : "未添加 ›";
+      el.style.color = n ? "" : "var(--text_3)";
+    });
+  };
+
   // ---------- 知识库（v5r3 · 第十章）：先落库再解析，中间态中性色 ----------
   var kSeq = 1, kTarget = null, kConfirmDelete = false;
   var K_NAMES = ["力量训练手册摘录.pdf", "体态评估报告.pdf", "增肌食谱合集.pdf"];
@@ -959,6 +1157,7 @@ body{
     d.onclick = function(){ kSheet(d); };
     d.innerHTML = '<div class="t">' + esc(name) + '</div><div class="meta parse">解析中</div>';
     list.insertBefore(d, list.firstChild);   // 新文档插顶部，0 弹窗
+    kSyncCount();
     setTimeout(function(){
       var m = d.querySelector(".meta");
       if ((kSeq % 4) === 0){                 // 每 4 次演示 1 次失败态
@@ -1012,6 +1211,7 @@ body{
     if (kTarget && kTarget.parentNode) kTarget.parentNode.removeChild(kTarget);
     kClose();
     if (!$("kbList").children.length) $("kbEmpty").style.display = "block";
+    kSyncCount();
   };
 
   function addUser(text){
