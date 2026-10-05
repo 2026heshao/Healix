@@ -81,6 +81,7 @@
     </LinearLayout>
 
     <ScrollView
+        android:id="@+id/settingsScroll"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
@@ -238,6 +239,7 @@
                 android:background="@color/line" />
 
             <TextView
+                android:id="@+id/goalSectionHeader"
                 style="@style/Text.Caption"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -314,6 +316,38 @@
             -->
             <include
                 android:id="@+id/rowGoalAdd"
+                layout="@layout/row_setting_value"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+
+            <!-- ══ 热量摄入 ★清单3 R3（规范 9.7 ①，与其它组标题同构）══
+                 kcal 的**唯一 UI 入口**：开关行（HIDE_KCAL 取反，键复用零新增）+ 数值行
+                 （goals 表 kcal_daily）。插在「目标」组止点与「提醒」组分隔线之间。
+                 老用户 kcal_daily 数据行不占次目标槽位（Q1 裁决），目标组 UI 已收编。 -->
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="@dimen/divider"
+                android:layout_marginTop="@dimen/block_gap"
+                android:background="@color/line" />
+
+            <TextView
+                style="@style/Text.Caption"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingStart="@dimen/screen_margin"
+                android:paddingEnd="@dimen/screen_margin"
+                android:paddingTop="12dp"
+                android:paddingBottom="8dp"
+                android:text="@string/group_kcal_intake" />
+
+            <include
+                android:id="@+id/rowKcalSwitch"
+                layout="@layout/row_setting_switch"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+
+            <include
+                android:id="@+id/rowKcalGoal"
                 layout="@layout/row_setting_value"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content" />

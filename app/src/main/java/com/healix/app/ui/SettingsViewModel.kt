@@ -58,6 +58,11 @@ data class SettingsValues(
     val background: String = "",
     /** 自由文本目标（「我的目标」，settings 键 GOAL_STATEMENT）。空 = 未填写。 */
     val goalStatement: String = "",
+    /**
+     * 文本型自定义次目标（settings 键 [SettingsKeys.CUSTOM_GOAL_TEXT]，清单3 R1）。
+     * 空 = 未使用。⚠️ 刻意不进任何 AI prompt 读取集合（见 SettingsKeys 处注释）。
+     */
+    val customGoalText: String = "",
     val debugSummary: String = "",
     /** 隐私：隐藏热量数字（settings 键 HIDE_KCAL）。 */
     val hideKcal: Boolean = false,
@@ -298,6 +303,7 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
             dayStart = dayStartHourOf(all[SettingsKeys.DAY_START]),
             background = all[SettingsKeys.BACKGROUND].orEmpty(),
             goalStatement = all[SettingsKeys.GOAL_STATEMENT].orEmpty(),
+            customGoalText = all[SettingsKeys.CUSTOM_GOAL_TEXT].orEmpty(),
             debugSummary = "今日 ${quotas.usedToday()} 次 · 失败 ${quotas.failedToday()}",
             hideKcal = all[SettingsKeys.HIDE_KCAL] == "true",
             hideWeight = all[SettingsKeys.HIDE_WEIGHT] == "true",
@@ -412,10 +418,44 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /**
+     * 设置自定义主目标（`GOAL_MODE_CUSTOM`）：mode 落 `goals` 表，
+     * 文本落 [SettingsKeys.GOAL_STATEMENT]（唯一自由文本目标键，AI prompt 同源读取）。
+     * 空白文本拒写（无内容的自定义没有意义，调用端已先校验，这里兜底）。
+     */
+    fun setPrimaryGoalCustom(text: String) {
+        val trimmed = text.trim()
+        if (trimmed.isEmpty()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            val now = System.currentTimeMillis()
+            db.goalDao().setPrimary(GoalMetrics.PRIMARY, now)
+            db.goalDao().setTarget(GoalMetrics.PRIMARY, GOAL_MODE_CUSTOM.toDouble(), now)
+            db.settingsDao().put(SettingEntity(SettingsKeys.GOAL_STATEMENT, trimmed))
+        }
+    }
+
     /** 改某个目标值（体重 / 训练次数 / 训练分钟 / 睡眠 / 饮水）。 */
     fun setGoalTarget(metric: String, value: Double) {
         viewModelScope.launch(Dispatchers.IO) {
             db.goalDao().setTarget(metric, value, System.currentTimeMillis())
+        }
+    }
+
+    /**
+     * 写/清文本型自定义次目标（清单3 R1）：文本落 [SettingsKeys.CUSTOM_GOAL_TEXT]，
+     * 空白 = 清键（撤销恢复与左滑清除共用同一条写链）。
+     * 写法对齐 [toggleHide]（IO 协程 put + reload），调用端已先校验非空，这里兜底。
+     * 目标行本身不落 `goals` 表（文本型无数值，schema 零变更），只渲染于 UI。
+     */
+    fun setCustomGoalText(text: String) {
+        val trimmed = text.trim()
+        viewModelScope.launch(Dispatchers.IO) {
+            if (trimmed.isEmpty()) {
+                settings.remove(SettingsKeys.CUSTOM_GOAL_TEXT)
+            } else {
+                settings.put(SettingEntity(key = SettingsKeys.CUSTOM_GOAL_TEXT, value = trimmed))
+            }
+            reload()
         }
     }
 
@@ -790,6 +830,16 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
         const val GOAL_MODE_GAIN = 0
         const val GOAL_MODE_LOSS = 1
         const val GOAL_MODE_KEEP = 2
+
+        /**
+         * 主目标第 4 态：自定义（`target_value = 3`）。
+         *
+         * 自定义文本**复用** settings 键 [SettingsKeys.GOAL_STATEMENT]（原个人信息页
+         * 「我的目标」自述）：该键已进 AI 计划 prompt（PlanGenerator「目标（用户自述）」）
+         * 与首页目标流（MainViewModel.homeGoal.statement），合并后三处同源同值，
+         * 不新增第二个自由文本键。
+         */
+        const val GOAL_MODE_CUSTOM = 3
 
         // ⚠️ 默认目标值（膳食指南推荐量）不在本文件定义 —— 唯一来源是
         //    `com.healix.app.db.GoalDefaults`。这里曾有一份私有副本

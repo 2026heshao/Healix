@@ -119,6 +119,14 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content" />
 
+            <!-- 清单3 R1/Q3：文本型自定义次目标只读展示行 —— 仅非空时可见（代码控制），
+                 点击与主目标行同为跳设置页目标栏。 -->
+            <include
+                android:id="@+id/rowCustomGoal"
+                layout="@layout/row_setting_value"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+
             <View
                 android:layout_width="match_parent"
                 android:layout_height="@dimen/divider"

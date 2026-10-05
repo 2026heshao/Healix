@@ -15,6 +15,7 @@ import com.healix.app.R
 import com.healix.app.databinding.FragmentDebugBinding
 import com.healix.app.databinding.ItemLlmCallBinding
 import com.healix.app.db.LlmCallEntity
+import com.healix.app.perf.PerfProbe
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -89,6 +90,46 @@ class DebugFragment : Fragment() {
                     )
                 }
             }
+        }
+
+        setupPerfProbe()
+    }
+
+    /**
+     * 帧率探针（清单3 R4）：开关行 + 导出行。默认关闭（标志文件缺失 = 关）。
+     * 状态持久化走 filesDir 标志文件（[PerfProbe.isEnabled]），**不走 settings 键**
+     * （诊断状态 ≠ 用户配置）。导出复用 [DocumentWriter] 管线（REQUEST_PROBE →
+     * Kind.EXPORT，宿主提示语零改动）。
+     */
+    private fun setupPerfProbe() {
+        binding.probeSwitch.label.setText(R.string.debug_probe)
+        val probeSwitch = binding.probeSwitch.switchWidget
+        probeSwitch.isChecked = PerfProbe.isEnabled(requireContext())
+        probeSwitch.setOnCheckedChangeListener { _, checked ->
+            PerfProbe.setEnabled(requireContext(), checked)
+        }
+        // 行点击 = 同义拨动开关（放大触控目标）；行内 Switch 点击照常直拨
+        binding.probeSwitch.root.setOnClickListener {
+            probeSwitch.isChecked = !probeSwitch.isChecked
+        }
+
+        binding.probeExport.label.setText(R.string.debug_probe_export)
+        binding.probeExport.chevron.visibility = View.VISIBLE
+        binding.probeExport.root.setOnClickListener { exportProbeLog() }
+    }
+
+    /** 读探针日志（IO 线程）→ 交 [DocumentWriter] 走 SAF 存文件。 */
+    private fun exportProbeLog() {
+        val ctx = requireContext().applicationContext
+        viewLifecycleOwner.lifecycleScope.launch {
+            val payload = withContext(Dispatchers.IO) { PerfProbe.readLog(ctx) }
+            DocumentWriter.launch(
+                activity = requireActivity(),
+                requestCode = DocumentWriter.REQUEST_PROBE,
+                mime = DocumentWriter.MIME_TEXT,
+                fileName = "perf_probe.log",
+                payload = payload,
+            )
         }
     }
 

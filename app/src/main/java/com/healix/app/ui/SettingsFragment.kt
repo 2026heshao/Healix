@@ -7,6 +7,7 @@ import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.widget.CompoundButton
 import android.widget.EditText
 import android.widget.LinearLayout
 import androidx.appcompat.app.AlertDialog
@@ -51,6 +52,17 @@ class SettingsFragment : Fragment() {
     private val binding get() = _binding!!
 
     private lateinit var vm: SettingsViewModel
+
+    /**
+     * 「热量摄入」开关监听（清单3 R3）：复用既有 [SettingsViewModel.toggleHide]
+     * （`HIDE_KCAL` 写 "true"/"false"，IO 协程）—— 该方法注释「将来若在别处恢复入口，
+     * 直接调本方法即可」的正主调用点。observe 回填时先摘监听再 setChecked 再挂回，
+     * 防程序化 setChecked 触发本监听造成写回环。
+     */
+    private val kcalSwitchListener: CompoundButton.OnCheckedChangeListener =
+        CompoundButton.OnCheckedChangeListener { _, _ ->
+            vm.toggleHide(SettingsKeys.HIDE_KCAL)
+        }
 
     /** 左滑删除（11.3 / v8 需求 4）：目标行与提醒行共用 1 个实例 → 全局单开。 */
     private lateinit var swipe: SwipeController
@@ -114,6 +126,19 @@ class SettingsFragment : Fragment() {
         // v8 问题 2a：老用户 kcal 目标迁移提示，仅首次显示（可点关闭）
         setupGoalKcalMovedHint()
 
+        // ── 热量摄入（清单3 R3：kcal 的唯一 UI 入口）────────────────
+        binding.rowKcalSwitch.label.setText(R.string.kcal_show_toggle)
+        binding.rowKcalSwitch.switchWidget.setOnCheckedChangeListener(kcalSwitchListener)
+        // 行点击 = 同义拨动开关（放大触控目标，规范 ②·触控）；行内 Switch 点击照常直拨
+        binding.rowKcalSwitch.root.setOnClickListener {
+            val sw = binding.rowKcalSwitch.switchWidget
+            sw.isChecked = !sw.isChecked // 触发监听 → toggleHide，与直拨同一写链
+        }
+        // 数值行：editGoalKcal() 函数原样保留，仅入口从目标组动态行迁至本栏（:601）
+        binding.rowKcalGoal.label.setText(R.string.setting_kcal_goal)
+        binding.rowKcalGoal.chevron.visibility = View.VISIBLE
+        binding.rowKcalGoal.root.setOnClickListener { editGoalKcal() }
+
         // ── 提醒（reminders 表）──────────────────────────────────
         // v8 需求 4：不再预置默认提醒，仅保留「添加提醒」入口；行支持左滑删除。
         setupRow(binding.rowReminderAdd, R.string.reminder_add) { editReminder(null) }
@@ -131,6 +156,15 @@ class SettingsFragment : Fragment() {
         }
 
         observe()
+
+        // 「个人信息页 → 我的目标」跳转进入时，自动滚到「目标」栏（focus_goal 参数）。
+        // post：等首次布局完成后再取 goalContainer 的纵向位置。
+        if (arguments?.getBoolean(ARG_FOCUS_GOAL, false) == true) {
+            binding.settingsScroll.post {
+                val target = offsetWithin(binding.settingsScroll, binding.goalSectionHeader)
+                if (target > 0) binding.settingsScroll.smoothScrollTo(0, target)
+            }
+        }
     }
 
     override fun onDestroyView() {
@@ -162,6 +196,11 @@ class SettingsFragment : Fragment() {
                     binding.rowRetry.value.text = getString(R.string.unit_times, v.retry)
                     binding.rowRetryDelay.value.text = getString(R.string.unit_seconds, trim(v.retryDelay))
                     binding.rowDayStart.value.text = getString(R.string.unit_hour_clock, v.dayStart)
+                    // 清单3 R3：「热量摄入」开关态 = HIDE_KCAL 取反（键不存在 = 显示）。
+                    // 先摘监听再回填：程序化 setChecked 不得触发 toggleHide（防写回环）。
+                    binding.rowKcalSwitch.switchWidget.setOnCheckedChangeListener(null)
+                    binding.rowKcalSwitch.switchWidget.isChecked = !v.hideKcal
+                    binding.rowKcalSwitch.switchWidget.setOnCheckedChangeListener(kcalSwitchListener)
                 }
             }
         }
@@ -219,10 +258,14 @@ class SettingsFragment : Fragment() {
                     }
             }
         }
-        // 目标：goals 表一次订阅，逐行格式化（规范 9.7 ①）
+        // 目标：goals 表一次订阅 + 自由文本自述 + 自定义次目标（清单3 R1），同帧渲染（规范 9.7 ①）
         viewLifecycleOwner.lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
-                vm.goals.collect { list -> renderGoals(list) }
+                kotlinx.coroutines.flow.combine(vm.goals, vm.values) { list, v ->
+                    Triple(list, v.goalStatement, v.customGoalText)
+                }.collect { (list, statement, customGoalText) ->
+                    renderGoals(list, statement, customGoalText)
+                }
             }
         }
         // 提醒：reminders 表动态渲染（可增删，规范 9.7 ③）
@@ -284,7 +327,7 @@ class SettingsFragment : Fragment() {
      * 目标组动态渲染（v8 需求 4 + v8 问题 2）。
      *
      * 结构（自上而下）：
-     * 1. **主目标行**（恒在）：已设 → 显示模式（增重/减重/保持），点击进编辑；
+     * 1. **主目标行**（恒在）：已设 → 显示模式（增重/减重/保持/自定义文本），点击进编辑；
      *    未设（问题 2b 删种子后的新用户 / 跳过了引导）→ 值显示 `未设置`(text_3)，
      *    点击开首启引导 [GoalSetupSheet]。**永不出删除位**（`is_primary` 语义）。
      * 2. **次目标行**：按 [GoalSlots.ADDABLE] 顺序（热量 → 体重 → 每周训练 → 睡眠
@@ -295,7 +338,7 @@ class SettingsFragment : Fragment() {
      * 槽位全部 metric 都未启用时**不显示该行** —— 由末尾「添加目标」恢复
      * （归档 ≠ 物理删除，见 [GoalSlots] 头注释）。
      */
-    private fun renderGoals(list: List<GoalEntity>) {
+    private fun renderGoals(list: List<GoalEntity>, goalStatement: String, customGoalText: String) {
         val byMetric = list.associateBy { it.metric }
         val container = binding.goalContainer
         // 重渲染会销毁旧行视图 → 先收起滑开态，避免 SwipeController 跟踪已 detach 的视图
@@ -312,7 +355,7 @@ class SettingsFragment : Fragment() {
             primaryRow.swipeRow.value.setText(R.string.value_not_set)
             primaryRow.swipeRow.value.setTextColor(ContextCompat.getColor(requireContext(), R.color.text_3))
         } else {
-            primaryRow.swipeRow.value.text = goalValueText(GoalSlots.PRIMARY, listOf(primary))
+            primaryRow.swipeRow.value.text = goalValueText(GoalSlots.PRIMARY, listOf(primary), goalStatement)
         }
         primaryRow.swipeRow.root.setOnClickListener {
             if (!swipe.clickAllowed()) return@setOnClickListener
@@ -324,13 +367,17 @@ class SettingsFragment : Fragment() {
         // ── ② 次目标行（可增 / 删 / 改）──
         var secondaryCount = 0
         GoalSlots.ADDABLE.forEach { slot ->
+            // 清单3 R3：kcal 槽位的唯一 UI 归属是「热量摄入」独立栏，目标组不再渲染该行。
+            // （ADDABLE 已收窄为 4 项，此处防御性跳过 —— kcal_daily active 数据行仍驱动
+            //   首页汇总 / 预警 / 计划，老用户数据行零迁移。）
+            if (slot == GoalSlots.KCAL) return@forEach
             val active = slot.metrics.mapNotNull { byMetric[it] }
             if (active.isEmpty()) return@forEach // 全部未启用 → 交给「添加目标」入口
             secondaryCount++
 
             val row = ItemSwipeRowBinding.inflate(layoutInflater, container, false)
             row.swipeRow.label.setText(goalLabelRes(slot))
-            row.swipeRow.value.text = goalValueText(slot, active)
+            row.swipeRow.value.text = goalValueText(slot, active, goalStatement)
             row.swipeRow.chevron.visibility = View.VISIBLE
             row.swipeItem.setOnTouchListener { v, ev ->
                 swipe.onTouch(v, ev)
@@ -350,12 +397,44 @@ class SettingsFragment : Fragment() {
             container.addView(row.root)
         }
 
+        // ── ②b 文本型自定义目标行（清单3 R1）：非空才渲染；点行 = 再次编辑（Q4 裁决）；
+        //      左滑清除 = 清 settings 键 + UndoBar 文本快照恢复（第三种撤销模式）。
+        //      不占 goals 表（文本型无数值，schema 零变更），只渲染于 UI。
+        if (customGoalText.isNotBlank()) {
+            secondaryCount++
+            val row = ItemSwipeRowBinding.inflate(layoutInflater, container, false)
+            row.swipeRow.label.setText(R.string.custom_goal_label)
+            row.swipeRow.value.text = customGoalText
+            row.swipeRow.chevron.visibility = View.VISIBLE
+            row.swipeItem.setOnTouchListener { v, ev ->
+                swipe.onTouch(v, ev)
+                false // 不消费：点击 / 滚动照旧
+            }
+            row.actDelete.setOnClickListener {
+                if (!swipe.clickAllowed()) return@setOnClickListener
+                swipe.closeAll()
+                clearCustomGoalWithUndo(customGoalText)
+            }
+            row.swipeRow.root.setOnClickListener {
+                if (!swipe.clickAllowed()) return@setOnClickListener
+                swipe.closeAll()
+                editCustomGoal()
+            }
+            container.addView(row.root)
+        }
+
         // ── ③ 空态说明（完全空时由上面的「未设置」主目标行承担，不重复）──
         binding.goalEmptyHint.visibility =
             if (primary != null && secondaryCount == 0) View.VISIBLE else View.GONE
 
         // ── ④ 「添加目标」入口启用态（G11 数量上限）──
-        updateGoalAddEntry(byMetric.keys)
+        updateGoalAddEntry(byMetric.keys, customGoalText)
+
+        // ── ⑤ 「热量摄入」数值行（清单3 R3）：与 goals 表 kcal_daily 行同源显示
+        //      （kcalTargetOf 同口径：active 行取值，没设过回落 GoalDefaults）。
+        val kcalTarget = list.firstOrNull { it.metric == GoalMetrics.KCAL_DAILY }
+            ?.targetValue?.toInt()?.takeIf { it > 0 } ?: GoalDefaults.TARGET_KCAL
+        binding.rowKcalGoal.value.text = getString(R.string.unit_kcal, kcalTarget)
     }
 
     /**
@@ -365,11 +444,15 @@ class SettingsFragment : Fragment() {
      * - 槽位加满（主目标 1 + 次目标 5 = 6）→ label 置灰 `text_3`、右侧 caption12
      *   `已达上限 6 项`、不可点（**不再**"看起来能点、点完才弹 Toast"）。
      *
-     * 上限值取 [GoalSlots.ALL].size —— 结构性封顶，不写死数字。
+     * 上限值取 [GoalSlots.ALL].size —— 结构性封顶，不写死数字（仍为 6）。
+     *
+     * 清单3 Q1 裁决：满员判据按 **UI 可见口径** = 主目标 1 + 4 固定槽位 + 1 自定义 = 6；
+     * 老用户 `kcal_daily` active 数据行**不占**次目标槽位（UI 已收编至「热量摄入」栏）。
      */
-    private fun updateGoalAddEntry(activeMetrics: Set<String>) {
+    private fun updateGoalAddEntry(activeMetrics: Set<String>, customGoalText: String) {
         val pending = GoalSlots.ADDABLE.filter { slot -> slot.metrics.none { it in activeMetrics } }
-        val full = pending.isEmpty()
+        val customUsed = customGoalText.isNotBlank()
+        val full = pending.isEmpty() && customUsed
         val row = binding.rowGoalAdd
         row.label.setTextColor(
             ContextCompat.getColor(requireContext(), if (full) R.color.text_3 else R.color.accent),
@@ -390,7 +473,9 @@ class SettingsFragment : Fragment() {
     private fun openGoalSetup() {
         if (childFragmentManager.isStateSaved) return
         GoalSetupSheet.newInstance().apply {
-            onDone = { modeIndex, weightKg -> mainVm.completeGoalSetup(modeIndex, weightKg) }
+            onDone = { modeIndex, weightKg, customText ->
+                mainVm.completeGoalSetup(modeIndex, weightKg, customText)
+            }
         }.show(childFragmentManager, GoalSetupSheet.TAG)
     }
 
@@ -404,8 +489,9 @@ class SettingsFragment : Fragment() {
         else -> R.string.setting_water_goal
     }
 
-    /** 槽位当前值文案（口径与旧固定行一致；空值走 [R.string.value_not_set]）。 */
-    private fun goalValueText(slot: GoalSlots.Slot, active: List<GoalEntity>): CharSequence {
+    /** 槽位当前值文案（口径与旧固定行一致；空值走 [R.string.value_not_set]）。
+     *  [goalStatement] 供主目标自定义态展示（mode 3 → 自由文本自述）。 */
+    private fun goalValueText(slot: GoalSlots.Slot, active: List<GoalEntity>, goalStatement: String): CharSequence {
         val m = active.associateBy { it.metric }
         return when (slot) {
             GoalSlots.PRIMARY -> {
@@ -413,6 +499,7 @@ class SettingsFragment : Fragment() {
                 when (mode) {
                     SettingsViewModel.GOAL_MODE_LOSS -> getString(R.string.goal_loss)
                     SettingsViewModel.GOAL_MODE_KEEP -> getString(R.string.goal_keep)
+                    SettingsViewModel.GOAL_MODE_CUSTOM -> goalStatement.ifBlank { getString(R.string.value_not_set) }
                     else -> getString(R.string.goal_gain)
                 }
             }
@@ -470,16 +557,29 @@ class SettingsFragment : Fragment() {
     /** 打开「添加目标」弹窗（列出当前未启用的槽位；选中即恢复 / 补齐）。 */
     private fun showAddGoal() {
         // 已启用 = 该槽位至少有一个 active metric。
-        // 可选集合 = GoalSlots.ADDABLE（不含主目标 —— 主目标只能经 GoalSetupSheet 设定）。
+        // 可选集合 = GoalSlots.ADDABLE（清单3：不含主目标与 kcal）+ 文本型自定义入口。
         val activeMetrics = vm.goals.value.map { it.metric }.toSet()
         val pending = GoalSlots.ADDABLE.filter { slot -> slot.metrics.none { it in activeMetrics } }
-        // 加满时入口已被 updateGoalAddEntry 置灰禁用，这里只做防御性早退（不再弹 Toast）。
-        if (pending.isEmpty()) return
-        val sheet = AddGoalSheet.newInstance(
-            keys = pending.map { it.key },
-            labels = pending.map { getString(goalLabelRes(it)) },
-        )
-        sheet.onPick = { key -> GoalSlots.byKey(key)?.let { vm.ensureSlotActive(it) } }
+        val customUsed = vm.values.value.customGoalText.isNotBlank()
+        // 加满（4 固定全启用 且 自定义已用）时入口已被 updateGoalAddEntry 置灰禁用，
+        // 这里只做防御性早退（不再弹 Toast）。
+        if (pending.isEmpty() && customUsed) return
+        val keys = pending.map { it.key }.toMutableList()
+        val labels = pending.map { getString(goalLabelRes(it)) }.toMutableList()
+        if (!customUsed) {
+            // 清单3 R1：文本型自定义目标入口（key 约定 "custom"，仅当未使用时追加）。
+            // AddGoalSheet 自身不读库、槽位由宿主经 arguments 传入 → 零改动。
+            keys.add(ADD_GOAL_KEY_CUSTOM)
+            labels.add(getString(R.string.add_goal_custom))
+        }
+        val sheet = AddGoalSheet.newInstance(keys = keys, labels = labels)
+        sheet.onPick = { key ->
+            if (key == ADD_GOAL_KEY_CUSTOM) {
+                editCustomGoal()
+            } else {
+                GoalSlots.byKey(key)?.let { vm.ensureSlotActive(it) }
+            }
+        }
         sheet.show(childFragmentManager, AddGoalSheet.TAG)
     }
 
@@ -492,12 +592,87 @@ class SettingsFragment : Fragment() {
             getString(R.string.goal_gain),
             getString(R.string.goal_loss),
             getString(R.string.goal_keep),
+            getString(R.string.goal_custom),
         )
         AlertDialog.Builder(requireContext())
             .setTitle(R.string.setting_primary_goal)
-            .setItems(labels) { _, which -> vm.setPrimaryGoal(which) }
+            .setItems(labels) { _, which ->
+                if (which == SettingsViewModel.GOAL_MODE_CUSTOM) {
+                    chooseCustomGoalText()
+                } else {
+                    vm.setPrimaryGoal(which)
+                }
+            }
             .setNegativeButton(R.string.cancel, null as DialogInterface.OnClickListener?)
             .show()
+    }
+
+    /**
+     * 自定义主目标文本输入（主目标 = 第 4 态）：确认后 mode=3 + 文本落
+     * [SettingsKeys.GOAL_STATEMENT]（AI prompt / 首页展示同源）。空白输入不落库。
+     */
+    private fun chooseCustomGoalText() {
+        viewLifecycleOwner.lifecycleScope.launch {
+            val current = vm.raw(SettingsKeys.GOAL_STATEMENT).orEmpty()
+            showFieldDialog(
+                R.string.goal_custom,
+                listOf(
+                    FieldSheet.FieldSpec(
+                        R.string.setting_goal_statement,
+                        current,
+                        InputType.TYPE_CLASS_TEXT,
+                        GOAL_STATEMENT_MAX,
+                    ),
+                ),
+            ) { raw ->
+                val text = raw.firstOrNull().orEmpty().trim()
+                if (text.isNotEmpty()) vm.setPrimaryGoalCustom(text)
+            }
+        }
+    }
+
+    /**
+     * 文本型自定义次目标输入（清单3 R1）：复用主目标自定义态的完整先例
+     * [chooseCustomGoalText] —— FieldSheet 单行文本、上限 [GOAL_STATEMENT_MAX]（80 字）、
+     * **空白输入不落库**（清空请走行上左滑清除，有撤销兜底）。
+     * 确认后落 [SettingsKeys.CUSTOM_GOAL_TEXT]（独立新键，AI 口径零触碰）。
+     */
+    private fun editCustomGoal() {
+        viewLifecycleOwner.lifecycleScope.launch {
+            val current = vm.raw(SettingsKeys.CUSTOM_GOAL_TEXT).orEmpty()
+            showFieldDialog(
+                R.string.add_goal_custom,
+                listOf(
+                    FieldSheet.FieldSpec(
+                        R.string.custom_goal_label,
+                        current,
+                        InputType.TYPE_CLASS_TEXT,
+                        GOAL_STATEMENT_MAX,
+                    ),
+                ),
+            ) { raw ->
+                val text = raw.firstOrNull().orEmpty().trim()
+                if (text.isNotEmpty()) vm.setCustomGoalText(text)
+            }
+        }
+    }
+
+    /**
+     * 左滑清除自定义目标（清单3 R1）：清 settings 键（文本型无归档态）+ 5 秒撤销。
+     * 撤销 = **文本快照恢复**（[SettingsViewModel.setCustomGoalText] 回写 prevText）——
+     * 与目标槽位的 `ensureSlotActive`、提醒的整条快照并列的第三种撤销模式；
+     * `UndoBar` 组件本身零改动。
+     */
+    private fun clearCustomGoalWithUndo(prevText: String) {
+        vm.setCustomGoalText("")
+        UndoBar.bind(
+            container = binding.undoBar,
+            leftText = binding.undoLeft,
+            action = binding.undoAction,
+            text = getString(R.string.undo_deleted, getString(R.string.custom_goal_label)),
+            announce = null,
+            onUndo = { vm.setCustomGoalText(prevText) },
+        )
     }
 
     private fun editGoalWeight() {
@@ -697,6 +872,22 @@ class SettingsFragment : Fragment() {
     private fun dateLabel(ts: Long): String =
         Instant.ofEpochMilli(ts).atZone(ZoneId.systemDefault()).toLocalDate().toString()
 
+    /**
+     * [target] 在 [scroll] 坐标系里的纵向偏移：沿 parent 链累加 `top`，
+     * 走到 [scroll] 本身为止（两层：ScrollView → 内容 LinearLayout → 各分组）。
+     * 链断裂（parent 不是 View）时返回当前累计值，调用端以 `> 0` 兜底。
+     */
+    private fun offsetWithin(scroll: android.widget.ScrollView, target: View): Int {
+        var y = 0
+        var v: View = target
+        while (v !== scroll) {
+            y += v.top
+            val p = v.parent as? View ?: break
+            v = p
+        }
+        return y
+    }
+
     /** `yyyy-MM-dd` → 当天 0 点的毫秒时间戳；空或解析失败返回 null（不猜）。 */
     private fun parseDate(s: String): Long? {
         if (s.isBlank()) return null
@@ -870,6 +1061,30 @@ class SettingsFragment : Fragment() {
 
     companion object {
         const val MASK = "••••••••"
+
+        /** 跳转参数：true = 进入后自动滚动到「目标」栏（个人信息页「我的目标」入口）。 */
+        const val ARG_FOCUS_GOAL = "focus_goal"
+
+        /** 主目标自定义文本上限（与 GoalSetupSheet 自定义输入一致，80 字）。 */
+        private const val GOAL_STATEMENT_MAX = 80
+
+        /**
+         * 「添加目标」弹层里文本型自定义目标的约定 key（清单3 R1）。
+         * 仅经 arguments 传给 [AddGoalSheet] 后回调分发用，**非持久化键**（不落任何表）。
+         */
+        private const val ADD_GOAL_KEY_CUSTOM = "custom"
+
+        /**
+         * 标准构造：默认不带参数；[focusGoal] = true 时携带 [ARG_FOCUS_GOAL]
+         * （进入后滚到「目标」栏）。⚠️ 经 `arguments` 传参（setArguments），
+         * 进程重建可恢复；禁止无参构造后靠字段传参。
+         */
+        fun newInstance(focusGoal: Boolean = false): SettingsFragment =
+            SettingsFragment().apply {
+                if (focusGoal) {
+                    arguments = Bundle().apply { putBoolean(ARG_FOCUS_GOAL, true) }
+                }
+            }
 
         // ⚠️ 键名一律从 SettingsKeys 取 —— 那里是唯一事实来源。
         //    2026-10-03 修过一次键名分裂 bug（见 SettingsKeys 头注释），

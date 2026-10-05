@@ -299,6 +299,11 @@
     <string name="debug_empty">暂无调用记录</string>
     <string name="debug_retry_times">%1$d 次重试</string>
     <string name="debug_degraded">已降级</string>
+    <!-- ── 清单3 R4：帧率探针（独立诊断，默认关闭，开关态落 filesDir 标志文件）── -->
+    <string name="debug_probe">帧率探针</string>
+    <string name="debug_probe_export">导出探针日志</string>
+    <string name="debug_probe_on">采集中 · 只记长帧与慢消息</string>
+    <string name="debug_probe_off">已关闭 · 不采集任何数据</string>
 
     <!-- 导出 -->
     <string name="export_success">已导出到所选位置</string>
@@ -506,6 +511,9 @@
     <string name="goal_gain">增重</string>
     <string name="goal_loss">减重</string>
     <string name="goal_keep">保持</string>
+    <!-- 主目标第 4 选项：自定义（自由文本，见 GoalSetupSheet / SettingsFragment）。 -->
+    <string name="goal_custom">自定义</string>
+    <string name="goal_setup_custom_hint">例如：练出马甲线、改善睡眠</string>
     <string name="unit_train_goal">%1$d 次 / %2$d 分钟</string>
     <string name="unit_hours">%1$s 小时</string>
     <string name="unit_ml">%1$d ml</string>
@@ -518,6 +526,17 @@
          「3 次 / 150 分钟」，标签必须明确是「次数」「分钟」，否则用户不知道填什么。 -->
     <string name="goal_train_sessions_label">次数</string>
     <string name="goal_train_minutes_label">分钟</string>
+
+    <!-- ── 清单3（2026-10-05）：热量摄入独立栏（R3）+ 文本型自定义目标（R1）──
+         本批次全部新文案一次登记，后续任务只引用不新增。 -->
+    <!-- 设置页「热量摄入」分组标题（插在「目标」组与「提醒」组之间，kcal 的唯一 UI 入口） -->
+    <string name="group_kcal_intake">热量摄入</string>
+    <!-- 开关行标签：语义 = 「记录页是否显示热量盈余行」（HIDE_KCAL 取反，键复用零新增） -->
+    <string name="kcal_show_toggle">记录页显示热量盈余</string>
+    <!-- 「添加目标」弹层的文本型自定义目标入口（宿主经 arguments 传入 key="custom"） -->
+    <string name="add_goal_custom">自定义目标</string>
+    <!-- 设置页目标组 / 个人信息页的自定义目标行标签 -->
+    <string name="custom_goal_label">自定义目标</string>
 
     <!-- ── 需求 5：首页主目标 + 次目标进度 + 首次引导 ── -->
     <!-- 「主目标 · {增重|减重|保持}」第一行；值由 goals.metric='primary' 的 target_value 编码决定 -->

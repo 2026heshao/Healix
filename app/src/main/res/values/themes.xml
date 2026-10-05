@@ -30,6 +30,13 @@
 
         <!-- 输入光标用 accent，不做彩色描边 -->
         <item name="android:textColorHighlight">@color/accent</item>
+
+        <!-- 弹层容器透明（清单3 R2）：BottomSheetDialog 外层容器 design_bottom_sheet
+             默认不透明白底（colorSurface），而项目弹层用 GrabberLayout 自拖拽
+             （拖拽位移设在卡片自身，GrabberLayout.kt:72）→ 卡片被拖走后露出容器白底。
+             指向透明样式后容器白底消失；各弹层自己的 bg_sheet 圆角卡片（GrabberLayout
+             内层）不透明、随拖移动，遮罩 dim / 点遮罩关闭均不受影响。 -->
+        <item name="bottomSheetStyle">@style/Widget.Healix.BottomSheet</item>
     </style>
 
     <!-- 启动主题：纯底色，不做 splash 动画 -->
@@ -134,6 +141,15 @@
         <item name="android:minHeight">@dimen/setting_row_height</item>
         <item name="android:paddingTop">0dp</item>
         <item name="android:paddingBottom">0dp</item>
+    </style>
+
+    <!-- BottomSheet 弹层容器（清单3 R2）：透明。
+         style 本身无颜色令牌 → 只在 values 定义一次，白天/夜间两份 Theme.Healix 共用
+         （values-night 是整份重定义，但 style 定义不随限定符重复——重复定义反而冲突）。
+         一处覆盖全部 7 个 BottomSheetDialogFragment 弹层。 -->
+    <style name="Widget.Healix.BottomSheet" parent="Widget.MaterialComponents.BottomSheet.Modal">
+        <item name="android:background">@android:color/transparent</item>
+        <item name="android:backgroundTint">@android:color/transparent</item>
     </style>
 
 </resources>

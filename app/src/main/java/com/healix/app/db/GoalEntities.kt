@@ -136,15 +136,20 @@ object GoalSlots {
     val ALL: List<Slot> = listOf(PRIMARY, KCAL, WEIGHT, TRAIN, SLEEP, WATER)
 
     /**
-     * 「添加目标」的**可选槽位**（= [ALL] 去掉主目标）。
+     * 「添加目标」的**可选槽位**（= [ALL] 去掉主目标，清单3 R3 起再去掉 [KCAL]）。
      *
      * 主目标只能经 [com.healix.app.ui.GoalSetupSheet] 设定 —— 它带 `is_primary` 语义，
      * 不是"再加一条数值目标"，所以不进「添加目标」列表。
      *
-     * ⚠️ 这是**目标数量上限的结构性来源**：可增槽位恒 5（+主目标 1 = 6），
-     *    加满后 `GoalSlots.ADDABLE` 中无未启用项 → 入口置灰（无自由新增路径）。
+     * ⚠️ 清单3 R3：KCAL 的唯一 UI 归属是设置页「热量摄入」独立栏（开关 + 数值行），
+     *    因此 kcal 从可选集合移出 —— **数据行原样保留**（`kcal_daily` active 行继续驱动
+     *    首页汇总 / 预警 / 计划口径，`kcalTargetOf` 不动），仅 UI 收编。
+     *
+     * ⚠️ 这是**目标数量上限的结构性来源**：固定可增槽位 4（+主目标 1 + 文本型自定义
+     *    目标 1 = 6，次目标 5 = 4 固定 + 1 自定义，UI 可见口径）。固定槽位加满后
+     *    本集合中无未启用项；加上自定义已使用 → 「添加目标」入口置灰（无自由新增路径）。
      */
-    val ADDABLE: List<Slot> = listOf(KCAL, WEIGHT, TRAIN, SLEEP, WATER)
+    val ADDABLE: List<Slot> = listOf(WEIGHT, TRAIN, SLEEP, WATER)
 
     /** 按 key 取槽位（add-sheet 回调 key → Slot）。 */
     fun byKey(key: String): Slot? = ALL.firstOrNull { it.key == key }

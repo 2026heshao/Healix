@@ -92,4 +92,25 @@
             tools:visibility="visible" />
     </FrameLayout>
 
+    <!-- ══ 帧率探针 ★清单3 R4（独立诊断，默认关闭）══
+         开关行（row_setting_switch，T03 引入后此处复用）+ 导出行（row_setting_value）。
+         开关态落 filesDir 标志文件（诊断状态 ≠ 用户配置）；导出复用 DocumentWriter 管线。
+         标签文字由 DebugFragment.setupPerfProbe 按行设置。 -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/divider"
+        android:background="@color/line" />
+
+    <include
+        android:id="@+id/probeSwitch"
+        layout="@layout/row_setting_switch"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content" />
+
+    <include
+        android:id="@+id/probeExport"
+        layout="@layout/row_setting_value"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content" />
+
 </LinearLayout>

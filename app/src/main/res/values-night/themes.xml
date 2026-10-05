@@ -19,5 +19,10 @@
         <item name="android:windowActivityTransitions">false</item>
         <item name="colorAccent">@color/accent</item>
         <item name="android:textColorHighlight">@color/accent</item>
+
+        <!-- 弹层容器透明（清单3 R2）：与 values/themes.xml 同条目。
+             ⚠️ 本文件是**整份重定义**（style 不跨资源限定符合并），只改白天那份 =
+             夜间模式弹层白底 bug 原样复现，故必须在此重复登记。 -->
+        <item name="bottomSheetStyle">@style/Widget.Healix.BottomSheet</item>
     </style>
 </resources>

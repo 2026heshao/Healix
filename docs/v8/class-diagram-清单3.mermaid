@@ -1,0 +1,99 @@
+% 清单3 增量类图提取（来源：docs/v8/架构设计-清单3-2026-10-05.md §3）
+% 上一批次的 class-diagram.mermaid 保持不动
+classDiagram
+    direction TB
+
+    class SettingsKeys {
+        <<object>>
+        +CUSTOM_GOAL_TEXT = "custom_goal_text"
+        +HIDE_KCAL
+        +GOAL_STATEMENT
+    }
+
+    class GoalSlots {
+        <<object>>
+        +ALL : List~Slot~ （不变，仍含 KCAL）
+        +ADDABLE : List~Slot~ （收窄为 WEIGHT/TRAIN/SLEEP/WATER）
+        +byKey(key) Slot?
+    }
+
+    class SettingsValues {
+        +customGoalText: String （新增）
+        +hideKcal: Boolean
+    }
+
+    class SettingsViewModel {
+        +values: StateFlow~SettingsValues~
+        +goals: StateFlow~List~GoalEntity~~
+        +setCustomGoalText(text) （新增）
+        +toggleHide(key) （既有 :493，R3 开关直接复用）
+        +setGoalTarget(metric, value) （既有，R3 数值行复用）
+        +ensureSlotActive(slot) （既有，撤销复用）
+        +raw(key) String? （既有 :372）
+    }
+
+    class SettingsFragment {
+        +renderGoals(list, goalStatement) （改：跳过 KCAL + 追加自定义行）
+        +showAddGoal() （改：追加自定义入口 key="custom"）
+        +editCustomGoal() （新增：FieldSheet 1–80 字，空白不落库）
+        +clearCustomGoalWithUndo(prevText) （新增：清键 + UndoBar 快照恢复）
+        +editGoalKcal() （既有 :601，入口迁至新栏）
+        +archiveSlotWithUndo(slot) （既有 :472，撤销模式参照）
+    }
+
+    class PersonalInfoFragment {
+        +renderCustomGoal(text) （新增：非空只读展示，点击跳设置页目标栏）
+    }
+
+    class AddGoalSheet {
+        <<零改动>>
+        +newInstance(keys, labels)
+        +onPick: (String) -> Unit
+    }
+
+    class UndoBar {
+        <<object 既有>>
+        +bind(container, leftText, action, text, announce, onUndo)
+        +hide(container)
+    }
+
+    class DocumentWriter {
+        <<object>>
+        +REQUEST_PROBE = 4014 （新增）
+        +REQUEST_EXPORT = 4011
+        +launch(activity, requestCode, mime, fileName, payload)
+        +onActivityResult(...) Kind?
+    }
+
+    class PerfProbe {
+        <<object 新增 perf/>>
+        +init(context)
+        +isEnabled(context) Boolean
+        +setEnabled(context, enabled)
+        +logFilePath(context) File
+        +readLog(context) String
+        -frameLoop() Choreographer 自循环，长帧 > 2×vsync 记录
+        -printer() Looper.Printer 消息 ≥16ms 记录
+        -writer: HandlerThread 单线程顺序写
+        -LOG_MAX_BYTES = 2MB 滚动
+    }
+
+    class DebugFragment {
+        +probeSwitch 行 （新增，SwitchMaterial）
+        +exportProbeLog() （新增：readLog → DocumentWriter.launch）
+    }
+
+    class HealixApp {
+        +onCreate() PerfProbe.init(this) 链尾追加
+    }
+
+    SettingsFragment --> SettingsViewModel
+    SettingsFragment --> AddGoalSheet : onPick 分发 key="custom"
+    SettingsFragment --> UndoBar : 自定义清除撤销
+    PersonalInfoFragment --> SettingsViewModel
+    SettingsViewModel ..> SettingsKeys
+    SettingsViewModel ..> GoalSlots
+    DebugFragment --> PerfProbe
+    DebugFragment --> DocumentWriter
+    HealixApp --> PerfProbe : onCreate init
+    PerfProbe ..> filesDir : 标志文件 + 滚动日志

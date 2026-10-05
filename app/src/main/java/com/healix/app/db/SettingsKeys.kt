@@ -162,15 +162,36 @@ object SettingsKeys {
      */
     const val GOAL_SOURCE_SEEN = "goal_source_seen"
 
-    // ── 自由文本目标（「我的目标」，本轮新增；唯一新增键）──────────────────
+    // ── 自由文本目标（「我的目标」/ 主目标自定义文本）──────────────────
     /**
      * 用户自由文本目标（如「想练出马甲线」「年底前跑半马」）。
      *
      * ⚠️ 为什么必须落 settings 表：`goals.target_value` 是 `REAL`（无文本列），
-     *    自由文本目标无处可放。这是本模块**唯一新增的 settings 键**，不得改名/改值域；
-     *    空串 = 未填写，注入 prompt 时整段省略（与 [BACKGROUND] 同口径）。
+     *    自由文本目标无处可放。不得改名/改值域；
+     *    空串 = 未填写。
+     *
+     * v10 起**双重身份**（唯一自由文本目标键，不再新增第二个）：
+     * 1. 主目标自定义态（`goals.metric=primary, target_value=3`）的文本载体 ——
+     *    设置页主目标行 / 首页主目标行 / GoalSetupSheet 均同源读写；
+     * 2. AI 计划 prompt 的「目标（用户自述）」（PlanGenerator）与
+     *    system prompt 的 primaryGoalName（TodaySummary）同源取值。
      */
     const val GOAL_STATEMENT = "goal_statement"
+
+    /**
+     * 自定义**次目标**（文本型，如「年底体脂降到 18%」）。空 = 未使用。
+     *
+     * ⚠️ 刻意**不进任何 AI prompt 读取集合**：`GOAL_STATEMENT` 已被 AI 口径消费
+     *    （PlanGenerator 计划 prompt / TrainingPlanner 训练 prompt），复用它会把
+     *    自定义次目标带进 AI 计划口径 —— 违反清单3 R1 边界。本键与
+     *    `MainViewModel` / `PlanGenerator` / `TrainingPlanner` 的读取集合结构性隔离，
+     *    `ChatEngine.systemPrompt` / `PROMPT_TRAINING` / prompt 常量字节零触碰
+     *    （`PROMPT_VER` 不递增）。
+     *
+     * 占位判据 = 键值非空；清除 = 删键（文本型无归档态，设置页左滑 + UndoBar 快照恢复）。
+     * 上限 80 字（沿用 GOAL_STATEMENT_MAX 先例），空白输入不落库。
+     */
+    const val CUSTOM_GOAL_TEXT = "custom_goal_text"
 
     // ── 目标设置引导（v8 需求 5）─────────────────────────────────────
     /**

@@ -73,10 +73,24 @@ class PersonalInfoFragment : Fragment() {
         // 设置页「目标」栏（`fragment_settings.xml` 动态目标行）；本页只保留静态档案。
         // 原 settings 键 TARGET_KCAL 仅作老数据迁移源（SettingsViewModel.migrateLegacyKcalTarget）。
 
-        // ── 目标（自由文本「我的目标」，settings 键 GOAL_STATEMENT）──
-        // 独立成组：数值目标（kcal）与人生目标（"想练出马甲线"）语义不同，
-        // 不塞进「每日摄入」末行（见增量设计 §1.1）。
-        setupRow(binding.rowGoalStatement, R.string.setting_goal_statement) { editGoalStatement() }
+        // ── 目标（唯一归属设置页「目标」栏）──────────────────────────
+        // v10：本行改为**只读展示 + 跳转**——展示值与设置页主目标行同源
+        // （goals 表 primary：增重/减重/保持/自定义文本），点击进设置页目标栏。
+        // 不再有第二份可编辑的目标入口（原自由文本「我的目标」已并入主目标自定义态，
+        // 键 GOAL_STATEMENT 由 GoalSetupSheet / 设置页统一读写）。
+        binding.rowGoalStatement.label.setText(R.string.setting_goal_statement)
+        binding.rowGoalStatement.chevron.visibility = View.VISIBLE
+        binding.rowGoalStatement.root.setOnClickListener {
+            NavHost.open(requireContext(), SettingsFragment.newInstance(focusGoal = true), NavHost.PAGE_SETTINGS)
+        }
+
+        // 清单3 R1/Q3：自定义目标只读展示行（非空可见）。点击 = 同样跳设置页目标栏
+        // （目标唯一可编辑归属在设置页；本页与 rowGoalStatement 同款只读 + 跳转）。
+        binding.rowCustomGoal.label.setText(R.string.custom_goal_label)
+        binding.rowCustomGoal.chevron.visibility = View.VISIBLE
+        binding.rowCustomGoal.root.setOnClickListener {
+            NavHost.open(requireContext(), SettingsFragment.newInstance(focusGoal = true), NavHost.PAGE_SETTINGS)
+        }
 
         // ── 我的情况（结构化画像，F6）────────────────────────────
         setupRow(binding.rowProfileAllergens, R.string.setting_profile_allergens) {
@@ -155,27 +169,6 @@ class PersonalInfoFragment : Fragment() {
             } else {
                 text.toIntOrNull()?.takeIf { it > 0 }?.let { vm.put(SettingsKeys.AGE, it.toString()) }
             }
-        }
-    }
-
-    /**
-     * 「我的目标」（自由文本）：单行输入，上限 [GOAL_STATEMENT_MAX] 字（输入期硬截断）。
-     * 空输入 = 清除该字段（[SettingsViewModel.put] 对空串执行 remove）。
-     */
-    private fun editGoalStatement() {
-        val cur = vm.values.value.goalStatement
-        showField(
-            R.string.setting_goal_statement,
-            listOf(
-                FieldSheet.FieldSpec(
-                    R.string.setting_goal_statement,
-                    cur,
-                    InputType.TYPE_CLASS_TEXT,
-                    GOAL_STATEMENT_MAX,
-                ),
-            ),
-        ) { raw ->
-            vm.put(SettingsKeys.GOAL_STATEMENT, raw.firstOrNull().orEmpty().trim())
         }
     }
 
@@ -351,10 +344,6 @@ class PersonalInfoFragment : Fragment() {
 
                     binding.rowActivity.value.text = activityLabel(v.activity)
 
-                    // 目标（自由文本）：空则显示统一「未设置」占位（不硬编码）
-                    binding.rowGoalStatement.value.text =
-                        v.goalStatement.ifBlank { getString(R.string.value_not_set) }
-
                     // 我的情况（F6）：画像行右侧值；未填写显示「—」
                     binding.rowProfileAllergens.value.text =
                         v.profileAllergens.joinToString("、").ifBlank { "—" }
@@ -382,6 +371,40 @@ class PersonalInfoFragment : Fragment() {
                     }
                 }
             }
+        }
+        // 目标行（v10）：与设置页主目标同源（goals 表 primary + 自由文本自述）。
+        // combine 保证 mode 与 statement 同帧，避免「自定义文本已改、行值滞后一帧」。
+        // 清单3 R1：同行带出自定义次目标（customGoalText 非空才显示只读行）。
+        viewLifecycleOwner.lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                kotlinx.coroutines.flow.combine(vm.goals, vm.values) { list, v ->
+                    list to v
+                }.collect { (list, v) ->
+                    val mode = list.firstOrNull { it.metric == com.healix.app.db.GoalMetrics.PRIMARY }
+                        ?.targetValue?.toInt() ?: SettingsViewModel.GOAL_MODE_GAIN
+                    binding.rowGoalStatement.value.text = when (mode) {
+                        SettingsViewModel.GOAL_MODE_LOSS -> getString(R.string.goal_loss)
+                        SettingsViewModel.GOAL_MODE_KEEP -> getString(R.string.goal_keep)
+                        SettingsViewModel.GOAL_MODE_CUSTOM ->
+                            v.goalStatement.ifBlank { getString(R.string.value_not_set) }
+                        else -> getString(R.string.goal_gain)
+                    }
+                    renderCustomGoal(v.customGoalText)
+                }
+            }
+        }
+    }
+
+    /**
+     * 自定义目标只读展示（清单3 R1）：非空可见并显示文本本身，空则整行 GONE
+     * （不做「未设置」占位 —— 未使用自定义目标的用户不该看到一行占位噪声）。
+     */
+    private fun renderCustomGoal(text: String) {
+        if (text.isBlank()) {
+            binding.rowCustomGoal.root.visibility = View.GONE
+        } else {
+            binding.rowCustomGoal.root.visibility = View.VISIBLE
+            binding.rowCustomGoal.value.text = text
         }
     }
 
@@ -423,9 +446,6 @@ class PersonalInfoFragment : Fragment() {
 
         /** 背景字数上限（与设置页原值一致）。 */
         const val BACKGROUND_MAX = 2000
-
-        /** 「我的目标」自由文本上限（输入期硬截断）。 */
-        const val GOAL_STATEMENT_MAX = 80
 
         private const val NUMBER_INT = InputType.TYPE_CLASS_NUMBER
         private const val NUMBER_DECIMAL =

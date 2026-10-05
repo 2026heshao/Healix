@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import com.healix.app.db.AppDatabase
 import com.healix.app.notify.QuickInputService
+import com.healix.app.perf.PerfProbe
 import com.healix.app.repo.EventRepository
 import com.healix.app.repo.KnowledgeRepository
 import com.healix.app.repo.QuotaGuard
@@ -50,6 +51,9 @@ class HealixApp : Application() {
         database
         // 触发密钥存储初始化。失败时返回 null，不崩溃。
         secretStore
+        // 帧率探针（清单3 R4）：链尾 init —— 默认关闭时只读一次标志文件、零采集零写盘；
+        // 开启过则自启（开关重启保持）。独立诊断模块，零业务耦合（perf/PerfProbe.kt）。
+        PerfProbe.init(this)
     }
 
     companion object {

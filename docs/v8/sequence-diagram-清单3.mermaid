@@ -1,0 +1,81 @@
+% 清单3 增量时序图提取（来源：docs/v8/架构设计-清单3-2026-10-05.md §4）
+% 上一批次的 sequence-diagram.mermaid 保持不动
+
+%% ── 4.1 R1 添加自定义目标 → 展示 → 左滑清除 → 撤销 ──
+sequenceDiagram
+    participant U as 用户
+    participant SF as SettingsFragment
+    participant AGS as AddGoalSheet（零改动）
+    participant FS as FieldSheet
+    participant VM as SettingsViewModel
+    participant DB as settings 表
+
+    U->>SF: 点「添加目标」
+    SF->>SF: showAddGoal(): pending(ADDABLE 未启用槽) + 自定义未用? 追加 key="custom"
+    SF->>AGS: newInstance(keys+["custom"], labels+[自定义目标])
+    AGS-->>U: 渲染选项行（动态 RowSettingValueBinding）
+    U->>AGS: 点「自定义目标」
+    AGS->>SF: onPick("custom")
+    SF->>FS: editCustomGoal()（上限 80 字，空白不落库）
+    U->>FS: 输入「年底体脂降到 18%」确认
+    SF->>VM: setCustomGoalText(text)
+    VM->>DB: put(CUSTOM_GOAL_TEXT, text)（IO）
+    VM-->>SF: values StateFlow 回填 → renderGoals 追加自定义行
+    Note over SF: AI 口径零触发：无任何 prompt 读取该键
+
+    U->>SF: 左滑自定义行 → 点删除位
+    SF->>VM: setCustomGoalText("")
+    SF->>SF: UndoBar.bind(text=已删除「自定义目标」, onUndo=setCustomGoalText(prev))
+    alt 5 秒内点撤销
+        SF->>VM: setCustomGoalText(prevText)
+        VM->>DB: put(CUSTOM_GOAL_TEXT, prevText)
+    end
+
+%% ── 4.2 R3 「热量摄入」开关联动链 ──
+sequenceDiagram
+    participant U as 用户
+    participant SF as SettingsFragment
+    participant SM as SwitchMaterial
+    participant VM as SettingsViewModel
+    participant DB as settings 表
+    participant RF as RecordFragment（零改动）
+
+    U->>SF: 进设置页，「目标」组之后见「热量摄入」分组
+    SF->>SM: checked = (raw(HIDE_KCAL) != "true")
+    U->>SM: 关闭开关
+    SM->>VM: toggleHide(SettingsKeys.HIDE_KCAL)（既有方法 :493）
+    VM->>DB: put(HIDE_KCAL, "true")
+    VM-->>RF: RecordFragment 既有观察生效（:445-453）
+    RF-->>U: 「今日盈余」热量行立即消失；AI 提示词同步去数字（ChatEngine.kt:237 既有行为）
+    U->>SF: 点数值行 rowKcalGoal
+    SF->>SF: editGoalKcal()（:601 原样：100–9999，越界忽略）
+    SF->>VM: setGoalTarget(KCAL_DAILY, v) → goals 表 → 首页汇总/预警/计划同源更新
+
+%% ── 4.3 R4 探针启停 + 采集 + 导出 ──
+sequenceDiagram
+    participant App as HealixApp.onCreate
+    participant P as PerfProbe
+    participant DF as DebugFragment
+    participant FS as filesDir/perf
+    participant DW as DocumentWriter
+    participant MA as MainActivity
+
+    App->>P: init(context)（CrashCatcher 链尾追加）
+    P->>FS: 读 perf/probe_enabled
+    alt 开关文件为 true（重启保持）
+        P->>P: Choreographer.postFrameCallback 自循环<br/>+ Looper.setMessageLogging(printer)
+    else 默认 false
+        P-->>App: 零采集、零写盘
+    end
+
+    U->>DF: 打开调试页 → 拨开「帧率探针」
+    DF->>P: setEnabled(context, true)（写标志文件 + start）
+    Note over P: 专用 HandlerThread 写盘，主线程零 I/O；<br/>只记 LONG_FRAME(>2×vsync) 与 SLOW_MSG(≥16ms)
+    U->>U: 复现「二级页退出中间卡一下」
+    U->>DF: 回调试页 → 拨关（或保持开）
+    DF->>P: setEnabled(false)（stop：移除回调 + setMessageLogging(null)）
+    U->>DF: 点「导出探针日志」
+    DF->>P: readLog(context)
+    DF->>DW: launch(activity, REQUEST_PROBE=4014, MIME_TEXT, "perf_probe.log", payload)
+    MA->>DW: onActivityResult → 按 kindOf(4014)=EXPORT 写文件（:81-99 既有管线）
+    DW-->>U: 用户选位置保存 → 回传文件排查卡顿时刻

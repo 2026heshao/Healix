@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    设置开关行（56dp，清单3 R3）：标签左，SwitchMaterial 右。
+    全项目首个 Switch 控件 —— material 库已在依赖（BottomSheetDialogFragment 在用）。
+    thumb/track 走 Material 默认着色，accent 主题色自动生效（设计规范 v3「唯一强调色」；
+    无渐变无阴影，不加自绘样式）。
+    复用方：设置页「热量摄入」开关（rowKcalSwitch）、调试页帧率探针开关（probeSwitch）。
+    标签文字由代码按复用方设置（此处不写死 android:text）。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    style="@style/Widget.Healix.SettingRow"
+    android:layout_width="match_parent"
+    android:layout_height="@dimen/setting_row_height"
+    android:orientation="horizontal">
+
+    <TextView
+        android:id="@+id/label"
+        style="@style/Text.Body"
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1"
+        android:gravity="center_vertical"
+        tools:text="记录页显示热量盈余" />
+
+    <com.google.android.material.switchmaterial.SwitchMaterial
+        android:id="@+id/switchWidget"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_vertical"
+        android:layout_marginStart="12dp"
+        android:contentDescription="@null" />
+
+</LinearLayout>

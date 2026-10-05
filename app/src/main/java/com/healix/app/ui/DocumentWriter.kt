@@ -40,6 +40,13 @@ internal object DocumentWriter {
     /** 就医材料（`.txt`）。与 4011 / [ImportReader] 的 4012 都错开。 */
     const val REQUEST_MEDICAL = 4013
 
+    /**
+     * 帧率探针日志（`.log`，清单3 R4）。与 4011 / 4012 / 4013 都错开。
+     * `kindOf` 映射到 [Kind.EXPORT]：复用宿主导出提示语，
+     * [com.healix.app.ui.MainActivity.onActivityResult] 分发零改动。
+     */
+    const val REQUEST_PROBE = 4014
+
     const val MIME_JSON = "application/json"
     const val MIME_TEXT = "text/plain"
 
@@ -101,6 +108,7 @@ internal object DocumentWriter {
     private fun kindOf(requestCode: Int): Kind? = when (requestCode) {
         REQUEST_EXPORT -> Kind.EXPORT
         REQUEST_MEDICAL -> Kind.MEDICAL
+        REQUEST_PROBE -> Kind.EXPORT // 探针日志复用导出提示（清单3 R4）
         else -> null
     }
 }
