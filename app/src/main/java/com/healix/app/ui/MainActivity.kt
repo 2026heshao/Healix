@@ -4,76 +4,41 @@ import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
-import android.view.MotionEvent
-import android.view.View
-import android.view.inputmethod.InputMethodManager
 import android.os.Bundle
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.lifecycleScope
-import androidx.lifecycle.repeatOnLifecycle
-import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.recyclerview.widget.RecyclerView
-import com.healix.app.HealixApp
 import com.healix.app.R
 import com.healix.app.databinding.ActivityMainBinding
-import com.healix.app.databinding.ItemEventBinding
-import com.healix.app.db.EventEntity
-import com.healix.app.db.PresetEntity
-import com.healix.app.notify.AppEvent
-import com.healix.app.notify.AppEventBus
-import com.healix.app.notify.EventText
-import kotlinx.coroutines.launch
 
 /**
- * 主界面（设计规范系统 4.1 + 11.1 v6）。
+ * 主界面宿主（**唯一 Activity**）。设计规范系统 11.1 v6；v8 导航骨架 §A.1。
  *
- * 核心原则：进入 300ms 后自动弹键盘并聚焦输入区 —— 这是"打开即记"的摩擦下限。
+ * ══════════════════════════════════════════════════════════════════════════
+ * v8 结构：单 Activity + 全 Fragment
+ * ══════════════════════════════════════════════════════════════════════════
+ * - **三个常驻 Tab Fragment**（[RecordFragment] / [AssistantFragment] / [MineFragment]）
+ *   挂在 `tabContainer` 上：`add` 一次 + `show/hide` 切换 —— Tab 互切**零窗口转场、
+ *   零 Activity 重建**，这是需求 2「点 Tab 即响应」的根治。三页同为 Fragment，
+ *   导航范式唯一（此前「助理」是 Fragment、「记录 / 我的」是 View 容器 = 半迁移）。
+ * - **八个二级页**（状态详情/设置/计划/个人信息/知识库/资源/预设/调试）是
+ *   `pageContainer` 上的 Fragment，经 [NavHost] 路由（`replace` + 回退栈），
+ *   这是需求 1「二级页前进/后退卡顿」的根治。
  *
- * v8：**单 Activity 架构**。三个 Tab 全部常驻本 Activity：
- * 「助理」是常驻 Fragment（[AssistantFragment]，add 一次 + show/hide）——Tab 互切
- * 零窗口转场、零 Activity 重建（需求 2「点 Tab 即响应」的根治）；「记录 / 我的」
- * 为同 Activity 内 View 容器 + in_tab 动画（可靠重播）。
- *
- * **八个二级页**（状态详情/设置/计划/个人信息/知识库/资源/预设/调试）v8 T03 起
- * 全部是 `pageContainer` 上的 Fragment，经 [NavHost] 路由进出（需求 1「二级页
- * 前进/后退卡顿」的根治：不再另起窗口、不再有窗口转场，返回走 FragmentManager
- * 回退栈）。除本 Activity 外**已无其他 Activity**。
+ * 本类只做"宿主"该做的事：承载容器 / 后台返回栈 / 外部入口（EXTRA_TAB、
+ * EXTRA_FOCUS_INPUT）/ SAF 回传 / 通知权限。页面逻辑全部下放到各 Fragment。
  */
 class MainActivity : AppCompatActivity() {
 
-    // lateinit 绑定与 vm 视图绑定均由 MainViewModel 持有状态
     private lateinit var binding: ActivityMainBinding
-    private lateinit var adapter: EventAdapter
-    private lateinit var vm: MainViewModel
 
-    /** 当前 Tab（TabBar.TAB_RECORD / TAB_MINE）。 */
+    /** 当前 Tab（`TabBar.TAB_RECORD` / `TAB_ASSISTANT` / `TAB_MINE`）。 */
     internal var currentTab: Int = TabBar.TAB_RECORD
 
-    /** 左滑手势控制器：全局单开（所有行共享 1 个实例）。 */
-    private lateinit var swipe: SwipeController
-
-    private lateinit var minePage: MinePage
-
-    /**
-     * 助理 Tab 的常驻 Fragment（v8 导航骨架）。
-     *
-     * 懒创建且**诞生即隐藏**（add + hide 同事务）——保证首次 show() 一定走
-     * [AssistantFragment.onHiddenChanged] → onVisible()，显示逻辑只有一条路径。
-     */
+    private var record: RecordFragment? = null
     private var assistant: AssistantFragment? = null
-
-    /**
-     * 最近一次的 UI 状态。
-     *
-     * 用于让 offlineBar 的点击行为与当前语义匹配 —— 同一条提示条
-     * 承载"离线"和"未配置"两种语义，必须知道现在是哪一种才能决定
-     * 点了之后是"重试"还是"去设置页"。
-     */
-    private var lastUiState: MainUiState = MainUiState.Idle
+    private var mine: MineFragment? = null
 
     /**
      * Android 13+ 通知权限申请入口。
@@ -84,7 +49,7 @@ class MainActivity : AppCompatActivity() {
      */
     private val notifPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) {
-            // 结果无需处理：拒绝则落到 MinePage 的手动引导
+            // 结果无需处理：拒绝则落到「我的」页的手动引导
         }
 
     /** 进程级标记：避免每次 onResume 反复弹（用户拒绝后不再骚扰）。 */
@@ -95,72 +60,19 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        vm = MainViewModel(HealixApp.from(this))
+        ensureTabs()
 
-        swipe = SwipeController(this)
-
-        adapter = EventAdapter(
-            onEdit = { entity ->
-                EventEditSheet.newInstance(entity.clientEventId)
-                    .show(supportFragmentManager, EventEditSheet.TAG)
-            },
-            onRetry = { entity -> vm.retry(entity) },
-            onDelete = { entity -> deleteWithUndo(entity) },
-            swipe = swipe,
-        )
-
-        binding.list.layoutManager = LinearLayoutManager(this)
-        binding.list.adapter = adapter
-        binding.list.setHasFixedSize(false)
-
-        binding.dateLabel.text = HealixDate.labelOf(vm.todayDayKeyFlow.value)
-
-        binding.btnSend.setOnClickListener { submit() }
-        binding.btnSettings.setOnClickListener {
-            NavHost.open(this, SettingsFragment(), NavHost.PAGE_SETTINGS)
-        }
-        binding.planBar.setOnClickListener {
-            NavHost.open(this, PlanReviewFragment(), NavHost.PAGE_PLAN_REVIEW)
-        }
-        binding.nudgeBar.setOnClickListener { focusInput() }
-
-        // 状态行：整行进入状态详情页（规范 §9.2）。有信号时默认落在「身体」段，
-        // 否则落在「运动」段 —— 入口决定默认段，用户不用再猜。
-        binding.statusRow.setOnClickListener {
-            val tab = if (binding.statusRow.tag == StatusDetailFragment.TAB_BODY) {
-                StatusDetailFragment.TAB_BODY
-            } else {
-                StatusDetailFragment.TAB_EXERCISE
-            }
-            NavHost.open(this, StatusDetailFragment.newInstance(tab), NavHost.PAGE_STATUS_DETAIL)
-            // 进了状态页就算看过了 → 已读后必须切回摘要态（规范 §9.2）
-            vm.acknowledgeSignals()
-        }
-
-        // 状态提示条点击：按当前语义分流（离线 → 重试；未配置 → 去设置）
-        binding.offlineBar.setOnClickListener {
-            if (lastUiState == MainUiState.NotConfigured) {
-                NavHost.open(this, SettingsFragment(), NavHost.PAGE_SETTINGS)
-            } else {
-                vm.retryFailedPending()
-            }
-        }
-
-        // ── v6：全局 3 Tab（记录 / 助理 / 我的）；v8：助理改常驻 Fragment ──
-        minePage = MinePage(this, binding.minePage.root)
-        minePage.bind(
-            onOpenStatus = { vm.acknowledgeSignals() },
-        )
         currentTab = intent.getIntExtra(TabBar.EXTRA_TAB, TabBar.TAB_RECORD)
         TabBar.bind(this, currentTab) { tab -> showTab(tab) }
-        // 键盘守卫：@id/input 在记录页 View 容器与助理 Fragment 里各有一份，
-        // hide() 的 Fragment 视图仍 attach，必须按当前 Tab 解析（TabBar.bindImeGuard 说明）
+        // 键盘守卫：`@id/input` 在记录页与助理页各有一份，`hide()` 的 Fragment 视图仍
+        // attach 在视图树上 → 必须按当前 Tab 解析（否则会命中隐藏的那个，结果不确定）。
         TabBar.bindImeGuard(this) {
             when {
                 // 二级页盖住整个宿主时，不该再去动被盖住的 Tab 输入条
                 NavHost.isOpen(this) -> null
+                currentTab == TabBar.TAB_RECORD -> record?.view?.findViewById(R.id.input)
                 currentTab == TabBar.TAB_ASSISTANT -> assistant?.view?.findViewById(R.id.input)
-                else -> binding.input
+                else -> null
             }
         }
 
@@ -173,11 +85,10 @@ class MainActivity : AppCompatActivity() {
 
         showTabImmediate(currentTab)
 
-        // 系统返回键（Tab 页返回栈）：非记录 Tab 按返回 = 切回记录 tab（原型 go()
-        // 语义：tab 平级、返回不退出）；已是记录 tab 才退出 App。
+        // 系统返回键：二级页优先弹栈；Tab 页非记录时返回 = 切回记录 tab
+        // （原型 go() 语义：tab 平级、返回不退出）；已是记录 tab 才退出 App。
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                // 二级页优先：回退栈非空 → 弹栈（NavHost 负责 out_back 转场）
                 if (NavHost.back(this@MainActivity)) return
                 if (currentTab != TabBar.TAB_RECORD) {
                     showTab(TabBar.TAB_RECORD)
@@ -186,34 +97,25 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         })
+    }
 
-        // 左滑"点其它区域自动回弹"：列表内按下非滑开行 → 收起（全局单开，11.3）
-        binding.list.addOnItemTouchListener(object : RecyclerView.SimpleOnItemTouchListener() {
-            override fun onInterceptTouchEvent(rv: RecyclerView, e: MotionEvent): Boolean {
-                if (e.actionMasked == MotionEvent.ACTION_DOWN) {
-                    val child = rv.findChildViewUnder(e.x, e.y)
-                    swipe.closeIfOutside(child)
-                }
-                return false
-            }
-        })
-
-        // 列表可视区外的按下（汇总区 / 顶栏等）也收起滑开的行
-        binding.root.setOnTouchListener { _, e ->
-            if (e.actionMasked == MotionEvent.ACTION_DOWN) swipe.closeIfOutside(null)
-            false // 不消费
-        }
-
-        observe()
-
-        // 进入 300ms 后自动弹键盘（规范硬要求：打开即弹键盘、光标在输入框）
-        binding.input.postDelayed({ focusInput() }, 300)
+    /**
+     * 创建三个常驻 Tab Fragment（各 `add` 一次）。进程重建后 `findFragmentByTag`
+     * 找回既有实例，不重复 add。
+     */
+    private fun ensureTabs() {
+        val fm = supportFragmentManager
+        record = fm.findFragmentByTag(TAG_RECORD) as? RecordFragment
+            ?: RecordFragment().also { fm.beginTransaction().add(R.id.tabContainer, it, TAG_RECORD).commitNow() }
+        assistant = fm.findFragmentByTag(TAG_ASSISTANT) as? AssistantFragment
+            ?: AssistantFragment().also { fm.beginTransaction().add(R.id.tabContainer, it, TAG_ASSISTANT).commitNow() }
+        mine = fm.findFragmentByTag(TAG_MINE) as? MineFragment
+            ?: MineFragment().also { fm.beginTransaction().add(R.id.tabContainer, it, TAG_MINE).commitNow() }
     }
 
     /**
      * 通知 / 小工具等外部入口重开本页时走这里（本页已在栈顶）。
-     * v8 后助理为常驻 Fragment、TabBar 不再有 chatTo()，EXTRA_TAB 只来自
-     * 通知栏录入等外部入口（点通知直接落在指定 Tab）。
+     * `EXTRA_TAB` 来自通知栏录入等外部入口（点通知直接落在指定 Tab）。
      */
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
@@ -226,13 +128,13 @@ class MainActivity : AppCompatActivity() {
         if (intent.getBooleanExtra(EXTRA_FOCUS_INPUT, false) &&
             currentTab == TabBar.TAB_RECORD
         ) {
-            binding.input.postDelayed({ focusInput() }, 200)
+            record?.requestFocusInput()
         }
     }
 
     /**
-     * SAF 回传（v6 迁移）：导出备份入口已从设置页迁到「我的」页（11.1），
-     * 发起方变成 MainActivity —— 必须在这里转发给 ExportWriter，
+     * SAF 回传（v6 迁移）：导出备份入口在「我的」页（11.1），由 [MineFragment] 发起 ——
+     * 发起方用的是宿主的 `startActivityForResult`，回传必须在这里转发给 [ExportWriter]，
      * 否则用户选完路径后 pendingPayload 永远挂着、文件不会写入（静默失败）。
      */
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
@@ -249,57 +151,38 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Tab 平级切换（11.2 in_tab）：透明度 0→1 + translateY(8dp)→0。
-     * 原型 reflow 的 Android 等价：先取消旧动画、重置起始值再重播，
-     * 同页重复切换直接跳过（不重播）。
+     * Tab 平级切换：`hide(old)` + `show(new)`，**零动画、零窗口转场**（拍板 #2）。
+     * 三个 Fragment 常驻不销毁 → 各 Tab 的滚动位置与输入草稿天然保留。
+     * 高亮由 [TabBar.bind] 的触摸监听"按下即生效"，这里只切内容。
      */
     private fun showTab(target: Int) {
         if (currentTab == target) return
         currentTab = target
-        // 同 Activity 内互切后 tabbar 高亮必须跟着走（bind 只在 onCreate 高亮一次）
         TabBar.select(this, target)
-        val assistant = ensureAssistant()
-        supportFragmentManager.beginTransaction()
-            .apply { if (target == TabBar.TAB_ASSISTANT) show(assistant) else hide(assistant) }
-            .commitNow()
-        binding.assistantContainer.visibility =
-            if (target == TabBar.TAB_ASSISTANT) View.VISIBLE else View.GONE
-        if (target == TabBar.TAB_ASSISTANT) {
-            // 助理页盖在两个 View 容器之上：显式收起旧容器，避免边缘视图闪现
-            binding.pageHome.visibility = View.GONE
-            binding.minePage.root.visibility = View.GONE
-        } else {
-            playInTab(if (target == TabBar.TAB_MINE) binding.minePage.root else binding.pageHome)
-            val outgoing = if (target == TabBar.TAB_MINE) binding.pageHome else binding.minePage.root
-            outgoing.visibility = View.GONE
-        }
+        applyTab(target)
     }
 
     private fun showTabImmediate(target: Int) {
-        val assistant = ensureAssistant()
-        supportFragmentManager.beginTransaction()
-            .apply { if (target == TabBar.TAB_ASSISTANT) show(assistant) else hide(assistant) }
-            .commitNow()
-        binding.assistantContainer.visibility =
-            if (target == TabBar.TAB_ASSISTANT) View.VISIBLE else View.GONE
-        binding.pageHome.visibility = if (target == TabBar.TAB_RECORD) View.VISIBLE else View.GONE
-        binding.minePage.root.visibility =
-            if (target == TabBar.TAB_MINE) View.VISIBLE else View.GONE
+        currentTab = target
+        applyTab(target)
     }
 
     /**
-     * 助理 Fragment 懒创建：add 一次常驻，此后只 show/hide（永不重建、永不重建视图）。
-     * 诞生即 hide（[assistant] 注释）→ 每次首次 show 都触发 onVisible() 刷新。
+     * 三选一显现（其余 hide）。同一事务提交，避免中间帧出现两页叠影。
+     *
+     * 用 `commitNowAllowingStateLoss` 而非 `commitNow`：本方法也会从
+     * [onNewIntent] 触发（外部入口重开本页），而该方法可能在 Activity 已
+     * `onSaveInstanceState` 之后到达 → 普通 `commitNow/commit` 会抛
+     * `IllegalStateException: Can not perform this action after onSaveInstanceState`。
+     * Tab 显隐是纯视图状态、进程重建后由 `ensureTabs + showTabImmediate` 重放，允许丢失无害。
      */
-    private fun ensureAssistant(): AssistantFragment {
-        assistant?.let { return it }
-        val f = AssistantFragment()
-        supportFragmentManager.beginTransaction()
-            .add(R.id.assistantContainer, f, TAG_ASSISTANT)
-            .hide(f)
-            .commitNow()
-        assistant = f
-        return f
+    private fun applyTab(target: Int) {
+        supportFragmentManager.beginTransaction().apply {
+            setReorderingAllowed(true)
+            record?.let { if (target == TabBar.TAB_RECORD) show(it) else hide(it) }
+            assistant?.let { if (target == TabBar.TAB_ASSISTANT) show(it) else hide(it) }
+            mine?.let { if (target == TabBar.TAB_MINE) show(it) else hide(it) }
+        }.commitNowAllowingStateLoss()
     }
 
     /** 二级页容器命中态与回退栈同步（见 onCreate 注册处说明）。 */
@@ -307,48 +190,11 @@ class MainActivity : AppCompatActivity() {
         binding.pageContainer.isClickable = supportFragmentManager.backStackEntryCount > 0
     }
 
-    private fun playInTab(view: View) {
-        view.animate().cancel()
-        view.alpha = 0f
-        view.translationY = resources.getDimensionPixelSize(R.dimen.tab_shift).toFloat()
-        view.visibility = View.VISIBLE
-        view.animate()
-            .alpha(1f)
-            .translationY(0f)
-            .setDuration(TAB_ANIM_MS)
-            .withEndAction {
-                view.alpha = 1f
-                view.translationY = 0f
-            }
-            .start()
-    }
-
-    /**
-     * 左滑删除（11.3）：一步删除 → 复用撤销条（5 秒，与"已记录"同一容器同套机制）；
-     * 点「撤销」原位插回 —— 软删除恢复后 ts 不变，Room Flow 自动按原序回插。
-     */
-    private fun deleteWithUndo(e: EventEntity) {
-        vm.deleteEvent(e.clientEventId)
-        UndoBar.bind(
-            container = binding.undoBar,
-            leftText = binding.undoLeft,
-            action = binding.undoAction,
-            text = getString(R.string.undo_deleted, e.rawText.take(14)),
-            announce = null,
-            onUndo = { vm.restoreEvent(e.clientEventId) },
-        )
-    }
-
     override fun onResume() {
         super.onResume()
-        // 回前台统一入口（G2/G5）：跨零点重算今日 day_key + 软删清理 + 刷新常驻通知副标题。
-        // ⚠️ 原独立调用 vm.refreshNudgeSubtitle() 已并入 vm.refresh()，故此处不再重复调用。
-        vm.refresh()
-        // 规则扫描走"打开时计算"，不依赖后台定时器（PRD §7.4）。
-        // 整个流程 0 次 AI 调用，纯本地。
-        vm.scanSignals()
-        // 桌面小工具：回前台推一次（覆盖跨天 / 跨周后本周口径变化，app-pushes-updates）
-        com.healix.app.widget.HealixWidgetProvider.push(this)
+        // 回前台统一入口（G2/G5）：跨零点重算今日 day_key + 软删清理 + 刷新常驻通知副标题
+        // + 规则扫描（PRD §7.4"打开时计算"，0 次 AI 调用）+ 桌面小工具推送。
+        record?.onAppForeground()
 
         // 通知权限（G1）：Android 13+ 首次进入申请一次。POST_NOTIFICATIONS 未授予时
         // QuickInputService 的前台通知会被系统静默丢弃 → 「通知栏速记」入口整片消失。
@@ -361,436 +207,14 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun focusInput() {
-        binding.input.requestFocus()
-        val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
-        imm.showSoftInput(binding.input, InputMethodManager.SHOW_IMPLICIT)
-    }
-
-    /**
-     * 状态行右侧 chevron 取色：摘要态 `text_3`、信号态 `accent`（规范 §9.2）。
-     *
-     * 每次都用同一个 drawable 实例 `setTint` —— 这里只有一个 ImageView 用它，
-     * 不存在共享可变状态被串改的问题。
-     */
-    private fun tintChevron(colorRes: Int) {
-        binding.statusChevron.drawable?.setTint(ContextCompat.getColor(this, colorRes))
-    }
-
-    private fun submit() {
-        val text = binding.input.text?.toString()?.trim().orEmpty()
-        if (text.isEmpty()) return
-        binding.input.setText("")
-        vm.submit(text)
-    }
-
-    private fun observe() {
-        lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.STARTED) {
-
-                // 进程内事件（通知栏录入 → 前台反馈，AppEventBus）：
-                // 数据刷新由 Room Flow 承担，这里只接「即时提示」职责 ——
-                // RequestFocusInput（点通知兜底聚焦速记框）、Failed（失败原因轻提示）。
-                launch {
-                    AppEventBus.events.collect { event ->
-                        when (event) {
-                            is AppEvent.RequestFocusInput -> focusInput()
-                            is AppEvent.Failed -> android.widget.Toast.makeText(
-                                this@MainActivity, event.reason,
-                                android.widget.Toast.LENGTH_SHORT,
-                            ).show()
-                            // Recorded / PendingQueued / Undone：列表已由 Room Flow 自动刷新
-                            else -> Unit
-                        }
-                    }
-                }
-
-                launch {
-                    vm.events.collect { list ->
-                        adapter.submit(list)
-                        binding.emptyState.visibility =
-                            if (list.isEmpty()) View.VISIBLE else View.GONE
-                    }
-                }
-
-                launch {
-                    vm.summary.collect { s ->
-                        binding.gapValue.text = if (s.gap >= 0) {
-                            getString(R.string.gap_format, s.gap)
-                        } else {
-                            getString(R.string.gap_negative_format, s.gap)
-                        }
-                        binding.summaryLine.text = getString(
-                            R.string.summary_format, s.kcalIn, s.kcalOut, s.target,
-                        )
-                        val pct = if (s.target > 0) s.kcalIn * 100 / s.target else 0
-                        binding.progressLine.progress = pct.coerceIn(0, 100)
-
-                        // 计划提示条：缺口为 0 时改为「今日已达标」
-                        binding.planBar.text = if (s.gap > 0) {
-                            getString(R.string.plan_gap, s.gap) + "　" + getString(R.string.view_advice)
-                        } else {
-                            getString(R.string.plan_reached)
-                        }
-                    }
-                }
-
-                launch {
-                    vm.uiState.collect { state ->
-                        lastUiState = state
-                        when (state) {
-                            MainUiState.Idle -> {
-                                binding.spinner.visibility = View.GONE
-                                binding.stateLabel.visibility = View.GONE
-                            }
-                            MainUiState.Parsing -> {
-                                binding.spinner.visibility = View.VISIBLE
-                                binding.stateLabel.visibility = View.VISIBLE
-                                binding.stateLabel.text = getString(R.string.state_parsing)
-                            }
-                            is MainUiState.Queued -> {
-                                binding.spinner.visibility = View.VISIBLE
-                                binding.stateLabel.visibility = View.VISIBLE
-                                // 限流必须显示预估秒数，不静默转圈（规范 3.10）
-                                binding.stateLabel.text =
-                                    getString(R.string.state_queued, state.seconds)
-                            }
-                            MainUiState.Offline -> {
-                                binding.spinner.visibility = View.GONE
-                                binding.stateLabel.visibility = View.GONE
-                                binding.offlineBar.text = getString(R.string.state_offline)
-                                binding.offlineBar.visibility = View.VISIBLE
-                            }
-                            MainUiState.NotConfigured -> {
-                                // 未配置 ≠ 离线。用同一条提示条，但文案与动作不同：
-                                // 点一下直接去设置页（而不是让用户自己找）
-                                binding.spinner.visibility = View.GONE
-                                binding.stateLabel.visibility = View.GONE
-                                binding.offlineBar.text = getString(R.string.no_provider_config)
-                                binding.offlineBar.visibility = View.VISIBLE
-                            }
-                        }
-                    }
-                }
-
-                launch { vm.presets.collect { renderPresets(it) } }
-
-                // 状态行：两态互斥渲染（规范 §9.2）；「我的」页副行同源同步
-                launch {
-                    vm.homeStatus.collect { status ->
-                        minePage.bindStatus(this@MainActivity, status)
-                        when (status) {
-                            is HomeStatus.Signal -> {
-                                binding.statusRow.tag = StatusDetailFragment.TAB_BODY
-                                binding.statusText.text = status.text
-                                binding.statusText.setTextColor(
-                                    ContextCompat.getColor(this@MainActivity, R.color.accent),
-                                )
-                                tintChevron(R.color.accent)
-                            }
-                            is HomeStatus.Summary -> {
-                                binding.statusRow.tag = StatusDetailFragment.TAB_EXERCISE
-                                binding.statusText.text = status.text
-                                binding.statusText.setTextColor(
-                                    ContextCompat.getColor(this@MainActivity, R.color.text_2),
-                                )
-                                tintChevron(R.color.text_3)
-                            }
-                            HomeStatus.Empty -> {
-                                binding.statusRow.tag = StatusDetailFragment.TAB_EXERCISE
-                                binding.statusText.setText(R.string.status_none)
-                                binding.statusText.setTextColor(
-                                    ContextCompat.getColor(this@MainActivity, R.color.text_3),
-                                )
-                                tintChevron(R.color.text_3)
-                            }
-                        }
-                    }
-                }
-
-                // 内联撤销条：写入成功后 5 秒可撤销（规范 §9.6 / PRD §15.7）
-                launch {
-                    vm.undo.collect { payload ->
-                        val text = if (payload.totalCount > 1) {
-                            // 一句话拆成多条时，"列表自己多长出来两行"必须有交代（PRD §15.4）
-                            getString(
-                                R.string.undo_recorded_extra,
-                                payload.totalCount,
-                                payload.valueText.ifEmpty { "" },
-                            )
-                        } else {
-                            getString(R.string.undo_recorded, payload.typeName, payload.valueText)
-                        }
-                        UndoBar.bind(
-                            container = binding.undoBar,
-                            leftText = binding.undoLeft,
-                            action = binding.undoAction,
-                            text = text,
-                            announce = getString(R.string.undo_announce, payload.typeName),
-                            onUndo = { vm.undo(payload.clientEventId) },
-                        )
-                    }
-                }
-
-                // 隐私：隐藏热量数字时，汇总区与计划条**整块不显示**（PRD §14.3）
-                launch {
-                    vm.hideKcal.collect { hidden ->
-                        binding.summaryBlock.visibility =
-                            if (hidden) View.GONE else View.VISIBLE
-                        binding.planBar.visibility = if (hidden) View.GONE else View.VISIBLE
-                        adapter.hideKcal = hidden
-                    }
-                }
-
-                launch {
-                    vm.todayCount.collect { count ->
-                        // 监督提示条：今日无记录时出现（被动监督，不依赖后台定时器）
-                        binding.nudgeBar.visibility =
-                            if (count == 0) View.VISIBLE else View.GONE
-                    }
-                }
-
-                launch {
-                    // 日期标签与列表同口径：跨零点 refresh() 后今日 day_key 变化 → 标签同步刷新
-                    vm.todayDayKeyFlow.collect { key ->
-                        binding.dateLabel.text = HealixDate.labelOf(key)
-                    }
-                }
-            }
-        }
-    }
-
-    /**
-     * 预设横条：点一下 = 一条记录，完全不打字、不调 AI（功能补充 2.1）。
-     * 这是全 App 摩擦最低的路径。
-     */
-    private fun renderPresets(list: List<PresetEntity>) {
-        binding.presetRow.removeAllViews()
-        val visible = list.isNotEmpty()
-        binding.presetScroll.visibility = if (visible) View.VISIBLE else View.GONE
-        binding.presetDivider.visibility = if (visible) View.VISIBLE else View.GONE
-        if (!visible) return
-
-        for (preset in list) {
-            val tv = layoutInflater.inflate(R.layout.item_preset, binding.presetRow, false)
-                as android.widget.TextView
-            tv.text = preset.name
-            tv.setOnClickListener { vm.logPreset(preset) }
-            tv.bindPressScale()
-            binding.presetRow.addView(tv)
-        }
-    }
-
     companion object {
-        /** 助理 Fragment 的回退栈标签（ensureAssistant 的 add 标签）。 */
-        private const val TAG_ASSISTANT = "assistant"
-
-        /**
-         * 桌面小工具「记一笔」：打开本页并聚焦速记框（小工具侧 extra，
-         * 见 HealixWidgetProvider.logIntent；冷启动由 onCreate 300ms 自动聚焦兜底）。
-         */
+        /** 桌面小工具「记一笔」：打开本页并聚焦速记框（小工具侧 extra，
+         *  见 HealixWidgetProvider.logIntent；冷启动由记录页 300ms 自动聚焦兜底）。 */
         const val EXTRA_FOCUS_INPUT = "healix.extra.FOCUS_INPUT"
 
-        // 「状态行进入状态详情页时默认落在哪一段」的取值来源是
-        // [StatusDetailFragment.TAB_EXERCISE] / [StatusDetailFragment.TAB_BODY]
-        // （入口契约归它所有）—— 本类不再自带同名私有副本。
-
-        /** Tab 平级切换时长（规范 11.2，对应原型 --dur_normal）。 */
-        private const val TAB_ANIM_MS = 240L
-    }
-}
-
-/**
- * 记录列表适配器。
- * 无卡片、无阴影、无彩色徽章 —— 靠 6px 圆点 + 1dp 分隔线组织信息。
- *
- * v6：每行包 swipewrap（item_event.xml），左滑露「编辑/删除」（11.3）；
- * 按压缩放双反馈（11.4）。手势由共享的 [SwipeController] 统一裁决
- * （全局单开 + 300ms click 屏蔽）。
- */
-class EventAdapter(
-    private val onEdit: (EventEntity) -> Unit,
-    private val onRetry: (EventEntity) -> Unit,
-    private val onDelete: (EventEntity) -> Unit,
-    private val swipe: SwipeController,
-) : RecyclerView.Adapter<EventAdapter.VH>() {
-
-    private var items: List<EventEntity> = emptyList()
-
-    /**
-     * 隐私：隐藏热量数字（规范 §9.7 ④）。为 true 时 meal / exercise 的摘要
-     * 不再显示 kcal，改为显示用户自己填的数量文本；没有数量就整行隐藏。
-     */
-    var hideKcal: Boolean = false
-        set(value) {
-            if (field == value) return
-            field = value
-            notifyDataSetChanged()
-        }
-
-    fun submit(list: List<EventEntity>) {
-        items = list
-        notifyItemRangeChanged(0, items.size)
-        notifyDataSetChanged()
-    }
-
-    override fun onCreateViewHolder(parent: android.view.ViewGroup, viewType: Int): VH {
-        val b = ItemEventBinding.inflate(
-            android.view.LayoutInflater.from(parent.context), parent, false,
-        )
-        return VH(b)
-    }
-
-    override fun getItemCount(): Int = items.size
-
-    override fun onBindViewHolder(holder: VH, position: Int) = holder.bind(items[position])
-
-    inner class VH(private val b: ItemEventBinding) : RecyclerView.ViewHolder(b.root) {
-
-        fun bind(e: EventEntity) {
-            val ctx = b.root.context
-
-            // ── 复用防残留：滑开态 ViewHolder 被复用到新 item 时，swipeWrap
-            //    可能带着上一次的 -144dp 平移。bind 前先取消残留动画、归位平移，
-            //    并解除 SwipeController 对这个视图的滑开跟踪（出屏滑开行滚回来
-            //    = 已回弹的干净行）。──
-            b.swipeItem.animate().cancel()
-            b.swipeItem.translationX = 0f
-            swipe.release(b.swipeItem)
-
-            // ── v6 左滑：拖拽跟随 + 按压缩放，同一个触摸监听承载两种反馈 ──
-            b.swipeItem.setOnTouchListener { v, ev ->
-                when (ev.actionMasked) {
-                    MotionEvent.ACTION_DOWN ->
-                        v.animate().scaleX(PRESS_SCALE).scaleY(PRESS_SCALE).setDuration(120).start()
-                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL ->
-                        v.animate().scaleX(1f).scaleY(1f).setDuration(120).start()
-                }
-                swipe.onTouch(v, ev)
-                false // 不消费：点击 / 长按照旧
-            }
-            b.actEdit.setOnClickListener {
-                if (!swipe.clickAllowed()) return@setOnClickListener
-                swipe.closeAll()
-                onEdit(e)
-            }
-            b.actDelete.setOnClickListener {
-                if (!swipe.clickAllowed()) return@setOnClickListener
-                swipe.closeAll()
-                onDelete(e)
-            }
-
-            // 类型 + 时间（第一行，13sp text_2）
-            b.typeLabel.text = EventText.typeName(ctx, e.type)
-            b.timeLabel.text = HealixDate.timeLabel(e.ts)
-
-            // 6px 圆点按类型着色
-            b.dot.background.setTint(EventText.typeColor(ctx, e.type))
-
-            // 正文：raw_text（15sp text_1，最多 2 行）
-            b.bodyText.text = e.rawText
-
-            // 摘要：按类型口径，无信息则隐藏（不留空行）
-            val summary = EventText.summary(ctx, e, hideKcal)
-            b.summaryText.text = summary
-            b.summaryText.visibility = if (summary.isNullOrEmpty()) View.GONE else View.VISIBLE
-
-            // 三态：pending 显示"识别中"，failed 显示「未识别 · 点此补充」
-            when (e.parseStatus) {
-                PARSE_PENDING -> {
-                    // 「识别中」13sp text_3、**不可点**、整行仍可点进编辑（规范 §3.3）
-                    b.pendingText.visibility = View.VISIBLE
-                    b.errorText.visibility = View.GONE
-                }
-                PARSE_FAILED -> {
-                    b.pendingText.visibility = View.GONE
-                    b.errorText.visibility = View.VISIBLE
-
-                    // ⚠️ 失败 ≠ 错误（PRD §15.5 / 规范 §3.10）：
-                    //   原文已落库、day_key 已算对 → "这条还没算完"，不是数据丢了。
-                    //   染红会让用户以为 App 坏了或记录没了，而它好端端躺在列表里。
-                    //   negative **只留给"数据真的可能丢"**：DB 写入 / 更新失败。
-                    val dataLoss = e.lastError?.let {
-                        it.startsWith("db_insert_failed") || it.startsWith("db_update_failed")
-                    } == true
-
-                    if (dataLoss) {
-                        b.errorText.setText(R.string.state_save_failed)
-                        b.errorText.setTextColor(ContextCompat.getColor(ctx, R.color.negative))
-                        b.errorText.setOnClickListener { onRetry(e) }
-                    } else {
-                        b.errorText.setText(R.string.state_unrecognized)
-                        b.errorText.setTextColor(ContextCompat.getColor(ctx, R.color.text_2))
-                        // 「补充」= 进编辑弹窗，交给整行的 onEdit 处理
-                        b.errorText.setOnClickListener(null)
-                        b.errorText.isClickable = false
-                    }
-                }
-                else -> {
-                    b.pendingText.visibility = View.GONE
-                    b.errorText.visibility = View.GONE
-                }
-            }
-
-            // 整行可点 → 编辑（复用 ConfirmSheet）。刚拖完的 300ms 内不触发（V4）。
-            b.swipeItem.setOnClickListener {
-                if (!swipe.clickAllowed()) return@setOnClickListener
-                onEdit(e)
-            }
-
-            // 最后一行不画分隔线
-            b.divider.visibility =
-                if (bindingAdapterPosition == items.size - 1) View.GONE else View.VISIBLE
-        }
-    }
-
-    private companion object {
-        const val PARSE_PENDING = "pending"
-        const val PARSE_FAILED = "failed"
-
-        /** 按压缩放幅度（规范 11.4，原型 scale .985）。 */
-        const val PRESS_SCALE = 0.985f
-    }
-}
-
-/** 日期 / 时间格式化与日长常量。集中一处，避免各页各写一遍。 */
-internal object HealixDate {
-
-    /**
-     * 一天的毫秒数。**唯一来源** —— 提醒顺延（[SettingsViewModel]）、临期判定
-     * （[SettingsFragment]）、跨日回看（[TrainingPlanner]）都必须用它；
-     * 不得再出现 `86_400_000L` 一类第二、第三份字面量（改一处漏一处）。
-     */
-    const val DAY_MS = 24L * 60 * 60 * 1000
-
-    private val WEEKDAYS = arrayOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
-
-    /**
-     * 按 day_key（日界线口径）渲染日期标签。
-     *
-     * 与列表共用同一 day_key，避免凌晨窗口（默认日界 04:00）内
-     * 「列表已算作今天、日期标签却按 LocalDate.now() 显示昨天」的口径打架。
-     * day_key 解析失败时兜底为系统当天，保证标签永不空白。
-     */
-    fun labelOf(dayKey: String): String {
-        val d = runCatching { java.time.LocalDate.parse(dayKey) }.getOrNull()
-            ?: java.time.LocalDate.now()
-        return "${d.monthValue}月${d.dayOfMonth}日 ${WEEKDAYS[d.dayOfWeek.value - 1]}"
-    }
-
-    fun timeLabel(ts: Long): String {
-        val t = java.time.Instant.ofEpochMilli(ts)
-            .atZone(java.time.ZoneId.systemDefault()).toLocalTime()
-        return "%02d:%02d".format(t.hour, t.minute)
-    }
-
-    /** 会话日期标签：今天 / 昨天 / M月d日 */
-    fun sessionLabel(date: java.time.LocalDate): String {
-        val today = java.time.LocalDate.now()
-        return when (date) {
-            today -> "今天"
-            today.minusDays(1) -> "昨天"
-            else -> "${date.monthValue}月${date.dayOfMonth}日"
-        }
+        // 三个常驻 Tab Fragment 的 tag（= 类名，dumpsys 调试时一眼可辨）。
+        private const val TAG_RECORD = "RecordFragment"
+        private const val TAG_ASSISTANT = "AssistantFragment"
+        private const val TAG_MINE = "MineFragment"
     }
 }

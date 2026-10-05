@@ -63,7 +63,7 @@ internal class PresetManageFragment : Fragment() {
         binding.presetList.layoutManager = LinearLayoutManager(requireContext())
         binding.presetList.adapter = adapter
 
-        // Room Flow 主线程 collect（与 MinePage.observeKnowledgeCount 同款）：挂 view 生命周期，
+        // Room Flow 主线程 collect（与 MineFragment.observeKnowledgeCount 同款）：挂 view 生命周期，
         // 本页出栈即停，宿主 Activity 常驻不会被拖着一起收。
         val db = HealixApp.from(requireContext()).database
         viewLifecycleOwner.lifecycleScope.launch {

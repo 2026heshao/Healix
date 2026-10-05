@@ -5,19 +5,21 @@
     卡片圆角 8dp（规范原文 16dp 与 §2.3 全局唯一圆角冲突，以 §2.3 为准）。
     知识库唯一入口从设置页迁至此页（11.1 取代 10.1）。
     底部预留 80dp 给全局 tabbar（11.6 密度预算）。
+
+    v8：由 `view_mine_page.xml` 抽出为常驻 Tab Fragment（[MineFragment]）的根布局。
+    根 id 改 `mineRoot`；**去掉 `android:visibility="gone"`** —— 显隐由 FragmentManager
+    的 show/hide 控制，根布局自带 gone 会与 hide() 互相打架。
 -->
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
-    android:id="@+id/minePage"
+    android:id="@+id/mineRoot"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/bg"
     android:clipToPadding="false"
     android:fillViewport="true"
     android:paddingBottom="@dimen/list_bottom_pad"
-    android:scrollbars="none"
-    android:visibility="gone"
-    tools:visibility="visible">
+    android:scrollbars="none">
 
     <LinearLayout
         android:layout_width="match_parent"

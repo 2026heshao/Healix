@@ -17,9 +17,12 @@ import com.healix.app.R
  * 载体决策（v8：Tab 即时响应的根因修复）
  * ══════════════════════════════════════════════════════════════════════════
  * 三个 Tab **全部不再经过 Activity 窗口转场**：
- * - 「记录」「我的」：同在 [MainActivity] 内以两个 View 容器切换（原本就零动画）；
- * - 「助理」：v8 起是宿主内的常驻 [AssistantFragment]（`add` 一次 + `show/hide`），
- *   旧的 `ChatActivity` 已删除 —— 此前 `chatTo()` 用
+ * - 三页均为宿主 [MainActivity] 内的**常驻 Fragment**（记录 [RecordFragment] /
+ *   助理 [AssistantFragment] / 我的 [MineFragment]），挂在 `tabContainer` 上，
+ *   `add` 一次 + `show/hide` 切换（**零动画**，拍板 #2）；
+ * - 此前「助理」是 Fragment、「记录 / 我的」是 View 容器 —— v8 起统一为 Fragment，
+ *   导航范式唯一（无半迁移）；
+ * - 旧的 `ChatActivity` 已删除 —— 此前 `chatTo()` 用
  *   `startActivity(CLEAR_TOP|SINGLE_TOP)` 重启 MainActivity 并 `finish()`，
  *   每次都吃一次窗口转场，这是「Tab 点击延迟偏高」的根因。
  *

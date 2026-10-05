@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    需求 5：首次进入目标引导（GoalSetupSheet）的版式。
+    复用 FieldSheet 的容器规格（§3.5：bg_sheet + GrabberLayout + 把手 + row_sheet_field），
+    **不用系统 AlertDialog** —— 规避需求 3 的按钮坑，且贴合「无底色容器」规范。
+    结构 = 把手 + 标题 + 说明 + 三选一（增重/减重/保持）+ 目标体重（可跳过）+ 底部按钮。
+-->
+<com.healix.app.ui.GrabberLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@drawable/bg_sheet"
+        android:orientation="vertical"
+        android:paddingStart="@dimen/screen_margin"
+        android:paddingEnd="@dimen/screen_margin"
+        android:paddingBottom="20dp">
+
+        <!-- 把手 -->
+        <View
+            android:layout_width="@dimen/handle_width"
+            android:layout_height="@dimen/handle_height"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginTop="10dp"
+            android:layout_marginBottom="14dp"
+            android:background="@drawable/bg_handle" />
+
+        <TextView
+            android:id="@+id/sheetTitle"
+            style="@style/Text.Title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/goal_setup_title" />
+
+        <TextView
+            android:id="@+id/sheetDesc"
+            style="@style/Text.Secondary"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="@string/goal_setup_desc" />
+
+        <!-- 三选一：选中项由代码把文字色改成 accent（无彩色面，符合规范 §2.3） -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/optionGain"
+                style="@style/Text.Body"
+                android:layout_width="0dp"
+                android:layout_height="@dimen/touch_min"
+                android:layout_weight="1"
+                android:background="?attr/selectableItemBackground"
+                android:gravity="center"
+                android:text="@string/goal_gain" />
+
+            <TextView
+                android:id="@+id/optionLoss"
+                style="@style/Text.Body"
+                android:layout_width="0dp"
+                android:layout_height="@dimen/touch_min"
+                android:layout_weight="1"
+                android:background="?attr/selectableItemBackground"
+                android:gravity="center"
+                android:text="@string/goal_loss" />
+
+            <TextView
+                android:id="@+id/optionKeep"
+                style="@style/Text.Body"
+                android:layout_width="0dp"
+                android:layout_height="@dimen/touch_min"
+                android:layout_weight="1"
+                android:background="?attr/selectableItemBackground"
+                android:gravity="center"
+                android:text="@string/goal_keep" />
+        </LinearLayout>
+
+        <!-- 目标体重（可跳过）：复用 row_sheet_field 字段行 -->
+        <include
+            android:id="@+id/weightField"
+            layout="@layout/row_sheet_field"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp" />
+
+        <!-- 底部按钮：右对齐（跳过文字按钮 + 保存主按钮） -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:gravity="end"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/btnSkip"
+                style="@style/Text.Link"
+                android:layout_width="wrap_content"
+                android:layout_height="@dimen/touch_min"
+                android:layout_marginEnd="8dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:gravity="center"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:text="@string/goal_setup_skip" />
+
+            <androidx.appcompat.widget.AppCompatButton
+                android:id="@+id/btnSave"
+                style="@style/Widget.Healix.Button"
+                android:layout_width="wrap_content"
+                android:layout_height="48dp"
+                android:text="@string/goal_setup_save" />
+        </LinearLayout>
+
+    </LinearLayout>
+
+</com.healix.app.ui.GrabberLayout>

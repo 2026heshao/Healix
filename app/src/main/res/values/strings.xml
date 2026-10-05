@@ -438,6 +438,30 @@
          「3 次 / 150 分钟」，标签必须明确是「次数」「分钟」，否则用户不知道填什么。 -->
     <string name="goal_train_sessions_label">次数</string>
     <string name="goal_train_minutes_label">分钟</string>
+
+    <!-- ── 需求 5：首页主目标 + 次目标进度 + 首次引导 ── -->
+    <!-- 「主目标 · {增重|减重|保持}」第一行；值由 goals.metric='primary' 的 target_value 编码决定 -->
+    <string name="goal_primary_line">主目标 · %1$s</string>
+    <string name="goal_primary_none">未设定主目标</string>
+    <string name="goal_adjust">去调整 ›</string>
+    <string name="sub_goal_title">次目标进度</string>
+    <string name="sub_goal_train">本周训练</string>
+    <string name="sub_goal_train_value">%1$d/%2$d</string>
+    <string name="sub_goal_sleep">近 7 日睡眠</string>
+    <string name="sub_goal_weight">近 30 日体重</string>
+    <!-- TrendChartView 数据点 < 3 时的占位文案（不补 0，避免假性下跌） -->
+    <string name="sub_goal_empty_sleep">数据不足 3 天，先记几天</string>
+    <string name="sub_goal_empty_weight">数据不足 3 次，先记几次</string>
+    <!-- 图表范围标注（chart_range）的单字单位；不带数值的裸单位 -->
+    <string name="unit_hour">小时</string>
+    <string name="unit_kg_chart">kg</string>
+    <!-- 首次进入目标引导（GoalSetupSheet）-->
+    <string name="goal_setup_title">先设定你的主目标</string>
+    <string name="goal_setup_desc">设好之后，首页会一直告诉你「要去哪、现在到哪」。之后随时可在设置里调整。</string>
+    <string name="goal_setup_weight_label">目标体重</string>
+    <string name="goal_setup_weight_hint">kg（可跳过）</string>
+    <string name="goal_setup_skip">跳过</string>
+    <string name="goal_setup_save">保存</string>
     <!-- 提醒行的操作（复用 ConfirmSheet 的 setItems 动作表） -->
     <string name="reminder_done">标记已完成</string>
     <string name="reminder_checkup">体检</string>

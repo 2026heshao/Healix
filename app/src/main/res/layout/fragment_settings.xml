@@ -314,7 +314,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content" />
 
-            <!-- v6（11.1）：「数据 / 调试 / 知识库」三组迁「我的」页（view_mine_page.xml），
+            <!-- v6（11.1）：「数据 / 调试 / 知识库」三组迁「我的」页（fragment_mine.xml），
                  设置页回归纯配置（模型服务 / 调用限制 / 目标 / 提醒 / 隐私）。
                  v7（下一轮 §5.1）：「个人 / 我的情况」两组亦迁「我的」页 · 个人信息。 -->
         </LinearLayout>

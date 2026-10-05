@@ -40,12 +40,13 @@
     <!--
         v6 交互重构（docs/Healix设计规范系统.md 第十一章）。
         全部沿用原型既有值域：64dp tabbar / 80dp 底部预留 / 72dp 滑动按钮 /
-        80dp 弹盘关闭阈值 / 8dp Tab 切换位移 —— 不新造值。
+        80dp 弹盘关闭阈值 —— 不新造值。
+        v8：Tab 互切改为**零动画**（拍板 #2「点 Tab 即响应」），原 `tab_shift`（8dp
+        切换位移）随之删除 —— 不再有 Tab 平级转场位移。
     -->
     <dimen name="tabbar_height">64dp</dimen>
     <dimen name="list_bottom_pad">80dp</dimen>
     <dimen name="tab_raise">64dp</dimen>
     <dimen name="swipe_act_width">72dp</dimen>
     <dimen name="grab_close_offset">80dp</dimen>
-    <dimen name="tab_shift">8dp</dimen>
 </resources>

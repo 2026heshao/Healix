@@ -625,6 +625,10 @@ def check_undefined_self_calls() -> None:
         # 适配器回调属性名（构造参数 lambda，非本文件 fun）。与 onRetry 同源：
         # 一旦同文件出现 onDestroyView / onRetry 等，前缀启发式会误报。
         "onDelete", "onEdit",
+        # Fragment / Activity / Context 的框架方法（继承自基类，非本文件 fun）。
+        # 与 onRetry 同源：同文件一旦出现 `requestFocusInput`（前缀 requ…），
+        # `requireContext()` / `requireActivity()` 就会被前缀启发式误报成"改名漏改"。
+        "requireContext", "requireActivity", "requireView", "requireParentFragment",
     }
     for kt in sorted(JAVA.rglob("*.kt")):
         text = strip_comments(kt.read_text(encoding="utf-8"))

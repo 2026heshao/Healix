@@ -8,8 +8,12 @@ import com.healix.app.R
 import com.healix.app.db.BodySignalEntity
 import com.healix.app.db.EventEntity
 import com.healix.app.db.GoalDefaults
+import com.healix.app.db.GoalEntity
 import com.healix.app.db.GoalMetrics
+import com.healix.app.db.GoalTypes
 import com.healix.app.db.PresetEntity
+import com.healix.app.db.SettingEntity
+import com.healix.app.db.SettingsKeys
 import com.healix.app.notify.EventText
 import com.healix.app.notify.QuickInputService
 import com.healix.app.net.NetworkStatus
@@ -65,6 +69,26 @@ data class MainSummary(
     val target: Int = 2500,
     val gap: Int = 2500,
 )
+
+/**
+ * 首页主目标展示（需求 5）。
+ *
+ * 「我要去哪」：左侧主目标名（增重/减重/保持）+ 右侧「去调整 ›」。
+ * **不显示分数 / 评分**（禁游戏化 + 不给黑箱分）。
+ */
+data class HomeGoal(
+    /** 主目标模式：0=增重 / 1=减重 / 2=保持（`goals.metric='primary'` 的 `target_value` 编码）。 */
+    val modeIndex: Int,
+    /** 自由文本目标（`SettingsKeys.GOAL_STATEMENT`），空串 = 未填写。 */
+    val statement: String,
+    /** 是否已设定主目标（`goals` 有 active 的 `primary` 行）。 */
+    val set: Boolean,
+)
+
+/**
+ * 本周训练进度（需求 5 次目标①）：周一 → 今天已完成次数 / 每周目标次数。
+ */
+data class TrainProgress(val done: Int, val goal: Int)
 
 /**
  * 首页多维状态行（设计规范系统 §9.2）。
@@ -175,7 +199,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     /** 隐私开关：隐藏体重数字。隐藏时该维度**整块不显示**（PRD §14.3）。 */
-    private val hideWeight: StateFlow<Boolean> = db.settingsDao()
+    val hideWeight: StateFlow<Boolean> = db.settingsDao()
         .observe(KEY_HIDE_WEIGHT)
         .map { it == "true" }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
@@ -185,6 +209,93 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         .observe(KEY_HIDE_KCAL)
         .map { it == "true" }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    // ==================================================================
+    // 需求 5：首页主目标 + 次目标进度
+    // ==================================================================
+
+    /**
+     * 主目标展示。`goals.metric='primary'` 的一行承载"主目标是哪个模式"
+     * （`target_value` ∈ {0=增重 / 1=减重 / 2=保持}）；自由文本目标在 settings。
+     */
+    val homeGoal: StateFlow<HomeGoal> = combine(
+        db.goalDao().observeByMetric(GoalMetrics.PRIMARY),
+        db.settingsDao().observe(SettingsKeys.GOAL_STATEMENT),
+    ) { primary, statement ->
+        HomeGoal(
+            modeIndex = primary?.targetValue?.toInt() ?: SettingsViewModel.GOAL_MODE_GAIN,
+            statement = statement.orEmpty().trim(),
+            set = primary != null,
+        )
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5_000),
+        HomeGoal(SettingsViewModel.GOAL_MODE_GAIN, "", false),
+    )
+
+    /** 本周训练：周一 → 今天已完成次数 ÷ 每周目标次数（次目标①，进度线）。 */
+    val trainProgress: StateFlow<TrainProgress> = combine(
+        todayKey,
+        goalsData,
+        todayCount,
+    ) { day, goals, _ ->
+        val done = runCatching {
+            val monday = LocalDate.parse(day)
+                .with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)).toString()
+            db.eventDao().countByTypeInRange("exercise", monday, day)
+        }.getOrDefault(0)
+        val goal = goals[GoalMetrics.SESSIONS_PER_WEEK]?.toInt()
+            ?: GoalDefaults.TRAIN_SESSIONS_PER_WEEK
+        TrainProgress(done = done, goal = goal)
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5_000),
+        TrainProgress(0, GoalDefaults.TRAIN_SESSIONS_PER_WEEK),
+    )
+
+    /** 近 7 日睡眠（次目标②，折线）。 */
+    val sleepSeries: StateFlow<List<Double>> = combine(todayKey, todayCount) { day, _ ->
+        loadSleepSeries(day)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** 近 30 日体重（次目标③，折线；隐私开关打开时调用方整块隐藏）。 */
+    val weightSeries: StateFlow<List<Double>> = combine(todayKey, todayCount) { day, _ ->
+        loadWeightSeries(day)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * 近 N 日、按 `day_key` 升序的每日「末条记录值」。
+     *
+     * ⚠️ 日界线纪律：区间端点由 `day_key` 反算（`LocalDate.parse(day).minusDays(n-1)`），
+     * **不出现 `LocalDate.now()` 当日键** —— 与列表 / 日期标签同一口径。
+     *
+     * 缺记的日**不补 0**：补 0 会让折线在没记录的日子假性跌到底，比不画更误导
+     * （TrendChartView 在点数 < 3 时显示占位文案，本来就接受"数据不够"）。
+     */
+    private suspend fun loadSleepSeries(day: String): List<Double> {
+        val from = dayKeyBack(day, 7) ?: return emptyList()
+        val rows = runCatching { db.eventDao().listByTypeInRange("sleep", from, day) }
+            .getOrDefault(emptyList())
+        return rows.filter { it.sleepH > 0 }
+            .groupBy { it.dayKey }
+            .toSortedMap()
+            .mapNotNull { (_, list) -> list.maxByOrNull { it.ts }?.sleepH }
+    }
+
+    private suspend fun loadWeightSeries(day: String): List<Double> {
+        val from = dayKeyBack(day, 30) ?: return emptyList()
+        // weightRowsInRange 已过滤 weight_kg > 0 与软删（复用既有查询，不新增 @Query）。
+        val rows = runCatching { db.eventDao().weightRowsInRange(from, day) }
+            .getOrDefault(emptyList())
+        return rows.filter { it.weightKg > 0 }
+            .groupBy { it.dayKey }
+            .toSortedMap()
+            .mapNotNull { (_, list) -> list.maxByOrNull { it.ts }?.weightKg }
+    }
+
+    /** `day_key` 往前推 `days - 1` 天的起点 day_key；解析失败返回 null（调用方给空序列）。 */
+    private fun dayKeyBack(day: String, days: Int): String? =
+        runCatching { LocalDate.parse(day).minusDays(days - 1L).toString() }.getOrNull()
 
     /** 今日未读信号（`body_signals`，由 [scanSignals] 落库、UNIQUE 去重）。 */
     private val signalsToday: StateFlow<List<BodySignalEntity>> = todayKey
@@ -534,6 +645,76 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     fun refreshNudgeSubtitle() {
         QuickInputService.refreshSubtitle(getApplication())
+    }
+
+    // ==================================================================
+    // 需求 5：首次进入目标引导（GOAL_SETUP_DONE）
+    // ==================================================================
+
+    /**
+     * 读一个 settings 键（引导判据用）。失败按"未设置"（null）处理，不抛异常。
+     */
+    suspend fun rawSetting(key: String): String? =
+        runCatching { db.settingsDao().get(key) }.getOrNull()
+
+    /**
+     * 是否已有 active 目标行 —— 判"老用户"的唯一依据。
+     *
+     * 为什么不是 `GOAL_SETUP_DONE` 本身：该键是本轮新增的，老用户设备上**不存在**，
+     * 只看键会把全部老用户误判成新用户而弹一次无意义引导。老用户此前用过设置页，
+     * `ensureGoalDefaultsIfEmpty()` 已往 goals 灌过默认值 → `countActive() > 0`。
+     * 失败时保守返回 false（当作新用户，最多多弹一次引导，不做成"永远不弹"）。
+     */
+    suspend fun hasAnyActiveGoal(): Boolean =
+        runCatching { db.goalDao().countActive() > 0 }.getOrDefault(false)
+
+    /**
+     * 完成 / 跳过首次目标引导（需求 5）。
+     *
+     * `modeIndex == null` = 用户点了「跳过」：**只写标记**（不反复骚扰），不设主目标 ——
+     * 首页「主目标」行仍始终提供「去调整」入口，用户随时能补。
+     *
+     * ⚠️ 主目标是 `goals` 里 `metric='primary'` 的一行，而 `setPrimary` / `setTarget`
+     * 都是 **UPDATE**：表里没有该行时静默 no-op。`ensureGoalDefaultsIfEmpty()` 只在
+     * 打开设置页时才跑，全新安装时 goals 可能是空表 → 这里必须**先 ensure 行存在**，
+     * 否则用户走完引导却什么都没设上（"点了保存没反应"的静默 bug）。
+     */
+    fun completeGoalSetup(modeIndex: Int?, weightKg: Double?) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val now = System.currentTimeMillis()
+            if (modeIndex != null) {
+                ensureGoalRow(GoalMetrics.PRIMARY, GoalTypes.GOAL_MODE, modeIndex.toDouble(), true, now)
+                db.goalDao().setPrimary(GoalMetrics.PRIMARY, now)
+                db.goalDao().setTarget(GoalMetrics.PRIMARY, modeIndex.toDouble(), now)
+            }
+            if (weightKg != null && weightKg > 0) {
+                ensureGoalRow(GoalMetrics.WEIGHT_KG, GoalTypes.WEIGHT, weightKg, false, now)
+                db.goalDao().setTarget(GoalMetrics.WEIGHT_KG, weightKg, now)
+            }
+            db.settingsDao().put(SettingEntity(SettingsKeys.GOAL_SETUP_DONE, "true"))
+        }
+    }
+
+    /** `goals` 里没有该 metric 的 active 行时才插入（UPDATE 类接口对缺行是 no-op）。 */
+    private suspend fun ensureGoalRow(
+        metric: String,
+        type: String,
+        value: Double,
+        primary: Boolean,
+        now: Long,
+    ) {
+        if (db.goalDao().getByMetric(metric) != null) return
+        db.goalDao().upsert(
+            GoalEntity(
+                type = type,
+                metric = metric,
+                targetValue = value,
+                isPrimary = if (primary) 1 else 0,
+                status = "active",
+                createdAt = now,
+                updatedAt = now,
+            ),
+        )
     }
 
     companion object {

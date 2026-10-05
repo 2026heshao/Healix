@@ -77,6 +77,23 @@ object GoalMetrics {
 }
 
 /**
+ * `goals.type` 的取值常量（**唯一事实来源**，其它文件引用这里，不要重定义）。
+ *
+ * 与 [GoalMetrics] 的区别：`metric` 是"目标度量哪一项"（进 DB 的键），
+ * `type` 是"这条目标属于哪一类"（用于分组展示 / 语义归类）。
+ * ⚠️ 两处曾各写一份 `"goal_mode"` 字面量（`SettingsViewModel` 与 `MainViewModel`），
+ * 已收敛到此 —— 与 2026-10-03 键名分裂事故同类，改一处漏一处是最贵的 bug。
+ */
+object GoalTypes {
+    /** 主目标行（`metric = PRIMARY`）的 `type`：`target_value` 编码 0/1/2。 */
+    const val GOAL_MODE = "goal_mode"
+    const val WEIGHT = "weight"
+    const val TRAINING = "training"
+    const val SLEEP = "sleep"
+    const val HABIT = "habit"
+}
+
+/**
  * 目标值的**兜底默认**（唯一事实来源，其它文件引用这里，不要重定义）。
  *
  * 与 [GoalMetrics] 的区别：`GoalMetrics` 是 `goal.metric` 的**键**，

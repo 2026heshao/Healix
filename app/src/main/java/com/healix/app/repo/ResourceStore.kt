@@ -10,7 +10,7 @@ import com.healix.app.db.SettingsKeys
  * 为什么收敛到这里（与 SettingsKeys 同一个教训：键名/口径分叉是编译期不可见的）
  * ══════════════════════════════════════════════════════════════════════════
  * 三类资源（食物/药物/运动条件）有 **4 个消费方**：资源清单页（写）、
- * ChatViewModel（对话注入）、PlanReviewViewModel（行动条）、MinePage（入口值）。
+ * ChatViewModel（对话注入）、PlanReviewViewModel（行动条）、MineFragment（入口值）。
  * 若各自裸写 `settingsDao().get(...)`，「运动条件读哪个 key」这种口径一旦
  * 分叉（比如有人忘了旧 gear 迁移兜底），不会有任何编译错误 —— 只有 AI
  * 开始推荐你没有的东西时才会暴露。所以读端只许走这里。

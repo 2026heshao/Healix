@@ -1,10 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    主界面（设计规范系统 4.1 + 11.1 v6）。
-    硬约束：无卡片、无阴影、汇总区不给色块。
-    v6：根容器改 FrameLayout，全局 3 Tab tabbar 绝对定位盖底（不占 flex 流）；
-    「记录」页内容区在最下方预留 80dp（列表 clipToPadding=false 补偿可视行数）；
-    「我的」页为同 Activity 内的第二页（view_mine_page），Tab 间走 in_tab 转场。
+    主界面宿主（唯一 Activity）。设计规范系统 4.1 + 11.1 v6；v8 导航骨架 §A.1。
+
+    硬约束：无卡片、无阴影。
+
+    v8 结构（单 Activity + 全 Fragment）：
+    - `tabContainer`：**三个常驻 Tab Fragment**（记录 / 助理 / 我的），
+      `add` 一次 + `show/hide` 切换 —— Tab 互切零窗口转场、零 Activity 重建。
+      此前「记录 / 我的」是 View 容器、「助理」是 Fragment（半迁移），现已统一。
+    - `tabbar`：全局底部导航，绝对定位盖底，不占 flex 流；
+      排在 tabContainer 之后（z 序更高），输入条抬升由各 Fragment 自带的
+      `inputBar`（`marginBottom=@dimen/tab_raise`）承担。
+    - `pageContainer`：**八个二级页**（状态详情/设置/计划/个人信息/知识库/资源/
+      预设/调试）的 Fragment 容器，排在 tabbar 之后 = z 序最高 → 二级页天然
+      盖住底部导航，无需显式隐藏。
+      ⚠️ 空容器**不进命中测试**：`isClickable` 由宿主按「回退栈非空」维护，
+      否则一个透明的 match_parent 容器会把 Tab 页的点击全吞掉。
 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
@@ -13,379 +24,19 @@
     android:background="@color/bg"
     android:fitsSystemWindows="true">
 
-    <!-- ── Tab 页 1：记录（原主界面内容） ── -->
-    <LinearLayout
-        android:id="@+id/pageHome"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:orientation="vertical">
-
-    <!-- 顶部：日期 + 设置。无 AppBar 阴影 -->
-    <RelativeLayout
-        android:layout_width="match_parent"
-        android:layout_height="56dp"
-        android:paddingStart="@dimen/screen_margin"
-        android:paddingEnd="@dimen/screen_margin">
-
-        <TextView
-            android:id="@+id/dateLabel"
-            style="@style/Text.Title"
-            android:layout_width="wrap_content"
-            android:layout_height="match_parent"
-            android:gravity="center_vertical"
-            tools:text="10月3日 周五" />
-
-        <ImageButton
-            android:id="@+id/btnSettings"
-            android:layout_width="@dimen/touch_min"
-            android:layout_height="@dimen/touch_min"
-            android:layout_alignParentEnd="true"
-            android:layout_centerVertical="true"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/settings"
-            android:padding="14dp"
-            android:scaleType="fitCenter"
-            android:src="@drawable/ic_settings" />
-    </RelativeLayout>
-
-    <View
-        android:layout_width="match_parent"
-        android:layout_height="@dimen/divider"
-        android:background="@color/line" />
-
-    <!-- 预设横条：横向滚动，13sp text_2，无边框（功能补充 2.1） -->
-    <HorizontalScrollView
-        android:id="@+id/presetScroll"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:scrollbars="none"
-        android:visibility="gone"
-        tools:visibility="visible">
-
-        <LinearLayout
-            android:id="@+id/presetRow"
-            android:layout_width="wrap_content"
-            android:layout_height="48dp"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
-            android:paddingStart="@dimen/screen_margin"
-            android:paddingEnd="@dimen/screen_margin" />
-    </HorizontalScrollView>
-
-    <View
-        android:id="@+id/presetDivider"
-        android:layout_width="match_parent"
-        android:layout_height="@dimen/divider"
-        android:background="@color/line"
-        android:visibility="gone"
-        tools:visibility="visible" />
-
-    <!-- 汇总区：无卡片，大数字本身是视觉中心 -->
-    <LinearLayout
-        android:id="@+id/summaryBlock"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:paddingStart="@dimen/screen_margin"
-        android:paddingEnd="@dimen/screen_margin"
-        android:paddingTop="20dp"
-        android:paddingBottom="20dp">
-
-        <TextView
-            style="@style/Text.Caption"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/summary_label" />
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:baselineAligned="true"
-            android:orientation="horizontal">
-
-            <TextView
-                android:id="@+id/gapValue"
-                style="@style/Text.Numeral"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                tools:text="+320" />
-
-            <TextView
-                style="@style/Text.Secondary"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="6dp"
-                android:text="@string/kcal_unit"
-                android:layout_gravity="bottom"
-                android:paddingBottom="6dp" />
-        </LinearLayout>
-
-        <!-- 进度线：高 2dp，圆角 1dp -->
-        <ProgressBar
-            android:id="@+id/progressLine"
-            style="?android:attr/progressBarStyleHorizontal"
-            android:layout_width="match_parent"
-            android:layout_height="@dimen/progress_height"
-            android:layout_marginTop="12dp"
-            android:max="100"
-            android:progressDrawable="@drawable/progress_line" />
-
-        <TextView
-            android:id="@+id/summaryLine"
-            style="@style/Text.Secondary"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            tools:text="摄入 2180 · 消耗 1860 · 目标 2500" />
-    </LinearLayout>
-
     <!--
-        多维状态行（设计规范系统 §9.2）。
-        恒定 48dp，**两态互斥**：摘要态 `运动 2/3 · 睡眠 7.2h · 体重 58.2kg`，
-        有未读信号时原地切换为信号态（accent 文字），**不新增行、高度不变**。
-        与汇总区之间 28dp 留白（汇总区自身 20dp bottom padding + 这里 8dp），不用分隔线。
-        整行进入状态详情页；右侧 chevron 是"这一整块能进去"的暗示。
+        Tab 页容器：常驻 3 个 Tab Fragment 挂这里。
+        三个 Fragment 的根布局分别是 fragment_record / fragment_assistant /
+        fragment_mine，全 match_parent；显隐由宿主 show/hide 控制。
     -->
-    <LinearLayout
-        android:id="@+id/statusRow"
-        android:layout_width="match_parent"
-        android:layout_height="@dimen/touch_min"
-        android:layout_marginTop="8dp"
-        android:background="?attr/selectableItemBackground"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:paddingStart="@dimen/screen_margin"
-        android:paddingEnd="@dimen/screen_margin">
-
-        <TextView
-            android:id="@+id/statusText"
-            style="@style/Text.Secondary"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:ellipsize="end"
-            android:maxLines="1"
-            tools:text="运动 2/3 · 睡眠 7.2h · 体重 58.2kg" />
-
-        <ImageView
-            android:id="@+id/statusChevron"
-            android:layout_width="16dp"
-            android:layout_height="16dp"
-            android:layout_marginStart="4dp"
-            android:contentDescription="@null"
-            android:scaleType="fitCenter"
-            android:src="@drawable/ic_chevron"
-            tools:ignore="ContentDescription" />
-    </LinearLayout>
-
-    <!-- 监督提示条：仅今日无记录时出现，无底色无线 -->
-    <TextView
-        android:id="@+id/nudgeBar"
-        style="@style/Text.Link"
-        android:layout_width="match_parent"
-        android:layout_height="@dimen/touch_min"
-        android:background="?attr/selectableItemBackground"
-        android:gravity="center_vertical"
-        android:paddingStart="@dimen/screen_margin"
-        android:paddingEnd="@dimen/screen_margin"
-        android:text="@string/supervise_no_record"
-        android:visibility="gone"
-        tools:visibility="visible" />
-
-    <!-- 计划提示条：整行可点 -->
-    <TextView
-        android:id="@+id/planBar"
-        style="@style/Text.Link"
-        android:layout_width="match_parent"
-        android:layout_height="@dimen/touch_min"
-        android:background="?attr/selectableItemBackground"
-        android:gravity="center_vertical"
-        android:paddingStart="@dimen/screen_margin"
-        android:paddingEnd="@dimen/screen_margin"
-        tools:text="还差 1280 kcal　查看今日建议 →" />
-
-    <!--
-        状态提示条：同一位置承载两种语义（文案与点击行为由 MainActivity 按状态切换）
-          - 无网络（state_offline）：点了重试
-          - 未配置（no_provider_config）：点了去设置页
-        用 text_2 中性色 —— 这两种都是预期行为，不是错误，不该用 negative。
-    -->
-    <TextView
-        android:id="@+id/offlineBar"
-        style="@style/Text.Secondary"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:background="?attr/selectableItemBackground"
-        android:clickable="true"
-        android:focusable="true"
-        android:paddingStart="@dimen/screen_margin"
-        android:paddingEnd="@dimen/screen_margin"
-        android:paddingTop="6dp"
-        android:paddingBottom="6dp"
-        android:text="@string/state_offline"
-        android:visibility="gone"
-        tools:visibility="visible" />
-
-    <!--
-        内联撤销条（规范 §9.6）：写入成功后出现，5 秒后自动消失。
-        与监督提示条同构 —— **无底色无边框**，靠文字区分，不做成"横幅"。
-        同时最多 1 条，新条直接顶掉旧条（由 UndoBar 工具保证）。
-    -->
-    <LinearLayout
-        android:id="@+id/undoBar"
-        android:layout_width="match_parent"
-        android:layout_height="@dimen/touch_min"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:paddingStart="@dimen/screen_margin"
-        android:paddingEnd="@dimen/screen_margin"
-        android:visibility="gone"
-        tools:visibility="visible">
-
-        <TextView
-            android:id="@+id/undoLeft"
-            style="@style/Text.Secondary"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:ellipsize="end"
-            android:maxLines="1"
-            tools:text="已记录 饮食 · 约 600 kcal" />
-
-        <TextView
-            android:id="@+id/undoAction"
-            style="@style/Text.Link"
-            android:layout_width="wrap_content"
-            android:layout_height="@dimen/touch_min"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:gravity="center"
-            android:minWidth="@dimen/touch_min"
-            android:text="@string/undo" />
-    </LinearLayout>
-
-    <!-- 列表：无卡片，1dp 线分隔 -->
     <FrameLayout
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1">
-
-        <androidx.recyclerview.widget.RecyclerView
-            android:id="@+id/list"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:clipToPadding="false"
-            android:paddingBottom="@dimen/list_bottom_pad"
-            android:scrollbars="none" />
-
-        <!-- 空状态：居中 13sp 灰字 + 一行示例 -->
-        <LinearLayout
-            android:id="@+id/emptyState"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:gravity="center"
-            android:orientation="vertical"
-            android:visibility="gone"
-            tools:visibility="visible">
-
-            <TextView
-                style="@style/Text.Secondary"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/empty_hint" />
-
-            <TextView
-                style="@style/Text.Caption"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="6dp"
-                android:text="@string/empty_example" />
-        </LinearLayout>
-    </FrameLayout>
-
-    <!--
-        速记输入区：高 64dp，顶部 1dp 上边界线，无圆角无卡片。
-        v6：marginBottom 64dp 抬升到全局 tabbar 之上，不被全局导航遮挡（11.6）。
-    -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="@dimen/input_height"
-        android:layout_marginBottom="@dimen/tab_raise"
-        android:background="@drawable/bg_input_bar"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:paddingStart="@dimen/screen_margin"
-        android:paddingEnd="12dp">
-
-        <EditText
-            android:id="@+id/input"
-            style="@style/Widget.Healix.QuickInput"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:hint="@string/hint_quick_input"
-            android:importantForAutofill="no"
-            android:minHeight="@dimen/input_height" />
-
-        <!-- 状态：细环 + 13sp 灰字（限流必须显示预估秒数） -->
-        <ProgressBar
-            android:id="@+id/spinner"
-            android:layout_width="20dp"
-            android:layout_height="20dp"
-            android:layout_marginEnd="8dp"
-            android:indeterminate="true"
-            android:indeterminateTint="@color/accent"
-            android:visibility="gone"
-            tools:visibility="visible" />
-
-        <TextView
-            android:id="@+id/stateLabel"
-            style="@style/Text.Secondary"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginEnd="4dp"
-            android:visibility="gone"
-            tools:text="排队中 · 约 4s"
-            tools:visibility="visible" />
-
-        <ImageButton
-            android:id="@+id/btnSend"
-            android:layout_width="@dimen/touch_min"
-            android:layout_height="@dimen/touch_min"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/send"
-            android:padding="12dp"
-            android:scaleType="fitCenter"
-            android:src="@drawable/ic_send" />
-    </LinearLayout>
-    </LinearLayout>
-    <!-- /pageHome -->
-
-    <!-- ── Tab 页 2：我的（v6 · 11.1，同 Activity 内切换） ── -->
-    <include
-        android:id="@+id/minePage"
-        layout="@layout/view_mine_page"
+        android:id="@+id/tabContainer"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
     <!--
-        ── Tab 页 3：助理（v8 需求 1/2）──
-        常驻 AssistantFragment 的容器：`add` 一次 + `show/hide` 切换，
-        不再经过 Activity 窗口转场（此前 chatTo() 重启 MainActivity 是
-        「Tab 点击延迟」的根因）。非当前 Tab 时整容器 GONE：
-        既省一帧测量，也让命中测试确定性地落到可见 Tab 上。
-        tabbar 仍在下方（XML 顺序靠后 = 更高的 z 序，盖住容器底部）。
-    -->
-    <FrameLayout
-        android:id="@+id/assistantContainer"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:visibility="gone"
-        tools:visibility="visible" />
-
-    <!--
         全局底部导航 3 Tab（v6 · 11.1）：64dp，绝对定位盖底，不占 flex 流。
-        只在 Tab 页（记录/助理/我的）可见，进二级页时由 TabBar 隐藏。
+        只在 Tab 页（记录/助理/我的）可见；进二级页时被 pageContainer 覆盖。
     -->
     <include
         android:id="@+id/tabbar"
@@ -394,13 +45,7 @@
         android:layout_height="@dimen/tabbar_height"
         android:layout_gravity="bottom" />
 
-    <!--
-        ── 二级页容器（v8 T03）──
-        二级页（设置/计划/状态详情/个人信息/知识库/资源/预设/调试）以 Fragment
-        形式挂在这里；排在 tabbar 之后 = z 序最高 → 天然盖住底部导航。
-        **空容器不进命中测试**：clickable 由宿主按「回退栈非空」打开，
-        否则一个透明的 match_parent 容器会把 Tab 页的点击全吞掉。
-    -->
+    <!-- ── 二级页容器（v8 T03）：在 tabbar 之后 = z 序最高，天然盖住底部导航 ── -->
     <FrameLayout
         android:id="@+id/pageContainer"
         android:layout_width="match_parent"

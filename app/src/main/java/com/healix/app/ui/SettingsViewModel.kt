@@ -9,6 +9,7 @@ import com.healix.app.db.EventEntity
 import com.healix.app.db.GoalDefaults
 import com.healix.app.db.GoalEntity
 import com.healix.app.db.GoalMetrics
+import com.healix.app.db.GoalTypes
 import com.healix.app.db.ReminderEntity
 import com.healix.app.db.SettingEntity
 import com.healix.app.db.SettingsKeys
@@ -131,7 +132,7 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
     val reminders: StateFlow<List<ReminderEntity>> = db.reminderDao().observeEnabled()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    // v6（11.1）：知识库文档数入口已迁「我的」页（MinePage.observeKnowledgeCount 直连 DAO），
+    // v6（11.1）：知识库文档数入口已迁「我的」页（MineFragment.observeKnowledgeCount 直连 DAO），
     // 设置页不再展示，此 Flow 与 exportBackup() 一并移除。
 
     init {
@@ -166,7 +167,7 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
         val weightTarget = settings.get(SettingsKeys.WEIGHT)?.toDoubleOrNull() ?: 0.0
         val defaults = listOf(
             GoalEntity(
-                type = TYPE_GOAL_MODE,
+                type = GoalTypes.GOAL_MODE,
                 metric = GoalMetrics.PRIMARY,
                 targetValue = GOAL_MODE_GAIN.toDouble(),
                 isPrimary = 1,
@@ -174,35 +175,35 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
                 updatedAt = now,
             ),
             GoalEntity(
-                type = "weight",
+                type = GoalTypes.WEIGHT,
                 metric = GoalMetrics.WEIGHT_KG,
                 targetValue = weightTarget,
                 createdAt = now,
                 updatedAt = now,
             ),
             GoalEntity(
-                type = "training",
+                type = GoalTypes.TRAINING,
                 metric = GoalMetrics.SESSIONS_PER_WEEK,
                 targetValue = GoalDefaults.TRAIN_SESSIONS_PER_WEEK.toDouble(),
                 createdAt = now,
                 updatedAt = now,
             ),
             GoalEntity(
-                type = "training",
+                type = GoalTypes.TRAINING,
                 metric = GoalMetrics.TRAIN_MINUTES_PER_WEEK,
                 targetValue = GoalDefaults.TRAIN_MINUTES_PER_WEEK.toDouble(),
                 createdAt = now,
                 updatedAt = now,
             ),
             GoalEntity(
-                type = "sleep",
+                type = GoalTypes.SLEEP,
                 metric = GoalMetrics.SLEEP_H,
                 targetValue = GoalDefaults.SLEEP_H,
                 createdAt = now,
                 updatedAt = now,
             ),
             GoalEntity(
-                type = "habit",
+                type = GoalTypes.HABIT,
                 metric = GoalMetrics.WATER_ML,
                 targetValue = GoalDefaults.WATER_ML.toDouble(),
                 createdAt = now,
@@ -687,7 +688,6 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
         //    本类原先自带一份私有副本，与 UI 层那份并存 = 改一处漏一处。
 
         /** 主目标行（`metric = PRIMARY`）的 `type`。 */
-        private const val TYPE_GOAL_MODE = "goal_mode"
 
         /**
          * 主目标编码：0=增重 / 1=减重 / 2=保持。
