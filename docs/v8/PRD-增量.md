@@ -209,11 +209,11 @@
 **现状（已核实）**
 - `activity_main.xml` 顶部只有日期标签（`:30-36`）+ 设置按钮（`:38-48`），**主/次目标零展示**。
 - 数据能力已就绪：`GoalDao.observeActive()`（`db/GoalDaos.kt:12-13`）、`GoalMetrics`（`db/GoalEntities.kt:70-77`）、`GoalDefaults`（`:102-117`）；周训练次数已在 `MainViewModel.buildSummaryLine()` 计算（`MainViewModel.kt:235-243`）。
-- **无法区分"用户设过"vs"系统灌的"**：`ensureGoalDefaultsIfEmpty()`（`SettingsViewModel.kt:163-213`）**无条件**在空表预置 6 条默认目标，判据仅为 `countActive() > 0`（`GoalDaos.kt:24`）。
+- **~~无法区分"用户设过"vs"系统灌的"~~（该痛点已随 v8 问题 2b 消除）**：初稿写作时 `ensureGoalDefaultsIfEmpty()` **无条件**在空表预置 6 条默认目标（判据仅 `countActive() > 0`，`GoalDaos.kt:24`）；该函数已**整体删除**（commit `68162d1`，删除说明 `SettingsViewModel.kt:198-207`，init 只跑 `migrateLegacyKcalTarget()` + `reload()` `SettingsViewModel.kt:155-167`）——goals 空表即"用户没设过"，判据改为独立键 `GOAL_SETUP_DONE`（见下）。
 - 已有自绘折线控件 `ui/widget/TrendChartView.kt`（无网格/无坐标轴/末点圆点，用在 `activity_status_detail.xml:250,288`）。
 
 **目标交互（动作序列）**
-1. 用户进入「记录」首页 → 顶部（日期行之下、汇总区之上）显示一行「主目标」：左侧主目标名（增重/减重/保持），右侧「去调整 ›」文字入口，点击 → 进设置页目标组。
+1. 用户进入「记录」首页 → 顶部（日期行之下、汇总区之上）显示一行「主目标」：左侧主目标名（增重/减重/保持），右侧「去调整 ›」文字入口，点击 → 弹 `GoalSetupSheet` **编辑态**就地编辑（预填当前主目标模式与目标体重，保存后就地返回；仅主目标未设时才引导去设置页「目标」栏）。（与初稿不一致系刻意变更：v8 问题 4 落地时改为就地编辑、不跨页跳设置栏，见 `RecordFragment.kt:155-159` 与 `openGoalEditor()` `RecordFragment.kt:230-257`。）
 2. 用户向下看 → 看到「次目标进度」区块（3 项，见下方选型）。
 3. 用户点次目标区块 → 进入状态详情页对应段。
 4. **首次进入（`GOAL_SETUP_DONE != "true"`）** → 记录页 onCreate 后弹一次性引导：选择主目标（增重/减重/保持）+ 目标体重（可跳过）→ 保存后写 `GOAL_SETUP_DONE="true"`，后续启动不再弹。
@@ -225,22 +225,22 @@
 
 **次目标进度图表选型（明确推荐）**
 - **选 3 个指标**（都是本地已有真实数据、且能与目标对比的）：
-  1. **本周训练次数** —— `COUNT(type='exercise', 本周) / sessions_per_week`（口径见 `MainViewModel.kt:235-243`）。图形：**2dp 进度线**（沿用 `progress_line`，符合规范 3.7 唯一允许的进度线场景）。
+  1. **本周训练次数** —— `COUNT(type='exercise', 本周) / sessions_per_week`（口径见 `MainViewModel.kt:235-243`）。图形：**累计完成数 sparkline**（`trainSeries`：本周一 → 今天的训练**累计**完成数阶梯，`MainViewModel.kt:283-296`）。（与初稿不一致系刻意变更：初稿写 2dp 进度线，实现改为累计口径 sparkline —— 累计曲线的形状本身就是进度、避免每日 0/1 抖动只剩噪声，设计依据 `MainViewModel.kt:286-292` KDoc。）
   2. **近 7 日睡眠** —— `events(type='sleep').sleep_h` vs `sleep_h` 目标。图形：**`TrendChartView` 折线**（复用现成控件）。
   3. **近 30 日体重** —— `events(type='body').weight_kg` vs `weight_kg` 目标。图形：**`TrendChartView` 折线**。
 - **明确不选**：饮水（`water_ml` 只有目标值，**无任何 event 数据源** —— 见 `db/GoalEntities.kt:76` 与全项目 grep，无法算进度）；训练分钟（`train_minutes_per_week` 无结构化 event 字段）。
 - **图形禁令**：不用饼图/环形图/柱状图/热力图（违反无卡片、彩色面唯一化，且饼图表达不了"与目标比"）。
 - 数据不足 3 点 → 沿用 `TrendChartView` 占位文案（`TrendChartView.kt:157-162`）。
 
-**如何与 `ensureGoalDefaultsIfEmpty()` 共存（关键）**
-- 保留 `ensureGoalDefaultsIfEmpty()`：它保证下游读取（`MainViewModel` / `PlanGenerator` / `TrainingPlanner`）永远有值可读，属于"兜底"。
-- 新增持久标记 `SettingsKeys.GOAL_SETUP_DONE`（如 `"goal_setup_done"`）区分**"系统预置过"**与**"用户设置过"**。引导弹窗判据 = `GOAL_SETUP_DONE != "true"`。
+**如何与 `ensureGoalDefaultsIfEmpty()` 共存（关键）**（⚠️ 与初稿不一致系刻意变更：该函数已随 v8 问题 2b **整体删除**，commit `68162d1`，删除说明 `SettingsViewModel.kt:198-207`；init 只跑 `migrateLegacyKcalTarget()` + `reload()` `SettingsViewModel.kt:155-167`——下文"保留/区分预置"的前提已不复存在，实现如下）
+- ~~保留 `ensureGoalDefaultsIfEmpty()`~~ → 已删除，**不再预置任何默认目标**：主目标只由首启引导 `GoalSetupSheet` 落一行，其余槽位由用户「添加目标」显式创建；下游读取（`MainViewModel` / `PlanGenerator` / `TrainingPlanner`）读不到行时回落 `GoalDefaults`（`db/GoalEntities.kt:176`，兜底值唯一来源）。
+- 新增持久标记 `SettingsKeys.GOAL_SETUP_DONE`（如 `"goal_setup_done"`）区分**"用户设置过"**与**"未设置"**（初稿语境为区分"系统预置过"与"用户设置过"，预置删除后该动机消失，但键与判据保留不变）。引导弹窗判据 = `GOAL_SETUP_DONE != "true"`。
 - 引导完成 → 写 `GOAL_SETUP_DONE="true"` + 经 `setPrimaryGoal()`（`SettingsViewModel.kt:372-378`）落主目标；用户点跳过 → 也只写标记（不反复骚扰），首页「主目标」行始终提供 `去调整` 入口。
 - 现有一次性提示标记 `SettingsKeys.GOAL_SOURCE_SEEN`（`SettingsKeys.kt:163`）继续独立使用，互不影响。
 
 **验收标准（checklist）**
-- [ ] 首页顶部可见主目标一行，右侧可点进设置 → 目标组。
-- [ ] 次目标区块显示 3 项指标；训练为进度线，睡眠/体重为折线；无数据时显示占位文案。
+- [ ] 首页顶部可见主目标一行，右侧可点 → `GoalSetupSheet` 编辑态就地编辑（主目标未设时才进设置 → 目标组）。
+- [ ] 次目标区块显示 3 项指标；训练为累计完成数 sparkline，睡眠/体重为折线；无数据时显示占位文案。
 - [ ] 首次进入且有未完成引导时弹引导；完成后（或跳过后）不再出现。
 - [ ] 老用户（已有目标）不弹引导。
 - [ ] 隐藏热量/体重时（`HIDE_KCAL/HIDE_WEIGHT`，需求 6 保留键），次目标中体重项同步遵循隐藏规则（不显示数字）。
@@ -315,7 +315,7 @@ data class TimelineEntry(
 | 打开页面 | `loadCached(todayKey)`；无缓存 → `localTimeline()` | **0** |
 | 数据变化（Room Flow / 记一笔 / 训练直写） | 重算本地时间轴并重渲染 | **0** |
 | 跨日 / 回前台（`MainActivity.onResume` 口径） | 重算 `todayKey`（`dayKeyOf`）→ 重读缓存 | **0** |
-| 缓存不存在 且 已配置 provider 且 有配额 且 距上次 AI 生成 > 6h | 调一次 `PlanGenerator.update()` | **恰好 1 行 `llm_calls`** |
+| 缓存不存在 且 已配置 provider 且 有配额 且 距上次 AI 生成 > 12h | 调一次 `PlanGenerator.update()` | **恰好 1 行 `llm_calls`** |
 | 用户显式「重排」（见下） | 调一次 `update()` | 1 行 |
 
 **配额成本结论**：所谓"实时"= **本地即时（0 成本）**；AI 重排仍是低频事件，因为一次往返 = 一行 `llm_calls` = 消耗当日 20 次抽取配额中的 1 次。**绝不能在每次进入页面时调 AI** —— 否则一天进出几次即耗尽配额。
@@ -325,14 +325,14 @@ data class TimelineEntry(
 **验收标准（checklist）**
 - [ ] 计划页只有一条按周铺开的统一时间轴；训练日与今日计划条目同轴渲染。
 - [ ] 页面无「更新」主按钮；无手动点击也能拿到最新内容。
-- [ ] 打开页面、数据变化、跨日三种场景均 **0 次 AI 调用**（用 `QuotaGuard.usedExtractToday()` 断言前后不变）。
+- [ ] 打开页面、数据变化、跨日三种场景的**渲染路径均 0 次 AI 调用**（用 `QuotaGuard.usedExtractToday()` 断言前后不变）；后台自动重排（`autoRerankIfDue()`，见上方触发表）按该节流条件 **≤1 次/日**，不计入渲染路径口径。
 - [ ] 自动重排路径下，一次 provider 往返恰好 1 行 `llm_calls`（不变式保持）。
 - [ ] 本地兜底时页顶有来源/估算提示（沿用 `plan_source_estimated`）。
 - [ ] 「记一笔」仍只对 `meal/exercise` 显示，直写后时间轴即时刷新。
 
 **待确认问题**
 - "重排"低调入口是否保留？**推荐保留（低频、可发现）。** 请架构师确认放置位置。
-- 6h 的自动重排节流阈值是否合适？**推荐 6h，且同一 `day_key` 内最多自动触发 1 次。**
+- 自动重排节流阈值：**实现取 12h，且同一 `day_key` 内最多自动触发 1 次**（`AUTO_RERANK_INTERVAL_MS = 12h`，`PlanReviewViewModel.kt:141-142`；KDoc 同口径 `:312`。初稿推荐 6h，实现更保守取 12h —— 更省抽取配额，与日节流叠加后同 day_key 仍至多 1 次自动重排）。
 
 ---
 
@@ -390,7 +390,7 @@ data class TimelineEntry(
 1. **导航方案**：引入 Jetpack Navigation 依赖，还是手写 FragmentManager？（需求 1）
 2. **`ChatActivity` 与 IME/TabBar 迁移**：Fragment 化后如何保持现有键盘守卫行为？（需求 1、2）
 3. **一键隐藏开关的最终归属**：隐私栏删除后是否需要在别处兜底？（需求 6）
-4. **"重排"入口**：是否保留低调手动入口与 6h 节流？（需求 7）
+4. **"重排"入口**：是否保留低调手动入口与 12h 节流？（需求 7；阈值已定 12h，见 :335）
 5. **数据导入语义**：合并 vs 覆盖；是否需要"导入后重启"？（需求 8）
 6. **`GOAL_SETUP_DONE` 键名** 需在 `SettingsKeys.kt` 登记并同步 CI 检查。（需求 5）
 7. **schema 3.json 缺失**：`app/schemas/com.healix.app.db.AppDatabase/` 仅有 `1.json`/`2.json`，而 DB version=3。需确认是否应在本次补齐 `3.json`（关系到迁移安全网与 CI 校验）。`[待核实]`
