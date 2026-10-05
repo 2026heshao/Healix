@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import java.time.LocalDate
 
 /**
  * 计划页可见 Tab（v8 需求 7 收敛为两个）。
@@ -68,6 +69,16 @@ data class PlanUiState(
     val trainingFocus: String = "",
     /** 今日 ISO dow（1 = 周一 … 7 = 周日），用于「今天」标记与日头渲染。 */
     val todayDow: Int = 1,
+    /**
+     * 7 个日头的展示文案（下标 = `dayIndex`），问题 3 方案 C：
+     * `周一 · 今天` / `周二 · 明天` / `10月7日 周三`。
+     *
+     * ⚠️ 由 VM 统一格式化（而不是让 Fragment 各自拼日期）——「今天 / 明天 / 具体日期」
+     *    三档口径只此一处，避免两个页面各自算日期后不一致。
+     */
+    val dayLabels: List<String> = emptyList(),
+    /** 正在响应用户的「生成今日计划」（页内文字入口置灰）。 */
+    val generatingToday: Boolean = false,
 )
 
 data class ReviewUiState(
@@ -129,6 +140,13 @@ class PlanReviewViewModel(app: Application) : AndroidViewModel(app) {
     companion object {
         /** 自动重排的"陈旧"阈值：超过 12 小时未重新生成才允许后台重排。 */
         private const val AUTO_RERANK_INTERVAL_MS = 12L * 60 * 60 * 1000
+
+        /**
+         * 日头数量（周一→周日）。
+         * ⚠️ 不能叫 `DAYS_IN_WEEK`：`TimelineMerger` 已有同名同值常量，
+         *    会被 `check_duplicate_constants` 判为「同名且同值」重复定义。
+         */
+        private const val DAY_HEADER_COUNT = 7
     }
 
     // ------------------------------------------------------------------
@@ -216,7 +234,39 @@ class PlanReviewViewModel(app: Application) : AndroidViewModel(app) {
             sessionsGoal = sessionsGoal,
             trainingFocus = training?.note.orEmpty(),
             todayDow = todayDow,
+            dayLabels = dayLabelsFor(key, todayDow),
         )
+    }
+
+    // ------------------------------------------------------------------
+    // 日头文案（今天 / 明天 / 具体日期）
+    // ------------------------------------------------------------------
+
+    /**
+     * 7 个日头的展示文案（问题 3 方案 C）。下标 = `dayIndex`（周一 = 0）。
+     *
+     * - 今天 → `周一 · 今天`；明天 → `周二 · 明天`；其余 → `10月7日 周三`。
+     * - 今天为周日时次日越出本周表 → 没有「明天」那一格，全部落到具体日期分支。
+     * - `todayKey` 解析失败（日界线未读到 / 脏值）→ 返回空列表，Fragment 回落 [dowLabel]。
+     */
+    private fun dayLabelsFor(todayKey: String?, todayDow: Int): List<String> {
+        val today = todayKey?.let { runCatching { LocalDate.parse(it) }.getOrNull() } ?: return emptyList()
+        val todayIndex = (todayDow - 1).coerceIn(0, DAY_HEADER_COUNT - 1)
+        val ctx = getApplication<Application>()
+        return (0 until DAY_HEADER_COUNT).map { index ->
+            val date = today.plusDays((index - todayIndex).toLong())
+            val label = dowLabel(date.dayOfWeek.value)
+            when (index) {
+                todayIndex -> ctx.getString(R.string.timeline_today_label, label)
+                todayIndex + 1 -> ctx.getString(R.string.timeline_tomorrow_label, label)
+                else -> ctx.getString(
+                    R.string.timeline_day_label,
+                    date.monthValue,
+                    date.dayOfMonth,
+                    label,
+                )
+            }
+        }
     }
 
     // ------------------------------------------------------------------
@@ -293,6 +343,10 @@ class PlanReviewViewModel(app: Application) : AndroidViewModel(app) {
      */
     fun logSuggestion(entry: TimelineEntry) {
         if (entry.type != "meal" && entry.type != "exercise") return
+        // ⚠️ 纵深防御：这里按 `dayKeyOf(now)` 落库 = 写"此刻"。明天的锚点若走到这里，
+        //    会变成一条**日期错误**的记录。UI 层已用 `canLog = false` 挡掉（见
+        //    TimelineMerger.merge），此处再挡一次，避免以后有人给锚点开入口。
+        if (entry.day != PLAN_DAY_TODAY) return
         viewModelScope.launch(Dispatchers.IO) {
             val now = System.currentTimeMillis()
             // 日界线走唯一入口 dayStartHourOf（§1 收口）。
@@ -399,6 +453,72 @@ class PlanReviewViewModel(app: Application) : AndroidViewModel(app) {
             }
             _plan.value = _plan.value.copy(generatingTraining = false, trainingFailed = false)
             computeAndEmit()
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // 生成今日计划（**仅空态**暴露的入口；问题 3 方案 C）
+    // ------------------------------------------------------------------
+
+    /**
+     * 空态入口：时间轴一条都没有时，用户点「生成今日计划」主动调一次模型。
+     *
+     * ⚠️ 这是本轮**唯一新增的用户可触发 AI 入口**，且只在 `entries` 为空时渲染
+     *    （见 `fragment_plan_review.xml` 的 `planEmptyRow`）—— 不恢复 v8 需求 7
+     *    刻意去掉的常驻「更新」按钮，也就不改变「打开页面 0 AI」的成本纪律。
+     *
+     * 与 [autoRerankIfDue] 共用同一套节流与配额门禁：
+     * - 先落 `PLAN_AUTO_RERANK_DAY` 标记再调网（防同日重复；失败也不再自动重试）；
+     * - 配额不足 → 只置 `quotaExhausted`，不调网、不给死循环重试；
+     * - 未配置 / 断网 → 不调网（离线会白等整条退避链，最坏 ~75-80 秒）。
+     *
+     * 埋点不变式不变：一次 provider 往返**恰好一行** `llm_calls`（由
+     * [PlanGenerator.update] 的移位埋点写法保证）。
+     */
+    fun generateTodayPlan() {
+        // 在途守卫：**同步**置位 + 同步判（同 generateTraining 的理由 —— 置位若留在
+        // 协程里，同一帧内的第二次点击会再发起一次 AI 调用）。
+        if (_plan.value.generatingToday) return
+        _plan.value = _plan.value.copy(generatingToday = true, failed = false, quotaExhausted = false)
+
+        viewModelScope.launch(Dispatchers.IO) {
+            val key = runCatching { generator.todayKey() }.getOrNull()
+            if (key == null) {
+                _plan.value = _plan.value.copy(generatingToday = false, failed = true)
+                return@launch
+            }
+            if (!container.quotaGuard.canExtract()) {
+                _plan.value = _plan.value.copy(generatingToday = false, quotaExhausted = true)
+                return@launch
+            }
+            val config = runCatching { container.eventRepository.loadProviderConfig() }.getOrNull()
+            if (config == null || !config.isUsable() || !NetworkStatus.isOnline(getApplication())) {
+                _plan.value = _plan.value.copy(generatingToday = false, failed = true)
+                return@launch
+            }
+
+            // 先落标记再调网：本日不再自动重排（与 autoRerankIfDue 同一日节流口径）。
+            runCatching {
+                db.settingsDao().put(
+                    SettingEntity(key = SettingsKeys.PLAN_AUTO_RERANK_DAY, value = key),
+                )
+            }
+
+            val summary = runCatching { TodaySummary.build(getApplication()) }.getOrNull()
+            if (summary == null) {
+                _plan.value = _plan.value.copy(generatingToday = false, failed = true)
+                return@launch
+            }
+
+            _plan.value = _plan.value.copy(updating = true)
+            val result = runCatching { generator.update(key, summary) }.getOrNull()
+            computeAndEmit()
+            _plan.value = _plan.value.copy(
+                updating = false,
+                generatingToday = false,
+                failed = result?.failed ?: true,
+                fromCache = result?.fromCache ?: false,
+            )
         }
     }
 

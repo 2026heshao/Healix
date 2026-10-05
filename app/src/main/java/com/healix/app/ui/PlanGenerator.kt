@@ -31,8 +31,11 @@ import java.util.Locale
 /**
  * 今日计划 prompt 版本号（独立于抽取链 `PROMPT_VER` 与 `PROMPT_VER_TRAINING`）。
  * 此值只随计划 prompt 迭代递增。
+ *
+ * v1 → v2（问题 3 方案 C）：同一次调用顺带产出**明天**的 4 条粗颗粒锚点
+ * （早/午/晚/训练），items 增 `day` / `slot` 两个字段。
  */
-const val PROMPT_VER_PLAN: String = "v1"
+const val PROMPT_VER_PLAN: String = "v2"
 
 /**
  * 今日计划 system prompt（设计规范 §4.3 / 增量设计 §4.4）。
@@ -43,38 +46,48 @@ const val PROMPT_VER_PLAN: String = "v1"
  *    塞进契约文件只增加"逐字节一致"的手工维护负担而无校验价值。
  *    因此 `PROMPT_PLAN` / `PROMPT_VER_PLAN` **只存在于本文件**。
  */
-const val PROMPT_PLAN: String = """你是 Healix 的今日计划助手。围绕用户的目标与当下真实数据，把今天（从现在到睡前）要做的事排成一条时间轴。
+const val PROMPT_PLAN: String = """你是 Healix 的计划助手。围绕用户的目标与当下真实数据，把**今天（从现在到睡前）**要做的事排成一条时间轴，并顺带给**明天**留下粗颗粒锚点。
 
 硬规则（逐条遵守，冲突时序号小的优先）：
-1. 只排「现在之后」的时段：已经过去的时刻不再安排（time 必须晚于"现在是 HH:mm"）。
+1. 只排「现在之后」的时段：已经过去的时刻不再安排（今天各项的 time 必须晚于"现在是 HH:mm"）。
 2. 结合「热量缺口」安排饮食：缺口大就把正餐+加餐都排上并给具体数量；已达标则不再堆餐，改排训练或恢复。
 3. 若今天有生病记录 → 全天改为恢复安排（清淡饮食 + 补水 + 早睡），不排任何训练。
 4. 若今日睡眠不足 6 小时或近 3 日睡眠连续偏低 → 训练降强度（减量或改轻量有氧），并优先排早睡。
 5. 有疼痛/不适部位 → 运动建议必须避开相关动作，优先恢复性建议（睡眠、补水）。有忌口/过敏 → 饮食建议必须绕开。
 6. 训练只在热量已达标或缺口很小时安排；同一天最多一条训练项，强度参考本周训练计划里"今天"那条。
 7. 禁止输出 1RM 估算、力量总分、综合评分或任何形式的打分；禁止给出药物剂量。
-8. 每项都要有明确的 time（HH:mm 24 小时制）；按时间从早到晚排序，最多 6 项。
+8. 今天的每一项都要有明确的 time（HH:mm 24 小时制）；按时间从早到晚排序，最多 6 项。
+9. 明天只给 4 条**粗颗粒锚点**：早 / 午 / 晚 三餐 + 训练；这 4 条 day 一律写 2，time 一律写空字符串。
+10. 明天的训练锚点参考本周训练计划里"明天"那条；若那一句给的是"无"，说明明天休息或本周计划还没生成 → 写恢复/休息，不要硬排力量训练；今天有生病记录或有疼痛/不适部位时，明天的训练锚点同样写恢复。
+11. 明天是"先把位置留出来"：内容给常见分量即可，不必精确，也不要编造明天才会有的数据（明天的体重、睡眠、摄入都还没有）。
 
 输出要求：
 - 只输出 JSON，不要任何解释文字，不要 markdown 代码围栏。
-- items 每项含 time / type / title / detail / kcal / duration / why。
-- type ∈ {meal, exercise, sleep, habit}；sleep/habit 项 kcal 写 0，duration 可写"——"。
-- title 简短（如"晚餐""力量训练""睡觉"）；detail 给具体怎么做（数量/动作/时长）；
-  duration 写"约 N 分钟"；why 用一句话说明为什么安排在现在。
+- items 每项含 day / time / slot / type / title / detail / kcal / duration / why。
+- day：今天写 1，明天写 2。
+- slot：只对 day=2 有意义，只能取 morning（早）/ noon（午）/ evening（晚）/ train（训练）之一；day=1 的项写空字符串。
+- time：day=1 必填 HH:mm；day=2 一律空字符串（锚点不显示具体时刻）。
+- type ∈ {meal, exercise, sleep, habit}；sleep/habit 项 kcal 写 0，duration 可写"——"；day=2 的项 kcal 也一律写 0。
+- title 简短（day=1 如"晚餐""力量训练""睡觉"；day=2 写内容本身，如"燕麦牛奶 + 鸡蛋"）；
+  detail 给具体怎么做（数量/动作/时长）；duration 写"约 N 分钟"；why 用一句话说明为什么这样安排。
 - note 一句话总结今天的重点。
 
 输出格式固定为：
-{"items": [{"time": "12:30", "type": "meal", "title": "午餐", "detail": "米饭 200g + 鸡胸 150g + 一份绿叶菜", "kcal": 650, "duration": "约 20 分钟", "why": "还差 1200 kcal，先补一半"}, {"time": "18:30", "type": "exercise", "title": "力量训练", "detail": "深蹲 4×8 / 卧推 4×8", "kcal": 200, "duration": "约 30 分钟", "why": "午餐后 6 小时，状态正好"}, {"time": "23:00", "type": "sleep", "title": "睡觉", "detail": "睡前 1 小时放下手机", "kcal": 0, "duration": "——", "why": "近 3 天睡眠偏低，今晚提前睡"}], "note": "今天先补足蛋白，晚上安排一次力量"}
+{"items": [{"day": 1, "time": "12:30", "slot": "", "type": "meal", "title": "午餐", "detail": "米饭 200g + 鸡胸 150g + 一份绿叶菜", "kcal": 650, "duration": "约 20 分钟", "why": "还差 1200 kcal，先补一半"}, {"day": 1, "time": "18:30", "slot": "", "type": "exercise", "title": "力量训练", "detail": "深蹲 4×8 / 卧推 4×8", "kcal": 200, "duration": "约 30 分钟", "why": "午餐后 6 小时，状态正好"}, {"day": 2, "time": "", "slot": "morning", "type": "meal", "title": "燕麦牛奶 + 鸡蛋", "detail": "燕麦 60g + 牛奶 300ml + 鸡蛋 2 个", "kcal": 0, "duration": "约 15 分钟", "why": "先占个位置，明天按当时的缺口再调"}, {"day": 2, "time": "", "slot": "noon", "type": "meal", "title": "米饭 + 鸡胸 + 绿叶菜", "detail": "米饭 200g + 鸡胸 150g + 一份绿叶菜", "kcal": 0, "duration": "约 20 分钟", "why": "先占个位置，明天按当时的缺口再调"}, {"day": 2, "time": "", "slot": "evening", "type": "meal", "title": "面食 + 牛肉", "detail": "面食一份 + 牛肉 120g + 一份蔬菜", "kcal": 0, "duration": "约 20 分钟", "why": "先占个位置，明天按当时的缺口再调"}, {"day": 2, "time": "", "slot": "train", "type": "exercise", "title": "深蹲 4×8 / 卧推 4×8", "detail": "按本周计划明天的安排执行", "kcal": 0, "duration": "约 30 分钟", "why": "明天是训练日，先留出位置"}], "note": "今天先补足蛋白，晚上安排一次力量；明天三餐与训练已占位"}
 """
 
 /**
  * 时间轴条目（同时作为 UI 模型）。
  *
- * @property time  "HH:mm" 24 小时制；旧数据可能为空 → 渲染时隐藏时间列。
+ * @property time  今天的条目为 "HH:mm" 24 小时制；旧数据可能为空 → 渲染时隐藏时间列。
+ *                 **明天的锚点恒为空串**（锚点不显示具体时刻，见 [slot]）。
  * @property type  meal | exercise | sleep | habit（仅 meal/exercise 可「记一笔」）。
- * @property kcal  估算热量；sleep/habit 为 0。
+ * @property kcal  估算热量；sleep/habit 为 0。**明天锚点恒为 0** —— 明天的摄入还没发生，
+ *                 给数字就是编数据（且锚点不可「记一笔」，见 [TimelineMerger.merge]）。
  * @property duration 空串显示「——」。
  * @property why   一句「为什么是现在」；空串不显示。
+ * @property day   [PLAN_DAY_TODAY] / [PLAN_DAY_TOMORROW]（问题 3 方案 C）。
+ * @property slot  明天锚点的时段键（[PlanSlot] 之一；今天条目为空串）。
  */
 data class TimelineItem(
     val time: String,
@@ -84,6 +97,8 @@ data class TimelineItem(
     val kcal: Int,
     val duration: String = "",
     val why: String = "",
+    val day: Int = PLAN_DAY_TODAY,
+    val slot: String = "",
 )
 
 /** 生成/读取结果。`failed = true` 表示 AI 失败（缓存保留或走了本地兜底）。 */
@@ -122,8 +137,8 @@ class PlanGenerator(context: Context) {
     private val db = app.database
 
     companion object {
-        /** `plan_json` schema 版本（见增量设计 §3.4）。 */
-        private const val PLAN_JSON_VERSION = 2
+        /** `plan_json` schema 版本（见增量设计 §3.4）。v3：items 增 `day` / `slot` 两字段。 */
+        private const val PLAN_JSON_VERSION = 3
 
         /** 主目标「增重」编码（与 HealthAggregator / SettingsViewModel 口径一致）。 */
         private const val PLAN_PRIMARY_GAIN = 0
@@ -136,13 +151,24 @@ class PlanGenerator(context: Context) {
         private const val PLAN_TYPE_EXERCISE = "exercise"
         private const val PLAN_TYPE_SLEEP = "sleep"
 
+        /** 明天锚点的统一「为什么」：说清这是占位、当天会按真实数据细化（不冒充精确）。 */
+        private const val TOMORROW_WHY = "明天的占位锚点，当天会按你的实际数据细化"
+
+        /** 「今天」条目上限（prompt 约定）。 */
+        private const val MAX_TODAY_ITEMS = 6
+
+        /** 「明天」锚点上限（早 / 午 / 晚 / 训练，共 4 条）。 */
+        private const val MAX_TOMORROW_ITEMS = 4
+
         /**
-         * 解析上限：模型输出永不可信，防啰嗦 / prompt 被注入时返回成百条拖垮
+         * 数组**扫描**上限：模型输出永不可信，防啰嗦 / prompt 被注入时返回成百条拖垮
          * 主线程 inflate（渲染见 PlanReviewFragment.renderTimeline，逐项 inflate）。
+         * 今天与明天**各自**另有条数上限（见 [itemsOf]），此处只封总扫描量。
          * ⚠️ 命名为 MAX_PLAN_ITEMS 而非 MAX_EVENTS，避免与 SchemaValidator 的
          *    抽取链同名常量撞车触发 check_duplicate_constants。
          */
-        private const val MAX_PLAN_ITEMS = 8
+        private const val MAX_PLAN_ITEMS = MAX_TODAY_ITEMS + MAX_TOMORROW_ITEMS + 2
+
         private const val MAX_TITLE_LEN = 80
         private const val MAX_DETAIL_LEN = 120
         private const val MAX_WHY_LEN = 80
@@ -182,7 +208,8 @@ class PlanGenerator(context: Context) {
 
     /**
      * 纯本地降级时间轴：把既有规则条目（晚餐 / 加餐 / 睡眠 / 训练 / 恢复）
-     * **按时段铺开**成一条时间轴。
+     * **按时段铺开**成一条时间轴，并按问题 3 方案 C 补一组**明天的粗颗粒锚点**
+     * （早 / 午 / 晚 / 训练；`kcal` 全 0 —— 明天的摄入还没发生，不编数字）。
      *
      * ⚠️ **给的是估算值**（这是实话，不是"不编数据"）：受本地规则限制，
      * [buildTimeline] 会给出**估算**的数量与热量（如 400/650/450/400/200 kcal
@@ -201,9 +228,20 @@ class PlanGenerator(context: Context) {
         val pain = parseFoodsJson(db.settingsDao().get(SettingsKeys.PROFILE_PAIN).orEmpty())
         val bedTime = db.settingsDao().get(SettingsKeys.PROFILE_SLEEP_BED).orEmpty()
         val now = currentHhmm()
+        // 明天的训练锚点要跟本周计划对齐：那天休息 / 没有计划 → 不发训练锚点
+        //（免得把「明天休息」覆盖成一条训练行，见 TimelineMerger 的抑制约定）。
+        val tomorrowTraining = trainingLineFor(1)
 
         PlanResult(
-            items = buildTimeline(summary, manualFoods, pool, sport, pain, bedTime, now),
+            items = buildTimeline(summary, manualFoods, pool, sport, pain, bedTime, now) +
+                buildTomorrowAnchors(
+                    manualFoods = manualFoods,
+                    pool = pool,
+                    sport = sport,
+                    pain = pain,
+                    trainSummary = tomorrowTraining,
+                    hasIllness = summary.hasIllness,
+                ),
             note = buildNote(summary),
             source = TrainingPlanner.SOURCE_FALLBACK,
             generatedAt = System.currentTimeMillis(),
@@ -337,7 +375,7 @@ class PlanGenerator(context: Context) {
     // user 上下文（本地事实，不做推测）
     // ------------------------------------------------------------------
 
-    /** 聚合喂给模型的本地事实：目标 + 结构化目标 + 画像 + 今日摘要 + 今日训练 + 近 3 日摘要。 */
+    /** 聚合喂给模型的本地事实：目标 + 结构化目标 + 画像 + 今日摘要 + 今日/明天训练 + 近 3 日摘要。 */
     private suspend fun buildUserContext(): String {
         val goalStatement = db.settingsDao().get(SettingsKeys.GOAL_STATEMENT).orEmpty().trim()
         val primaryIdx = db.goalDao().getByMetric(GoalMetrics.PRIMARY)
@@ -351,7 +389,8 @@ class PlanGenerator(context: Context) {
 
         val summary = TodaySummary.build(appContext)
         val profile = ProfileContext.build(db)
-        val todayTraining = todayTrainingLine()
+        val todayTraining = trainingLineFor(0)
+        val tomorrowTraining = trainingLineFor(1)
         val recent = recentSummary()
 
         return buildString {
@@ -362,22 +401,28 @@ class PlanGenerator(context: Context) {
             appendLine("睡眠目标：${trim(sleepH)} 小时   饮水目标：$waterMl ml")
             if (profile.isNotBlank()) appendLine(profile)
             summary.lines.forEach { appendLine(it) }
-            appendLine("本周训练计划里\"今天\"那条：$todayTraining")
+            appendLine("本周训练计划里\"今天\"那条：${todayTraining ?: "无"}")
+            appendLine("本周训练计划里\"明天\"那条：${tomorrowTraining ?: "无"}")
             appendLine("最近记录摘要：$recent")
-            appendLine("请按硬规则排出今天从现在到睡前的时间轴。")
+            appendLine("请按硬规则排出今天从现在到睡前的时间轴，并附上明天的 4 条锚点。")
         }.trim()
     }
 
-    /** 本周训练计划里「今天」那一条（无则「无」）。 */
-    private suspend fun todayTrainingLine(): String {
+    /**
+     * 本周训练计划里「今天 + [offsetDays]」那天的安排（`标题 · 动作`）。
+     *
+     * @return 该天的安排；**本周计划尚未生成、或那天是休息日 → null**
+     *         （调用方据此区分「无」与「休息」，见 prompt 硬规则 10）。
+     */
+    private suspend fun trainingLineFor(offsetDays: Long): String? {
         val plan = runCatching { TrainingPlanner(appContext).loadOrGenerate(force = false) }.getOrNull()
-            ?: return "无"
-        val dow = LocalDate.now().dayOfWeek.value
-        val day = plan.days.firstOrNull { it.dow == dow && !it.isRest } ?: return "无"
+            ?: return null
+        val dow = LocalDate.now().plusDays(offsetDays).dayOfWeek.value
+        val day = plan.days.firstOrNull { it.dow == dow && !it.isRest } ?: return null
         val line = listOf(day.title, day.itemsLine())
             .filter { it.isNotBlank() }
             .joinToString(" · ")
-        return line.ifBlank { "无" }
+        return line.ifBlank { null }
     }
 
     /** 近 3 日（不含今天）记录摘要；无记录写「无」。 */
@@ -511,6 +556,115 @@ class PlanGenerator(context: Context) {
     }
 
     /**
+     * 「明天」的粗颗粒锚点（问题 3 方案 C）：早 / 午 / 晚 三餐 +（非休息日才有的）训练。
+     *
+     * 纯模板铺开、零网络。三点刻意的约束：
+     * 1. `time` 一律空串 —— 锚点**不显示具体时刻**（明天的时刻还没意义）；
+     * 2. `kcal` 一律 0 —— 明天的摄入还没发生，给数字就是编数据；
+     * 3. 第 4 条（训练位）按 `生病 / 疼痛 → 恢复`、`本周计划明天那条 → 跟它`、
+     *    `资源清单有装备 → 按条件练`、**都没有就不发** 的顺序取一条；
+     *    完全不发时，明天那格仍保留训练日行本身（休息日显示「休息」），
+     *    不会被一条凭空造出来的训练锚点覆盖（见 [TimelineMerger.merge] 的抑制约定）。
+     *
+     * @param trainSummary 本周训练计划里「明天」那条（`标题 · 动作`）；null = 明天休息 / 无计划
+     * @param hasIllness 今天有生病记录 → 明天也不排力量，训练位改「恢复」
+     */
+    private fun buildTomorrowAnchors(
+        manualFoods: List<String>,
+        pool: List<String>,
+        sport: String,
+        pain: List<String>,
+        trainSummary: String?,
+        hasIllness: Boolean,
+    ): List<TimelineItem> {
+        val out = mutableListOf<TimelineItem>()
+
+        out += TimelineItem(
+            time = "",
+            type = PLAN_TYPE_MEAL,
+            title = anchorTitle(manualFoods, pool, "燕麦牛奶 + 鸡蛋"),
+            detail = "燕麦 60g + 牛奶 300ml + 鸡蛋 2 个",
+            kcal = 0,
+            duration = "约 15 分钟",
+            why = TOMORROW_WHY,
+            day = PLAN_DAY_TOMORROW,
+            slot = PlanSlot.MORNING,
+        )
+        out += TimelineItem(
+            time = "",
+            type = PLAN_TYPE_MEAL,
+            title = anchorTitle(manualFoods, pool, "主食 + 蛋白质 + 蔬菜"),
+            detail = "米饭 200g + 鸡胸 150g + 一份绿叶菜",
+            kcal = 0,
+            duration = "约 20 分钟",
+            why = TOMORROW_WHY,
+            day = PLAN_DAY_TOMORROW,
+            slot = PlanSlot.NOON,
+        )
+        out += TimelineItem(
+            time = "",
+            type = PLAN_TYPE_MEAL,
+            title = anchorTitle(manualFoods, pool, "面食 + 牛肉 + 蔬菜"),
+            detail = "面食一份 + 牛肉 120g + 一份蔬菜",
+            kcal = 0,
+            duration = "约 20 分钟",
+            why = TOMORROW_WHY,
+            day = PLAN_DAY_TOMORROW,
+            slot = PlanSlot.EVENING,
+        )
+
+        // 第 4 条（训练位）四选一，优先级与 [tailItem] 同口径：生病 / 疼痛 → 恢复优先。
+        when {
+            hasIllness || pain.isNotEmpty() -> out += TimelineItem(
+                time = "",
+                type = PLAN_TYPE_SLEEP,
+                title = "恢复：补水 + 早睡",
+                detail = if (pain.isEmpty()) {
+                    "今天记录了不适，明天先恢复，不排力量训练"
+                } else {
+                    "疼痛/不适部位（${pain.joinToString("、")}）相关动作先避开"
+                },
+                kcal = 0,
+                duration = "——",
+                why = TOMORROW_WHY,
+                day = PLAN_DAY_TOMORROW,
+                slot = PlanSlot.TRAIN,
+            )
+            trainSummary != null -> out += TimelineItem(
+                time = "",
+                type = PLAN_TYPE_EXERCISE,
+                title = trainSummary.substringBefore(" · ").ifBlank { "按本周计划练" },
+                detail = "按本周计划明天的安排执行",
+                kcal = 0,
+                duration = "约 30 分钟",
+                why = TOMORROW_WHY,
+                day = PLAN_DAY_TOMORROW,
+                slot = PlanSlot.TRAIN,
+            )
+            sport.isNotBlank() -> out += TimelineItem(
+                time = "",
+                type = PLAN_TYPE_EXERCISE,
+                title = "按你的条件练",
+                detail = "按你的条件练：${sport.lineSequence().joinToString("；")}",
+                kcal = 0,
+                duration = "约 30 分钟",
+                why = TOMORROW_WHY,
+                day = PLAN_DAY_TOMORROW,
+                slot = PlanSlot.TRAIN,
+            )
+        }
+
+        return out
+    }
+
+    /** 锚点标题：手动清单优先于常吃池（都为空时用既有的常见搭配），最多取 2 项。 */
+    private fun anchorTitle(manual: List<String>, pool: List<String>, fallback: String): String = when {
+        manual.isNotEmpty() -> manual.take(2).joinToString(" + ")
+        pool.isNotEmpty() -> pool.take(2).joinToString(" + ")
+        else -> fallback
+    }
+
+    /**
      * 食物建议明细：手动清单（资源清单，"我现在就有"）优先于常吃池
      *（F7「他吃过 = 他买得到」）；都为空时回落既有建议，不编食物。
      */
@@ -565,28 +719,77 @@ class PlanGenerator(context: Context) {
         }
     }
 
+    /**
+     * items 数组 → 条目列表（防御性，模型输出永不可信）。
+     *
+     * 与 v1 的差别（问题 3 方案 C）：按 `day` **分日计数**，今天 ≤ [MAX_TODAY_ITEMS]、
+     * 明天 ≤ [MAX_TOMORROW_ITEMS] —— 单看总数会让"模型把明天写成 10 条"把今天挤空。
+     * 明天锚点另有三条硬归一：`time` 强制空串、`kcal` 强制 0、`slot` 认不出则整条丢弃。
+     */
     private fun itemsOf(arr: JSONArray): List<TimelineItem> {
         val out = mutableListOf<TimelineItem>()
+        var todayCount = 0
+        var tomorrowCount = 0
         // 条数上限：parseTimelineJson → renderTimeline 在主线程逐项 inflate，
-        // 模型啰嗦或 prompt 被注入时返回成百条 = 卡顿 / ANR / OOM。prompt 写了
-        // "最多 6 项"，但代码必须自己设防（模型输出永不可信）。
+        // 模型啰嗦或 prompt 被注入时返回成百条 = 卡顿 / ANR / OOM。
         for (i in 0 until minOf(arr.length(), MAX_PLAN_ITEMS)) {
             val o = arr.optJSONObject(i) ?: continue
+            // day 只认「次日」这一个额外值：模型给 0 / 3 / 乱码一律收敛回今天。
+            val tomorrow = o.optInt("day", PLAN_DAY_TODAY) >= PLAN_DAY_TOMORROW
+            val slot = if (tomorrow) resolveSlot(o.optText("slot"), o.optText("time")) else ""
+            // 时段认不出来 → 丢弃该锚点：宁可少一条，也不把说不清时段的行塞进「明天」。
+            if (tomorrow && slot == null) continue
+            if (tomorrow) {
+                if (tomorrowCount >= MAX_TOMORROW_ITEMS) continue
+            } else if (todayCount >= MAX_TODAY_ITEMS) {
+                continue
+            }
+
             // 先截断再判空：长度上限对 title/detail 生效后再决定是否跳过该项。
             val title = o.optText("title").take(MAX_TITLE_LEN)
             val detail = o.optText("detail").take(MAX_DETAIL_LEN)
             if (title.isEmpty() && detail.isEmpty()) continue
+
+            if (tomorrow) tomorrowCount++ else todayCount++
             out += TimelineItem(
-                time = o.optText("time").take(5),
+                // 锚点不显示具体时刻：即使模型给了 time 也一律清空（渲染口径唯一）。
+                time = if (tomorrow) "" else o.optText("time").take(5),
                 type = o.optText("type").ifEmpty { PLAN_TYPE_HABIT }.take(16),
                 title = title,
                 detail = detail,
-                kcal = o.optInt("kcal", 0),
+                // 明天的摄入还没发生 → 不采信模型给的数字（锚点也不可「记一笔」）。
+                kcal = if (tomorrow) 0 else o.optInt("kcal", 0),
                 duration = o.optText("duration").take(16),
                 why = o.optText("why").ifEmpty { o.optText("whyNow") }.take(MAX_WHY_LEN),
+                day = if (tomorrow) PLAN_DAY_TOMORROW else PLAN_DAY_TODAY,
+                slot = slot.orEmpty(),
             )
         }
         return out
+    }
+
+    /**
+     * 归一化「明天」锚点的时段键（模型输出永不可信）。
+     *
+     * 容忍三种形态，按优先级：
+     * 1. 规范 ASCII 键（`morning` / `noon` / `evening` / `train`）；
+     * 2. 中文时段名（早 / 午 / 中 / 晚 / 练 / 运动）；
+     * 3. 只写了 `time` 时刻 → 按小时折算（< 10 早 / < 15 午 / 其余 晚）。
+     *
+     * @return [PlanSlot] 之一；**null = 认不出** → 调用方丢弃该条（见 [itemsOf]）。
+     */
+    private fun resolveSlot(rawSlot: String, rawTime: String): String? {
+        val s = rawSlot.lowercase(Locale.US)
+        if (PlanSlot.MORNING in s || "早" in rawSlot) return PlanSlot.MORNING
+        if (PlanSlot.NOON in s || "午" in rawSlot || "中" in rawSlot) return PlanSlot.NOON
+        if (PlanSlot.EVENING in s || "晚" in rawSlot) return PlanSlot.EVENING
+        if (PlanSlot.TRAIN in s || "练" in rawSlot || "运动" in rawSlot) return PlanSlot.TRAIN
+        val hour = rawTime.take(2).toIntOrNull() ?: return null
+        return when {
+            hour < 10 -> PlanSlot.MORNING
+            hour < 15 -> PlanSlot.NOON
+            else -> PlanSlot.EVENING
+        }
     }
 
     /** 安全取文本：缺失 / JSON null 一律返回空串（避免 "null" 字符串混入）。 */
@@ -605,7 +808,9 @@ class PlanGenerator(context: Context) {
         val arr = JSONArray()
         for (item in result.items) {
             val o = JSONObject()
+            o.put("day", item.day)
             o.put("time", item.time)
+            o.put("slot", item.slot)
             o.put("type", item.type)
             o.put("title", item.title)
             o.put("detail", item.detail)

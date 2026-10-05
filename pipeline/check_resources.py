@@ -12,6 +12,7 @@ CI 首跑时 mergeDebugResources 报 `Found item String/type_meal more than one 
   4. values-night 覆盖项是否都在 values 里有对应定义（否则是死代码）
   5. 布局里禁止裸 `<Button>`（MaterialComponents 会替换为 MaterialButton 并
      忽略 android:background → 主按钮 accent 底不渲染，白字压白底不可见）
+  6. XML 注释里禁止出现 ASCII 双连字符 `--`（XML 1.0 硬规则；aapt2 会拒绝该文件）
 
 退出码：0 = 全通过；1 = 发现问题。
 """
@@ -269,6 +270,46 @@ def check_button_tag() -> None:
                 )
 
 
+def check_xml_comments() -> None:
+    """XML 注释里**禁止出现 ASCII 双连字符 `--`**（XML 1.0 硬规则）。
+
+    ══════════════════════════════════════════════════════════════════════════
+    为什么单独立一条（2026-10-05，自查发现）
+    ══════════════════════════════════════════════════════════════════════════
+    `fragment_plan_review.xml` 的注释里写了原型出处 `color:var(--text_1)` ——
+    变量名的双连字符正好踩中 XML 规范："注释内不得包含 `--`"。
+    这是**纯粹的排版习惯**（写 CSS 变量名、画分隔线、写 `--flag`）就会中的坑，
+    而本机没有 JDK / aapt2，两个检查器都不会解析 XML → **本地全绿、CI 直接挂在
+    processDebugResources**，属于"静默失效"那一类最贵的错误。
+
+    ⚠️ 只查注释**内部**：元素属性的换行连接符与 `->` 之类不受影响。
+    """
+    for f in sorted(_xml_targets()):
+        rel = f.relative_to(ROOT)
+        text = f.read_text(encoding="utf-8", errors="replace")
+        for m in re.finditer(r"<!--(.*?)-->", text, re.S):
+            body = m.group(1)
+            hit = body.find("--")
+            if hit < 0:
+                continue
+            lineno = text[: m.start()].count("\n") + body[:hit].count("\n") + 1
+            snippet = body[max(0, hit - 24): hit + 24].replace("\n", " ").strip()
+            errors.append(
+                f"{rel}:{lineno}: XML 注释里出现 `--`（XML 规范禁止）—— "
+                f"…{snippet}… 。aapt2 会拒绝该文件，且本地无 JDK 时查不出来。"
+                f"写 CSS 变量名 / 长破折线请改用全角「——」或拆开写。"
+            )
+
+
+def _xml_targets() -> list[Path]:
+    """aapt2 会解析的 XML：资源目录 + 合并清单（其余 XML 不参与资源编译）。"""
+    out = [p for p in RES.rglob("*.xml") if "build" not in p.parts]
+    manifest = ROOT / "app/src/main/AndroidManifest.xml"
+    if manifest.exists():
+        out.append(manifest)
+    return out
+
+
 def main() -> int:
     if not RES.exists():
         print(f"找不到资源目录：{RES}")
@@ -280,6 +321,7 @@ def main() -> int:
     check_shell_line_endings()
     check_signal_copy()
     check_button_tag()
+    check_xml_comments()
 
     print("=" * 64)
     print("Healix 资源静态检查")

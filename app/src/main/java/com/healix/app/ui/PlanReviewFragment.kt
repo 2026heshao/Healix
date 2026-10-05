@@ -60,6 +60,7 @@ class PlanReviewFragment : Fragment() {
         binding.tabPlan.setOnClickListener { selectTab(PlanTab.PLAN) }
         binding.tabReview.setOnClickListener { selectTab(PlanTab.REVIEW) }
         binding.btnGenerateWeek.setOnClickListener { vm.generateTraining() }
+        binding.btnGenerateToday.setOnClickListener { vm.generateTodayPlan() }
 
         selectTab(PlanTab.PLAN)
         observe()
@@ -214,26 +215,39 @@ class PlanReviewFragment : Fragment() {
     }
 
     /**
-     * 统一时间轴：按 `dayIndex` 分组，每组前插一条「日头」（周一…周日 / 今天）。
+     * 统一时间轴：按 `dayIndex` 分组，每组前插一条「日头」（今天 / 明天 / `M月D日 周X`）。
      *
-     * 渲染约定：`timeLabel` 为空（训练日）→ 时间列 `INVISIBLE`（保留 52dp 对齐，不塌陷）；
-     * 每天**最后一条**的竖线置 `INVISIBLE`（不让竖线拖出组外）。「记一笔」由条目
-     * `canLog` / `done` 驱动：可点（accent）/ 已记录（text_3 禁用）/ 无（隐藏）。
+     * 渲染约定：`timeLabel` 为空（训练日 / 认不出时段的锚点）→ 时间列 `INVISIBLE`
+     * （保留 52dp 对齐，不塌陷）；每天**最后一条**的竖线置 `INVISIBLE`（不让竖线拖出
+     * 组外）。「记一笔」由条目 `canLog` / `done` 驱动：可点（accent）/ 已记录（text_3
+     * 禁用）/ 无（隐藏 —— 明天的锚点走这一支，它按设计不可记）。
+     *
+     * 一条都没有时走空态入口（问题 3 方案 C）：`今天还没有计划` + `生成今日计划`。
      */
     private fun renderTimeline(p: PlanUiState) {
         binding.itemContainer.removeAllViews()
+
         if (p.entries.isEmpty()) {
-            binding.planNote.text = getString(R.string.nodata)
-            binding.planNote.visibility = View.VISIBLE
+            binding.planEmptyRow.visibility = View.VISIBLE
+            binding.planNote.visibility = View.GONE
+            binding.btnGenerateToday.isEnabled = !p.generatingToday
+            binding.btnGenerateToday.isClickable = !p.generatingToday
+            binding.btnGenerateToday.text = getString(
+                if (p.generatingToday) R.string.plan_generating else R.string.plan_generate_today,
+            )
+            binding.btnGenerateToday.setTextColor(
+                color(if (p.generatingToday) R.color.text_3 else R.color.accent),
+            )
             return
         }
+        binding.planEmptyRow.visibility = View.GONE
 
         val lastIndex = p.entries.lastIndex
         var lastDay = -1
         p.entries.forEachIndexed { index, entry ->
             if (entry.dayIndex != lastDay) {
                 lastDay = entry.dayIndex
-                binding.itemContainer.addView(dayHeader(entry.dayIndex, p.todayDow))
+                binding.itemContainer.addView(dayHeader(entry.dayIndex, p))
             }
             val isDayEnd = index == lastIndex || p.entries[index + 1].dayIndex != entry.dayIndex
             binding.itemContainer.addView(entryRow(entry, isDayEnd))
@@ -243,16 +257,20 @@ class PlanReviewFragment : Fragment() {
         binding.planNote.visibility = if (p.note.isBlank()) View.GONE else View.VISIBLE
     }
 
-    /** 日头：周X；今天追加「· 今天」。 */
-    private fun dayHeader(dayIndex: Int, todayDow: Int): View {
+    /**
+     * 日头：今天 / 明天 / `M月D日 周X`。
+     *
+     * ⚠️ 文案由 [PlanReviewViewModel] 统一格式化（`PlanUiState.dayLabels`）——三档口径
+     *    只此一处；列表缺失（日界线未读到）时回落旧的「周X · 今天」。
+     */
+    private fun dayHeader(dayIndex: Int, p: PlanUiState): View {
         val v = layoutInflater.inflate(R.layout.item_timeline_day, binding.itemContainer, false)
         val dow = dayIndex + 1
-        val label = dowLabel(dow)
-        v.findViewById<TextView>(R.id.dayLabel).text = if (dow == todayDow) {
-            getString(R.string.timeline_today_label, label)
-        } else {
-            label
+        val label = p.dayLabels.getOrNull(dayIndex) ?: run {
+            val name = dowLabel(dow)
+            if (dow == p.todayDow) getString(R.string.timeline_today_label, name) else name
         }
+        v.findViewById<TextView>(R.id.dayLabel).text = label
         return v
     }
 

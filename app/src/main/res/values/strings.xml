@@ -28,8 +28,27 @@
     <string name="plan_reached">今日已达标</string>
     <string name="log_this">记一笔</string>
     <string name="disclaimer">估算值，非医疗建议</string>
-    <!-- 统一时间轴的日头（v8 需求 7）：周X；今天追加「· 今天」 -->
+    <!--
+        统一时间轴的日头（v8 需求 7；问题 3 方案 C 增补明天与具体日期）：
+        今天 / 明天 / `M月D日 周X` 三档，由 PlanReviewViewModel.dayLabelsFor 统一格式化。
+    -->
     <string name="timeline_today_label">%1$s · 今天</string>
+    <string name="timeline_tomorrow_label">%1$s · 明天</string>
+    <string name="timeline_day_label">%1$d月%2$d日 %3$s</string>
+
+    <!--
+        「明天」锚点的时段名（问题 3 方案 C）：占据时间列的位置（不显示 HH:mm）。
+        数据侧的键是 ASCII（PlanSlot.morning/noon/evening/train），这里是展示文案。
+    -->
+    <string name="anchor_slot_morning">早</string>
+    <string name="anchor_slot_noon">午</string>
+    <string name="anchor_slot_evening">晚</string>
+    <string name="anchor_slot_train">训练</string>
+
+    <!-- 空态入口（问题 3 方案 C）：时间轴一条都没有时 -->
+    <string name="plan_empty_today">今天还没有计划</string>
+    <string name="plan_generate_today">生成今日计划</string>
+    <string name="plan_generating">生成中…</string>
 
     <!-- 对话 -->
     <string name="assistant">助理</string>

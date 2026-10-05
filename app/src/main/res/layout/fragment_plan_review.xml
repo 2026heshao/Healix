@@ -94,7 +94,7 @@
         缺口行：还差 X kcal（body15/text_1）。
         ⚠️ **不用 accent**：这一行是**被动状态**，不可点、不带动作 —— 唯一强调色只留给
         可点动作与需要用户注意的强调（`Text.Body` 已是 text_1，此处不再覆写颜色）。
-        与原型的 `color:var(--text_1)` 一致（UI-v8优化原型.html:398）。
+        与原型的 `color: var(text_1)` 口径一致（UI-v8优化原型.html:398）。
     -->
     <TextView
         android:id="@+id/gapLabel"
@@ -222,6 +222,41 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical" />
+
+                <!--
+                    空态入口（问题 3 方案 C）：时间轴一条都没有时的**唯一**主动生成入口。
+                    只在 `entries` 为空时可见（见 PlanReviewFragment.renderTimeline），
+                    不恢复 v8 需求 7 刻意去掉的常驻「更新」按钮 —— 打开页面仍是 0 AI。
+                -->
+                <LinearLayout
+                    android:id="@+id/planEmptyRow"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:paddingStart="@dimen/screen_margin"
+                    android:paddingEnd="@dimen/screen_margin"
+                    android:paddingTop="@dimen/block_gap"
+                    android:paddingBottom="@dimen/block_gap"
+                    android:visibility="gone"
+                    tools:visibility="visible">
+
+                    <TextView
+                        style="@style/Text.Secondary"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/plan_empty_today" />
+
+                    <TextView
+                        android:id="@+id/btnGenerateToday"
+                        style="@style/Text.Link"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:background="?attr/selectableItemBackground"
+                        android:gravity="start|center_vertical"
+                        android:minHeight="@dimen/touch_min"
+                        android:text="@string/plan_generate_today" />
+                </LinearLayout>
 
                 <TextView
                     android:id="@+id/planNote"
