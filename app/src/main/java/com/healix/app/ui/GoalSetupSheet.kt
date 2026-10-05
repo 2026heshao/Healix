@@ -64,9 +64,16 @@ class GoalSetupSheet : BottomSheetDialogFragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
-        editMode = requireArguments().getBoolean(ARG_EDIT, false)
+        // ⚠️ 必须用可空的 `arguments` 而不是 `requireArguments()`：
+        //    首启引导 [newInstance] 刻意不携带任何参数（arguments == null），
+        //    `requireArguments()` 会抛 IllegalStateException —— 全新安装首次启动
+        //    弹引导时必然触发（v0.1.0→0.2.0 真机"点图标屡次停止运行"的根因）。
+        //    编辑态 [newInstanceForEdit] 才有 arguments；缺省一律按首启引导处理。
+        val args = arguments
+        editMode = args?.getBoolean(ARG_EDIT, false) ?: false
         if (editMode) {
-            selected = requireArguments().getInt(ARG_MODE, SettingsViewModel.GOAL_MODE_GAIN)
+            selected = args?.getInt(ARG_MODE, SettingsViewModel.GOAL_MODE_GAIN)
+                ?: SettingsViewModel.GOAL_MODE_GAIN
             binding.sheetTitle.setText(R.string.goal_setup_title_edit)
             binding.sheetDesc.setText(R.string.goal_setup_desc_edit)
             // 编辑态没有「跳过」的语义：关掉弹层 = 保持原样，不留一个会让人误以为"清空主目标"的入口
@@ -79,7 +86,7 @@ class GoalSetupSheet : BottomSheetDialogFragment() {
         binding.weightField.fieldValue.inputType =
             InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
         if (editMode) {
-            val w = requireArguments().getDouble(ARG_WEIGHT, 0.0)
+            val w = args?.getDouble(ARG_WEIGHT, 0.0) ?: 0.0
             if (w > 0.0) binding.weightField.fieldValue.setText(trimNumber(w))
         }
 

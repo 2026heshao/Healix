@@ -97,6 +97,58 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         })
+
+        maybeShowLastCrash()
+    }
+
+    /**
+     * 崩溃报告展示（v0.2.0 工程兜底，与 [com.healix.app.CrashCatcher] 配对）：
+     * 上次运行发生未捕获异常时，`filesDir/crash/last_crash.txt` 里留有真实堆栈 ——
+     * 用户拿不到 logcat，这是唯一的回传通道。展示后**不删文件**
+     * （卸载重装自然清除；保留最近 1 份，下次启动还会提示，直到用户转发出去）。
+     *
+     * 任何一步失败都静默跳过 —— 展示是加分项，绝不能反过来把启动弄崩。
+     */
+    private fun maybeShowLastCrash() {
+        // 整体保护：show() 在窗口尚未 attach / ROM 差异下可能抛
+        // BadTokenException 等 —— 展示是加分项，任何异常都静默跳过，
+        // 绝不能反过来把启动本身弄崩（readReport 等读盘路径也一并兜住）。
+        runCatching {
+            if (!com.healix.app.CrashCatcher.hasPendingReport(this)) return@runCatching
+            val report = com.healix.app.CrashCatcher.readReport(this)
+            if (report.isBlank()) return@runCatching
+
+            androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle(R.string.crash_dialog_title)
+                .setMessage(com.healix.app.CrashCatcher.summarize(report))
+                .setPositiveButton(R.string.crash_dialog_share) { _, _ -> shareCrash(report) }
+                .setNeutralButton(R.string.crash_dialog_copy) { _, _ -> copyCrash(report) }
+                .setNegativeButton(R.string.crash_dialog_close, null)
+                .show()
+        }
+    }
+
+    /** 崩溃报告 → 剪贴板（用户粘贴回对话即可）。 */
+    private fun copyCrash(report: String) {
+        val cm = getSystemService(android.content.Context.CLIPBOARD_SERVICE)
+            as android.content.ClipboardManager
+        cm.setPrimaryClip(
+            android.content.ClipData.newPlainText(getString(R.string.crash_dialog_title), report),
+        )
+        android.widget.Toast.makeText(this, R.string.crash_copied, android.widget.Toast.LENGTH_SHORT)
+            .show()
+    }
+
+    /** 崩溃报告 → 系统分享面板（text/plain，用户选微信/邮件等任意通道发回）。 */
+    private fun shareCrash(report: String) {
+        val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(android.content.Intent.EXTRA_SUBJECT, getString(R.string.crash_dialog_title))
+            putExtra(android.content.Intent.EXTRA_TEXT, report)
+        }
+        runCatching {
+            startActivity(android.content.Intent.createChooser(intent, getString(R.string.crash_dialog_share)))
+        }
     }
 
     /**

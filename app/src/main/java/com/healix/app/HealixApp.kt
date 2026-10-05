@@ -43,6 +43,9 @@ class HealixApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // 崩溃捕获器（v0.2.0 兜底）：必须最先安装，覆盖后续所有初始化与启动路径。
+        // 只挂 UncaughtExceptionHandler 并链回默认 handler，不改变任何既有行为。
+        CrashCatcher.install(this)
         // 触发 Room 单例构建（不打开数据库文件连接，真正的连接在首次查询时建立）。
         database
         // 触发密钥存储初始化。失败时返回 null，不崩溃。
