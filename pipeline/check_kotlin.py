@@ -529,6 +529,39 @@ def collect_suspend_functions() -> set[str]:
     return suspend_names - plain_names
 
 
+# 接收者指向「挂起源」的判据：DAO / Repository / 数据库句柄。
+_SUSPEND_RECEIVER_RE = re.compile(r'(?:[Dd]ao|Repository|repository|database|\bdb\b)')
+
+
+def _calls_suspend(body: str, name: str) -> bool:
+    """`body` 里是否有对挂起函数 `name` 的调用。两种合法形态，缺一不可：
+
+    (A) **无接收者的裸调用** `name(` —— 同文件 / 顶层 / 成员挂起函数；
+    (B) **带接收者且接收者指向挂起源**的调用 `receiver.name(` ——
+        `db.eventDao().listInRange(...)`、`container.eventRepository.latestByType(...)`。
+
+    ⚠️ 为什么 (B) 必须限定接收者：名字能进 `suspend_fns`，只说明**全工程只有
+       suspend 版本**（`collect_suspend_functions` 已排除任何非 suspend 同名定义）；
+       但**标准库同名**（`list.find{}` / `map.remove(k)` / `LocalDate.parse(s)`）
+       在 body 里以裸名出现，接收者却是 list / map / LocalDate。若放宽到「任意
+       接收者」，实测会一次生成 **15 条误报**，把真信号淹掉 —— 所以按接收者收敛。
+
+    ⚠️ 为什么 (A) 的后顾是 `(?<![\w.])`（**排除** `.` 前缀）：无接收者的裸调用
+       其前一个字符不该是 `.`（那是 (B) 的形态），也不该是单词字符
+       （避免 `alistInRange(` 这类粘连）。
+
+    ⚠️ 历史教训（静默失效）：本函数的前身把带 `.` 的调用**整体排除**，导致对
+       真实 CI 报错的同一段代码（`settingsDao().get` / `eventDao().listInRange`）
+       完全静默 —— 检查器存在却零覆盖，比没有更糟。
+    """
+    if re.search(rf'(?<![\w.]){re.escape(name)}\s*\(', body):
+        return True
+    for m in re.finditer(rf'([A-Za-z_][A-Za-z0-9_.()]*?)\.{re.escape(name)}\s*\(', body):
+        if _SUSPEND_RECEIVER_RE.search(m.group(1)):
+            return True
+    return False
+
+
 def check_suspend_calls() -> None:
     """在**非 suspend 函数体**里直接调用 suspend 函数 = 编译错误。
 
@@ -574,12 +607,21 @@ def check_suspend_calls() -> None:
                     continue
                 body = "\n".join(lines[fn["start"]: idx + 1])
                 # 函数体内若已有协程作用域，调用可能是安全的 → 跳过
-                if re.search(r'\b(launch|withContext|async|runBlocking|suspendCoroutine)\b', body):
+                # ⚠️ 必须含 `runBlockingSafe`（项目自定义的作用域包装，见
+                #    ui/runBlockingSafe.kt）：否则 `buildJson = runBlockingSafe { ... }`
+                #    被误判成"非挂起函数直调 suspend"（实测 ExportWriter 报 3 条误报）。
+                #    注意 `\brunBlocking\b` **不覆盖** `runBlockingSafe`
+                #    （后者的 `runBlocking` 后紧跟 `S`，不构成词边界）。
+                if re.search(
+                    r'\b(launch|withContext|async|runBlockingSafe|runBlocking'
+                    r'|suspendCoroutine)\b',
+                    body,
+                ):
                     continue
                 for sf in suspend_fns:
                     if sf == fn["name"]:
                         continue
-                    if re.search(rf'(?<![\w.]){re.escape(sf)}\s*\(', body):
+                    if _calls_suspend(body, sf):
                         errors.append(
                             f"{rel(kt)}:{fn['start'] + 1}: 非 suspend 函数 "
                             f"`{fn['name']}` 里调用了 suspend 函数 `{sf}()`，"
