@@ -1,0 +1,280 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    v8 问题 4：记录页目标区的**半屏详情弹层**（GoalDetailSheet）。
+    目标区被压到 ≈142dp 后，图表细节（大折线 / 大数字 / 进度线）下沉到这里。
+
+    结构 = 把手 + 右上「关闭」 + 三选一文字 Tab + 1dp 线 + 大折线 + 当前/目标行
+          + 1dp 线 + 「改目标 ›」/「添加其他目标」；
+    另有**盈余视角**（gapContent）：36sp 大数字 + 2dp 进度线 + 摄入/消耗/目标行 ——
+    记录页「今日盈余」单行点进来的就是这一支。
+
+    硬约束：无阴影、无卡片；圆角只有顶部 8dp（bg_sheet）；强调色只用于
+    下划线 / 进度线 / 折线 / 可点文字（规范 §2.1）。
+-->
+<com.healix.app.ui.GrabberLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@drawable/bg_sheet"
+        android:orientation="vertical"
+        android:paddingBottom="20dp">
+
+        <!-- 把手 -->
+        <View
+            android:layout_width="@dimen/handle_width"
+            android:layout_height="@dimen/handle_height"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginTop="10dp"
+            android:layout_marginBottom="4dp"
+            android:background="@drawable/bg_handle" />
+
+        <!-- 右上「关闭」：文字按钮，不用 X 图标（规范 G7） -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="end"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/btnClose"
+                style="@style/Text.Secondary"
+                android:layout_width="wrap_content"
+                android:layout_height="@dimen/touch_min"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:gravity="center"
+                android:minWidth="@dimen/touch_min"
+                android:paddingStart="12dp"
+                android:paddingEnd="@dimen/screen_margin"
+                android:text="@string/close" />
+        </LinearLayout>
+
+        <!-- ══ 次目标视角（三选一）══ -->
+        <LinearLayout
+            android:id="@+id/metricContent"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <!-- 三选一文字 Tab：选中 text_1 + 2dp accent 下划线；未选中 text_2（规范 G6） -->
+            <LinearLayout
+                android:id="@+id/detailTabRow"
+                android:layout_width="match_parent"
+                android:layout_height="@dimen/touch_min"
+                android:orientation="horizontal"
+                android:paddingStart="@dimen/screen_margin"
+                android:paddingEnd="@dimen/screen_margin">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/tabTrain"
+                        style="@style/Text.Button"
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1"
+                        android:background="?attr/selectableItemBackground"
+                        android:gravity="center"
+                        android:text="@string/sub_goal_train" />
+
+                    <View
+                        android:id="@+id/tabTrainUnderline"
+                        android:layout_width="match_parent"
+                        android:layout_height="@dimen/tab_indicator"
+                        android:background="@color/accent" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/tabSleep"
+                        style="@style/Text.Button"
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1"
+                        android:background="?attr/selectableItemBackground"
+                        android:gravity="center"
+                        android:text="@string/sub_goal_sleep" />
+
+                    <View
+                        android:id="@+id/tabSleepUnderline"
+                        android:layout_width="match_parent"
+                        android:layout_height="@dimen/tab_indicator"
+                        android:background="@color/accent"
+                        android:visibility="invisible" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/tabWeight"
+                        style="@style/Text.Button"
+                        android:layout_width="match_parent"
+                        android:layout_height="0dp"
+                        android:layout_weight="1"
+                        android:background="?attr/selectableItemBackground"
+                        android:gravity="center"
+                        android:text="@string/sub_goal_weight" />
+
+                    <View
+                        android:id="@+id/tabWeightUnderline"
+                        android:layout_width="match_parent"
+                        android:layout_height="@dimen/tab_indicator"
+                        android:background="@color/accent"
+                        android:visibility="invisible" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="@dimen/divider"
+                android:background="@color/line" />
+
+            <!-- 大折线：与目标区迷你图同源数据，放大后才看得清形状（无网格/无坐标轴） -->
+            <com.healix.app.ui.widget.TrendChartView
+                android:id="@+id/detailChart"
+                android:layout_width="match_parent"
+                android:layout_height="@dimen/goal_detail_chart_height"
+                android:layout_marginTop="4dp" />
+
+            <!-- 当前值 / 目标值 -->
+            <TextView
+                android:id="@+id/detailValue"
+                style="@style/Text.Secondary"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingStart="@dimen/screen_margin"
+                android:paddingEnd="@dimen/screen_margin"
+                android:paddingTop="8dp"
+                tools:text="当前 65.4 kg　目标 70 kg" />
+
+            <!-- 隐私隐藏体重时的「显示一次」（仅本次弹层有效，关闭即恢复打码） -->
+            <TextView
+                android:id="@+id/detailShowOnce"
+                style="@style/Text.Link"
+                android:layout_width="wrap_content"
+                android:layout_height="@dimen/touch_min"
+                android:layout_marginStart="8dp"
+                android:layout_marginTop="4dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:gravity="center"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:text="@string/goal_detail_show_once"
+                android:visibility="gone"
+                tools:visibility="visible" />
+        </LinearLayout>
+
+        <!-- ══ 盈余视角（记录页「今日盈余」单行点进来）══ -->
+        <LinearLayout
+            android:id="@+id/gapContent"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingStart="@dimen/screen_margin"
+            android:paddingEnd="@dimen/screen_margin"
+            android:paddingTop="12dp"
+            android:visibility="gone"
+            tools:visibility="visible">
+
+            <TextView
+                style="@style/Text.Caption"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/summary_label" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:baselineAligned="true"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/gapBigValue"
+                    style="@style/Text.Numeral"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    tools:text="+320" />
+
+                <TextView
+                    style="@style/Text.Secondary"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="bottom"
+                    android:layout_marginStart="6dp"
+                    android:paddingBottom="6dp"
+                    android:text="@string/kcal_unit" />
+            </LinearLayout>
+
+            <!-- 进度线：高 2dp，圆角 1dp -->
+            <ProgressBar
+                android:id="@+id/gapProgress"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="@dimen/progress_height"
+                android:layout_marginTop="12dp"
+                android:max="100"
+                android:progressDrawable="@drawable/progress_line" />
+
+            <TextView
+                android:id="@+id/gapDetailLine"
+                style="@style/Text.Secondary"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                tools:text="摄入 2180 · 消耗 1860 · 目标 2500" />
+        </LinearLayout>
+
+        <!-- ══ 底部动作：改目标 / 添加其他目标（均落在设置页「目标」栏）══ -->
+        <LinearLayout
+            android:id="@+id/actionRow"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:orientation="vertical"
+            android:paddingEnd="@dimen/screen_margin"
+            android:paddingStart="8dp">
+
+            <TextView
+                android:id="@+id/btnEditGoal"
+                style="@style/Text.Link"
+                android:layout_width="wrap_content"
+                android:layout_height="@dimen/touch_min"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:gravity="center"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:text="@string/goal_detail_edit" />
+
+            <TextView
+                android:id="@+id/btnAddOther"
+                style="@style/Text.Button"
+                android:layout_width="wrap_content"
+                android:layout_height="@dimen/touch_min"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:gravity="center"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:text="@string/goal_detail_add_other"
+                android:textColor="@color/text_2" />
+        </LinearLayout>
+
+    </LinearLayout>
+
+</com.healix.app.ui.GrabberLayout>

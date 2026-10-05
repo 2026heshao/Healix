@@ -13,6 +13,7 @@ import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.healix.app.HealixApp
@@ -20,6 +21,7 @@ import com.healix.app.R
 import com.healix.app.databinding.FragmentSettingsBinding
 import com.healix.app.databinding.ItemSwipeRowBinding
 import com.healix.app.databinding.RowSettingValueBinding
+import com.healix.app.db.GoalDefaults
 import com.healix.app.db.GoalEntity
 import com.healix.app.db.GoalMetrics
 import com.healix.app.db.GoalSlots
@@ -52,6 +54,15 @@ class SettingsFragment : Fragment() {
 
     /** 左滑删除（11.3 / v8 需求 4）：目标行与提醒行共用 1 个实例 → 全局单开。 */
     private lateinit var swipe: SwipeController
+
+    /**
+     * 宿主 Activity 作用域的 [MainViewModel]：**只**用于「目标栏 → 主目标首启引导」的
+     * 落库（[MainViewModel.completeGoalSetup]），避免把同一段 ensure+写值逻辑复制一份。
+     * 与 [RecordFragment] 取到的是**同一个实例**（`ViewModelProvider(requireActivity())`）。
+     */
+    private val mainVm: MainViewModel by lazy {
+        ViewModelProvider(requireActivity())[MainViewModel::class.java]
+    }
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -93,10 +104,15 @@ class SettingsFragment : Fragment() {
         // ── 目标（goals 表）──────────────────────────────────────
         // v8 需求 4：行改为按 `goalDao().observeActive()` **动态渲染**（见 renderGoals，
         // 支持左滑删除）；此处只接末尾的「添加目标」入口（恢复归档项 / 补齐缺失项）。
-        setupRow(binding.rowGoalAdd, R.string.goal_add) { showAddGoal() }
+        // v8 问题 2a/2b + G11：「添加目标」的状态（强调色可点 / 置灰禁用）与文案由
+        // renderGoals → updateGoalAddEntry 按当前已启用槽位动态决定，这里不写死。
+        binding.rowGoalAdd.label.setText(R.string.goal_add)
+        binding.rowGoalAdd.root.setOnClickListener { showAddGoal() }
 
         // 目标组「依据提示」：仅首次打开该组时显示一次（规范 9.7）
         setupGoalSourceHint()
+        // v8 问题 2a：老用户 kcal 目标迁移提示，仅首次显示（可点关闭）
+        setupGoalKcalMovedHint()
 
         // ── 提醒（reminders 表）──────────────────────────────────
         // v8 需求 4：不再预置默认提醒，仅保留「添加提醒」入口；行支持左滑删除。
@@ -238,9 +254,43 @@ class SettingsFragment : Fragment() {
     }
 
     /**
-     * 目标组动态渲染（v8 需求 4）：按 [GoalSlots] 的顺序，为每个"有生效行"的槽位
-     * inflate 一行 `item_swipe_row.xml`。**主目标行不出删除位**（`is_primary` 语义 +
-     * 目标组必须始终有一个主目标）。
+     * v8 问题 2a：老用户迁移提示 `热量目标现已移至此栏`，**仅一次**、可点关闭。
+     *
+     * 数据驱动（不靠"读 settings 标记然后祈祷时序"）：
+     * 订阅 [SettingsViewModel.kcalMoved] —— 迁移真的发生才提示；没迁过（新用户 /
+     * 从没设过热量目标的老用户）不提示，避免无意义打扰。
+     * 展示过即落 [SettingsKeys.KCAL_MOVE_HINT_SEEN]，跨启动不再出现。
+     */
+    private fun setupGoalKcalMovedHint() {
+        var shown = false
+        binding.goalKcalMovedHint.setOnClickListener {
+            binding.goalKcalMovedHint.visibility = View.GONE
+        }
+        viewLifecycleOwner.lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                vm.kcalMoved.collect { moved ->
+                    if (!moved || shown) return@collect
+                    if (vm.raw(SettingsKeys.KCAL_MOVE_HINT_SEEN) == "true") return@collect
+                    shown = true
+                    binding.goalKcalMovedHint.setText(R.string.goal_kcal_moved_hint)
+                    binding.goalKcalMovedHint.visibility = View.VISIBLE
+                    vm.put(SettingsKeys.KCAL_MOVE_HINT_SEEN, "true")
+                }
+            }
+        }
+    }
+
+    /**
+     * 目标组动态渲染（v8 需求 4 + v8 问题 2）。
+     *
+     * 结构（自上而下）：
+     * 1. **主目标行**（恒在）：已设 → 显示模式（增重/减重/保持），点击进编辑；
+     *    未设（问题 2b 删种子后的新用户 / 跳过了引导）→ 值显示 `未设置`(text_3)，
+     *    点击开首启引导 [GoalSetupSheet]。**永不出删除位**（`is_primary` 语义）。
+     * 2. **次目标行**：按 [GoalSlots.ADDABLE] 顺序（热量 → 体重 → 每周训练 → 睡眠
+     *    → 饮水），仅渲染"有生效行"的槽位；可左滑删除（归档）。
+     * 3. **空态说明** `还没有次目标`：仅"已设主目标但一个次目标都没有"时出现。
+     * 4. **「添加目标」入口**：由 [updateGoalAddEntry] 按剩余可加槽位切换启用/禁用态。
      *
      * 槽位全部 metric 都未启用时**不显示该行** —— 由末尾「添加目标」恢复
      * （归档 ≠ 物理删除，见 [GoalSlots] 头注释）。
@@ -252,30 +302,45 @@ class SettingsFragment : Fragment() {
         swipe.closeAll()
         container.removeAllViews()
 
-        GoalSlots.ALL.forEach { slot ->
+        // ── ① 主目标行（恒在，不可删）──
+        val primary = byMetric[GoalMetrics.PRIMARY]
+        val primaryRow = ItemSwipeRowBinding.inflate(layoutInflater, container, false)
+        primaryRow.actDelete.visibility = View.GONE
+        primaryRow.swipeRow.label.setText(R.string.setting_primary_goal)
+        primaryRow.swipeRow.chevron.visibility = View.VISIBLE
+        if (primary == null) {
+            primaryRow.swipeRow.value.setText(R.string.value_not_set)
+            primaryRow.swipeRow.value.setTextColor(ContextCompat.getColor(requireContext(), R.color.text_3))
+        } else {
+            primaryRow.swipeRow.value.text = goalValueText(GoalSlots.PRIMARY, listOf(primary))
+        }
+        primaryRow.swipeRow.root.setOnClickListener {
+            if (!swipe.clickAllowed()) return@setOnClickListener
+            swipe.closeAll()
+            if (primary == null) openGoalSetup() else editGoal(GoalSlots.PRIMARY)
+        }
+        container.addView(primaryRow.root)
+
+        // ── ② 次目标行（可增 / 删 / 改）──
+        var secondaryCount = 0
+        GoalSlots.ADDABLE.forEach { slot ->
             val active = slot.metrics.mapNotNull { byMetric[it] }
             if (active.isEmpty()) return@forEach // 全部未启用 → 交给「添加目标」入口
+            secondaryCount++
 
             val row = ItemSwipeRowBinding.inflate(layoutInflater, container, false)
             row.swipeRow.label.setText(goalLabelRes(slot))
             row.swipeRow.value.text = goalValueText(slot, active)
             row.swipeRow.chevron.visibility = View.VISIBLE
-
-            if (slot == GoalSlots.PRIMARY) {
-                // 主目标：不可删（无删除位，也不接滑动）
-                row.actDelete.visibility = View.GONE
-            } else {
-                row.swipeItem.setOnTouchListener { v, ev ->
-                    swipe.onTouch(v, ev)
-                    false // 不消费：点击 / 滚动照旧
-                }
-                row.actDelete.setOnClickListener {
-                    if (!swipe.clickAllowed()) return@setOnClickListener
-                    swipe.closeAll()
-                    archiveSlotWithUndo(slot)
-                }
+            row.swipeItem.setOnTouchListener { v, ev ->
+                swipe.onTouch(v, ev)
+                false // 不消费：点击 / 滚动照旧
             }
-
+            row.actDelete.setOnClickListener {
+                if (!swipe.clickAllowed()) return@setOnClickListener
+                swipe.closeAll()
+                archiveSlotWithUndo(slot)
+            }
             // 整行点击 → 编辑（按 slot 分发到既有编辑逻辑）
             row.swipeRow.root.setOnClickListener {
                 if (!swipe.clickAllowed()) return@setOnClickListener
@@ -284,11 +349,55 @@ class SettingsFragment : Fragment() {
             }
             container.addView(row.root)
         }
+
+        // ── ③ 空态说明（完全空时由上面的「未设置」主目标行承担，不重复）──
+        binding.goalEmptyHint.visibility =
+            if (primary != null && secondaryCount == 0) View.VISIBLE else View.GONE
+
+        // ── ④ 「添加目标」入口启用态（G11 数量上限）──
+        updateGoalAddEntry(byMetric.keys)
+    }
+
+    /**
+     * 「添加目标」入口的两态（v8 问题 2 + G11）。
+     *
+     * - 仍有未启用槽位 → 强调色可点（唯一显式创建入口）；
+     * - 槽位加满（主目标 1 + 次目标 5 = 6）→ label 置灰 `text_3`、右侧 caption12
+     *   `已达上限 6 项`、不可点（**不再**"看起来能点、点完才弹 Toast"）。
+     *
+     * 上限值取 [GoalSlots.ALL].size —— 结构性封顶，不写死数字。
+     */
+    private fun updateGoalAddEntry(activeMetrics: Set<String>) {
+        val pending = GoalSlots.ADDABLE.filter { slot -> slot.metrics.none { it in activeMetrics } }
+        val full = pending.isEmpty()
+        val row = binding.rowGoalAdd
+        row.label.setTextColor(
+            ContextCompat.getColor(requireContext(), if (full) R.color.text_3 else R.color.accent),
+        )
+        row.value.setTextColor(ContextCompat.getColor(requireContext(), R.color.text_3))
+        row.value.text = if (full) getString(R.string.goal_limit_reached, GoalSlots.ALL.size) else ""
+        row.chevron.visibility = if (full) View.GONE else View.VISIBLE
+        row.root.isClickable = !full
+        row.root.isEnabled = !full
+    }
+
+    /**
+     * 主目标未设时，从「目标」栏开首启引导（[GoalSetupSheet]）。
+     *
+     * 落库复用 [MainViewModel.completeGoalSetup]（与记录页首启引导同一段 ensure+写值逻辑，
+     * **不复制第二份**）；完成/跳过都会写 `GOAL_SETUP_DONE`。
+     */
+    private fun openGoalSetup() {
+        if (childFragmentManager.isStateSaved) return
+        GoalSetupSheet.newInstance().apply {
+            onDone = { modeIndex, weightKg -> mainVm.completeGoalSetup(modeIndex, weightKg) }
+        }.show(childFragmentManager, GoalSetupSheet.TAG)
     }
 
     /** 槽位 → 行标签资源。 */
     private fun goalLabelRes(slot: GoalSlots.Slot): Int = when (slot) {
         GoalSlots.PRIMARY -> R.string.setting_primary_goal
+        GoalSlots.KCAL -> R.string.setting_kcal_goal
         GoalSlots.WEIGHT -> R.string.setting_weight_goal
         GoalSlots.TRAIN -> R.string.setting_train_goal
         GoalSlots.SLEEP -> R.string.setting_sleep_goal
@@ -321,6 +430,11 @@ class SettingsFragment : Fragment() {
 
             GoalSlots.SLEEP -> getString(R.string.unit_hours, trim(m[GoalMetrics.SLEEP_H]?.targetValue ?: 0.0))
 
+            GoalSlots.KCAL -> getString(
+                R.string.unit_kcal,
+                m[GoalMetrics.KCAL_DAILY]?.targetValue?.toInt() ?: GoalDefaults.TARGET_KCAL,
+            )
+
             else -> getString(R.string.unit_ml, m[GoalMetrics.WATER_ML]?.targetValue?.toInt() ?: 0)
         }
     }
@@ -329,6 +443,7 @@ class SettingsFragment : Fragment() {
     private fun editGoal(slot: GoalSlots.Slot) {
         when (slot) {
             GoalSlots.PRIMARY -> choosePrimaryGoal()
+            GoalSlots.KCAL -> editGoalKcal()
             GoalSlots.WEIGHT -> editGoalWeight()
             GoalSlots.TRAIN -> editGoalTrain()
             GoalSlots.SLEEP -> editGoalSleep()
@@ -354,13 +469,12 @@ class SettingsFragment : Fragment() {
 
     /** 打开「添加目标」弹窗（列出当前未启用的槽位；选中即恢复 / 补齐）。 */
     private fun showAddGoal() {
-        // 已启用 = 该槽位至少有一个 active metric
+        // 已启用 = 该槽位至少有一个 active metric。
+        // 可选集合 = GoalSlots.ADDABLE（不含主目标 —— 主目标只能经 GoalSetupSheet 设定）。
         val activeMetrics = vm.goals.value.map { it.metric }.toSet()
-        val pending = GoalSlots.ALL.filter { slot -> slot.metrics.none { it in activeMetrics } }
-        if (pending.isEmpty()) {
-            android.widget.Toast.makeText(requireContext(), R.string.add_goal_empty, android.widget.Toast.LENGTH_SHORT).show()
-            return
-        }
+        val pending = GoalSlots.ADDABLE.filter { slot -> slot.metrics.none { it in activeMetrics } }
+        // 加满时入口已被 updateGoalAddEntry 置灰禁用，这里只做防御性早退（不再弹 Toast）。
+        if (pending.isEmpty()) return
         val sheet = AddGoalSheet.newInstance(
             keys = pending.map { it.key },
             labels = pending.map { getString(goalLabelRes(it)) },
@@ -430,6 +544,25 @@ class SettingsFragment : Fragment() {
             listOf(FieldSheet.FieldSpec(R.string.setting_water_goal, initial, NUMBER_INT)),
         ) { raw ->
             raw.firstOrNull()?.toIntOrNull()?.let { vm.setGoalTarget(GoalMetrics.WATER_ML, it.toDouble()) }
+        }
+    }
+
+    /**
+     * 热量目标（v8 问题 2a）：编辑入口从「个人信息页」迁至本栏。
+     *
+     * 值域 [KCAL_MIN]–[KCAL_MAX] 整数（规范 ②·边界）：越界输入**忽略**（不写库、不猜）。
+     * 值落 `goals` 表 `metric = kcal_daily`，首页汇总 / 预警 / 计划生成同源读取。
+     */
+    private fun editGoalKcal() {
+        val initial = currentTarget(GoalMetrics.KCAL_DAILY, GoalDefaults.TARGET_KCAL.toDouble())
+            .toInt().toString()
+        showFieldDialog(
+            R.string.setting_kcal_goal,
+            listOf(FieldSheet.FieldSpec(R.string.setting_kcal_goal, initial, NUMBER_INT)),
+        ) { raw ->
+            raw.firstOrNull()?.toIntOrNull()
+                ?.takeIf { it in KCAL_MIN..KCAL_MAX }
+                ?.let { vm.setGoalTarget(GoalMetrics.KCAL_DAILY, it.toDouble()) }
         }
     }
 
@@ -744,18 +877,16 @@ class SettingsFragment : Fragment() {
         //    但值的来源必须收敛到 SettingsKeys。
         const val KEY_BASE_URL = SettingsKeys.BASE_URL
         const val KEY_MODEL = SettingsKeys.MODEL
-        const val KEY_PROVIDER = SettingsKeys.PROVIDER
         const val KEY_RETRY = SettingsKeys.RETRY
         const val KEY_RETRY_DELAY = SettingsKeys.RETRY_DELAY
-        const val KEY_HEIGHT = SettingsKeys.HEIGHT
-        const val KEY_WEIGHT = SettingsKeys.WEIGHT
-        const val KEY_AGE = SettingsKeys.AGE
-        const val KEY_ACTIVITY = SettingsKeys.ACTIVITY
-        const val KEY_TARGET_KCAL = SettingsKeys.TARGET_KCAL
         const val KEY_DAY_START = SettingsKeys.DAY_START
 
-        /** 用户背景（自由文本）。空 = 未填写，AI prompt 走无背景的原路径。 */
-        const val KEY_BACKGROUND = SettingsKeys.BACKGROUND
+        // ⚠️ v8 问题 2a / 需求 6 起，以下转发常量已随各自 UI 入口一并删除（原入口职责已迁走）：
+        //    KEY_TARGET_KCAL → 「目标」栏的 kcal 行（`goals.metric = kcal_daily`，问题 2a）；
+        //    KEY_HEIGHT / KEY_WEIGHT / KEY_AGE / KEY_ACTIVITY / KEY_BACKGROUND / KEY_PROVIDER
+        //    → 个人信息页（本页已不再承载任何目标数值或档案字段）。
+        //    键名本身仍在 [SettingsKeys]（唯一事实来源），消费方（`InputSanitizer` /
+        //    `HealthAggregator` / `EventRepository`）继续直接引用，不受影响。
 
         // ⚠️ v8 需求 6：原「隐私」组（`KEY_HIDE_KCAL` / `KEY_HIDE_WEIGHT`）UI 入口已移除，
         //    两条转发常量随之删除。`SettingsKeys.HIDE_KCAL` / `HIDE_WEIGHT` 及全部消费方保留。
@@ -763,5 +894,9 @@ class SettingsFragment : Fragment() {
         private const val NUMBER_INT = InputType.TYPE_CLASS_NUMBER
         private const val NUMBER_DECIMAL =
             InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
+
+        /** 热量目标值域（v8 问题 2a，规范 ②·边界）：越界输入忽略，不写库。 */
+        private const val KCAL_MIN = 100
+        private const val KCAL_MAX = 9999
     }
 }

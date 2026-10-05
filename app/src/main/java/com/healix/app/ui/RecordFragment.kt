@@ -18,12 +18,13 @@ import com.healix.app.R
 import com.healix.app.databinding.FragmentRecordBinding
 import com.healix.app.databinding.ItemEventBinding
 import com.healix.app.db.EventEntity
+import com.healix.app.db.GoalSlots
 import com.healix.app.db.PresetEntity
 import com.healix.app.db.SettingsKeys
 import com.healix.app.notify.AppEvent
 import com.healix.app.notify.AppEventBus
 import com.healix.app.notify.EventText
-import com.healix.app.ui.widget.TrendChartView
+import com.healix.app.ui.widget.SparklineView
 import com.healix.app.widget.HealixWidgetProvider
 import kotlinx.coroutines.launch
 
@@ -58,6 +59,26 @@ class RecordFragment : Fragment() {
 
     /** 最近一次 UI 状态：offlineBar 同一位置承载"离线 / 未配置"两种语义，须知道现在是哪种。 */
     private var lastUiState: MainUiState = MainUiState.Idle
+
+    // ── v8 问题 4：目标区快照 ─────────────────────────────────────────
+    // 五路 Flow（主目标 / 目标值表 / 训练 / 睡眠 / 体重 / 隐私）到达顺序不确定，
+    // 各自直接写视图会出现"隐私还没到、体重已经画了"的撕裂。
+    // 统一做法：每路只更新自己的字段，再调一次 [renderGoalArea] 全量重渲染 ——
+    // 渲染是幂等的，多渲染一次的成本远低于顺序 bug。
+
+    /** 主目标快照（含目标体重与最近体重）。 */
+    private var lastGoal: HomeGoal? = null
+
+    /** active 目标 `metric -> targetValue`（判"是否有可显示的次目标"）。 */
+    private var lastTargets: Map<String, Double> = emptyMap()
+
+    private var lastTrain: TrainProgress = TrainProgress(0, 0)
+    private var lastTrainSeries: List<Double> = emptyList()
+    private var lastSleepSeries: List<Double> = emptyList()
+    private var lastWeightSeries: List<Double> = emptyList()
+    private var lastSummary: MainSummary = MainSummary()
+    private var lastHideKcal: Boolean = false
+    private var lastHideWeight: Boolean = false
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -123,16 +144,18 @@ class RecordFragment : Fragment() {
             }
         }
 
-        // ── 需求 5：主目标行 / 次目标进度区 ──
-        binding.goalPrimaryRow.setOnClickListener {
-            NavHost.open(requireContext(), SettingsFragment(), NavHost.PAGE_SETTINGS)
-        }
-        binding.goalAdjust.setOnClickListener {
-            NavHost.open(requireContext(), SettingsFragment(), NavHost.PAGE_SETTINGS)
-        }
-        binding.subTrainRow.setOnClickListener { openStatus(StatusDetailFragment.TAB_EXERCISE) }
-        binding.subSleepRow.setOnClickListener { openStatus(StatusDetailFragment.TAB_SLEEP) }
-        binding.subWeightRow.setOnClickListener { openStatus(StatusDetailFragment.TAB_WEIGHT) }
+        // ── 需求 5 / v8 问题 4：主目标行 + 三卡 + 今日盈余 ──
+        // 主目标行：「去调整 ›」→ GoalSetupSheet **编辑态**（预填当前主目标与目标体重），
+        // 就地保存返回、主目标行即时刷新；**不跨页跳设置栏**（规范 §①）。
+        // 主目标未设时改为「去设置 ›」→ 设置页「目标」栏（规范 §① 状态覆盖）。
+        binding.goalPrimaryRow.setOnClickListener { onPrimaryGoalRowClick() }
+        binding.goalAdjust.setOnClickListener { onPrimaryGoalRowClick() }
+        // 三卡 → 同一个半屏详情弹层（[GoalDetailSheet]），点哪张卡就以哪个 metric 为初始选中项。
+        binding.subTrainRow.setOnClickListener { openGoalDetail(GoalDetailSheet.TAB_TRAIN) }
+        binding.subSleepRow.setOnClickListener { openGoalDetail(GoalDetailSheet.TAB_SLEEP) }
+        binding.subWeightRow.setOnClickListener { openGoalDetail(GoalDetailSheet.TAB_WEIGHT) }
+        // 今日盈余单行 → 详情弹层的「盈余」视角（不切换 metric）。
+        binding.gapRow.setOnClickListener { openGoalDetail(GoalDetailSheet.TAB_GAP) }
 
         // 左滑"点其它区域自动回弹"：列表内按下非滑开行 → 收起（全局单开，11.3）
         binding.list.addOnItemTouchListener(object : RecyclerView.SimpleOnItemTouchListener() {
@@ -197,13 +220,39 @@ class RecordFragment : Fragment() {
         binding.input.postDelayed({ focusInput() }, 200)
     }
 
-    /** 打开状态详情页的指定段（需求 5 次目标项整块可点）。 */
-    private fun openStatus(tab: String) {
-        NavHost.open(
-            requireContext(),
-            StatusDetailFragment.newInstance(tab),
-            NavHost.PAGE_STATUS_DETAIL,
-        )
+    /**
+     * 主目标行（整行 / 右侧文字入口共同去向）：
+     * - 已设主目标 → [GoalSetupSheet] **编辑态**（预填当前模式与目标体重），保存后就地返回；
+     * - 未设 → 设置页「目标」栏（该栏主目标行的点击才开首启引导）。
+     *
+     * 判据取最近一次 [HomeGoal] 快照，不额外查库 —— 与行上显示的文字必然同源同帧。
+     */
+    private fun onPrimaryGoalRowClick() {
+        val g = lastGoal
+        if (g?.set == true) {
+            openGoalEditor(g)
+        } else {
+            NavHost.open(requireContext(), SettingsFragment(), NavHost.PAGE_SETTINGS)
+        }
+    }
+
+    /** 开 [GoalSetupSheet] 编辑态；落库复用宿主 VM 的 `completeGoalSetup`（与首启引导同一段逻辑）。 */
+    private fun openGoalEditor(g: HomeGoal) {
+        // 弹层属于本 Fragment → `childFragmentManager`（二级页 pop 时一起销毁）。
+        // isStateSaved 时 show() 会抛 IllegalStateException（用户刚切后台）→ 跳过即可。
+        if (childFragmentManager.isStateSaved) return
+        GoalSetupSheet.newInstanceForEdit(
+            modeIndex = g.modeIndex,
+            weightKg = g.weightTargetKg,
+        ).apply {
+            onDone = { modeIndex, weightKg -> vm.completeGoalSetup(modeIndex, weightKg) }
+        }.show(childFragmentManager, GoalSetupSheet.TAG)
+    }
+
+    /** 开目标详情半屏弹层（三卡默认定位该 metric；盈余行走 `TAB_GAP`）。 */
+    private fun openGoalDetail(tab: Int) {
+        if (childFragmentManager.isStateSaved) return
+        GoalDetailSheet.newInstance(tab).show(childFragmentManager, GoalDetailSheet.TAG)
     }
 
     fun focusInput() {
@@ -273,16 +322,10 @@ class RecordFragment : Fragment() {
 
                 launch {
                     vm.summary.collect { s ->
-                        binding.gapValue.text = if (s.gap >= 0) {
-                            getString(R.string.gap_format, s.gap)
-                        } else {
-                            getString(R.string.gap_negative_format, s.gap)
-                        }
-                        binding.summaryLine.text = getString(
-                            R.string.summary_format, s.kcalIn, s.kcalOut, s.target,
-                        )
-                        val pct = if (s.target > 0) s.kcalIn * 100 / s.target else 0
-                        binding.progressLine.progress = pct.coerceIn(0, 100)
+                        // 汇总区（36sp 大数字 + 进度线 + 摄入/消耗行）已在 v8 问题 4 中整体移除，
+                        // 压成目标区的「今日盈余」单行；大数字与明细下沉到 GoalDetailSheet 的盈余视角。
+                        lastSummary = s
+                        renderGapRow()
 
                         // 计划提示条：缺口为 0 时改为「今日已达标」
                         binding.planBar.text = if (s.gap > 0) {
@@ -387,13 +430,13 @@ class RecordFragment : Fragment() {
                     }
                 }
 
-                // 隐私：隐藏热量数字时，汇总区与计划条**整块不显示**（PRD §14.3）
+                // 隐私：隐藏热量数字时，「今日盈余」行与计划条**整块不显示**（PRD §14.3）
                 launch {
                     vm.hideKcal.collect { hidden ->
-                        binding.summaryBlock.visibility =
-                            if (hidden) View.GONE else View.VISIBLE
+                        lastHideKcal = hidden
                         binding.planBar.visibility = if (hidden) View.GONE else View.VISIBLE
                         adapter.hideKcal = hidden
+                        renderGoalArea()
                     }
                 }
 
@@ -412,67 +455,155 @@ class RecordFragment : Fragment() {
                     }
                 }
 
-                // ── 需求 5：主目标 + 次目标进度 ──
-                launch { vm.homeGoal.collect { renderGoal(it) } }
-                launch { vm.trainProgress.collect { renderTrain(it) } }
-                launch {
-                    vm.sleepSeries.collect {
-                        renderSeries(
-                            chart = binding.subSleepChart,
-                            values = it,
-                            unit = getString(R.string.unit_hour),
-                            emptyText = getString(R.string.sub_goal_empty_sleep),
-                        )
-                    }
-                }
-                launch {
-                    vm.weightSeries.collect {
-                        renderSeries(
-                            chart = binding.subWeightChart,
-                            values = it,
-                            unit = getString(R.string.unit_kg_chart),
-                            emptyText = getString(R.string.sub_goal_empty_weight),
-                        )
-                    }
-                }
-                // 隐私：隐藏体重数字时体重项整块不显示（图表折线一并隐藏，口径同汇总区）
-                launch {
-                    vm.hideWeight.collect { hidden ->
-                        binding.subWeightRow.visibility = if (hidden) View.GONE else View.VISIBLE
-                    }
-                }
+                // ── 需求 5 / v8 问题 4：主目标 + 三卡 + 今日盈余 ──
+                launch { vm.homeGoal.collect { lastGoal = it; renderGoalArea() } }
+                launch { vm.goalTargets.collect { lastTargets = it; renderGoalArea() } }
+                launch { vm.trainProgress.collect { lastTrain = it; renderGoalArea() } }
+                launch { vm.trainSeries.collect { lastTrainSeries = it; renderGoalArea() } }
+                launch { vm.sleepSeries.collect { lastSleepSeries = it; renderGoalArea() } }
+                launch { vm.weightSeries.collect { lastWeightSeries = it; renderGoalArea() } }
+                // 隐私：隐藏体重数字 → 体重卡值打码、迷你图不绘制，但**保留 20dp 空高**（卡片不塌陷）
+                launch { vm.hideWeight.collect { lastHideWeight = it; renderGoalArea() } }
             }
         }
     }
 
-    // ── 需求 5 渲染 ──────────────────────────────────────────────────────
+    // ── 需求 5 / v8 问题 4 渲染 ─────────────────────────────────────────
 
-    private fun renderGoal(g: HomeGoal) {
-        binding.goalPrimaryText.text = if (g.set) {
-            getString(R.string.goal_primary_line, primaryModeLabel(g.modeIndex))
+    /**
+     * 目标区**全量重渲染**（幂等）。
+     *
+     * 结构（自上而下）：主目标行 48dp + 1dp 线 + 三卡 60dp + 1dp 线 + 今日盈余 32dp。
+     * 显隐规则（规范 §① 状态覆盖）：
+     * - 主目标已设 → 全段显示；
+     * - 主目标未设 → 行内改「未设置主目标 / 去设置 ›」；
+     * - 没有任何 active 次目标 → 三卡整段（含两条分隔线）收起，盈余行同样收起
+     *   —— 目标区塌缩为单行 48dp，不出现"两条 1dp 线夹一个空块"。
+     *
+     * 三卡**恒为**训练 / 睡眠 / 体重三项，与用户启用了几个次目标无关（规范 §①
+     * 「目标个数不影响布局」）—— 所以三卡的行/列结构在 XML 里写死，代码只填值与图。
+     */
+    private fun renderGoalArea() {
+        if (_binding == null) return
+
+        val g = lastGoal
+        val primarySet = g?.set == true
+        val hasSecondary = GoalSlots.ADDABLE.any { slot -> slot.metrics.any { it in lastTargets.keys } }
+        // 隐藏热量数字时，"能算盈余"这件事本身就不该显示
+        val showGap = primarySet && !lastHideKcal
+
+        renderPrimaryRow(g, primarySet)
+        renderCards()
+        renderGapRow()
+
+        binding.goalCardRow.visibility = if (hasSecondary) View.VISIBLE else View.GONE
+        // 分隔线跟随相邻内容：有内容才画线，避免收起后留下孤立的 1dp 线
+        binding.goalDividerA.visibility = if (hasSecondary || showGap) View.VISIBLE else View.GONE
+        binding.goalDividerB.visibility = if (hasSecondary && showGap) View.VISIBLE else View.GONE
+        binding.gapRow.visibility = if (showGap) View.VISIBLE else View.GONE
+    }
+
+    /**
+     * 主目标行。已设 → `增重 · 目标 70 kg` + `现 65.4 kg，还差 4.6 kg` + 「去调整 ›」(accent)；
+     * 未设 → `未设置主目标`(text_2) + 「去设置 ›」(text_2)，副行隐藏。
+     */
+    private fun renderPrimaryRow(g: HomeGoal?, primarySet: Boolean) {
+        if (primarySet && g != null) {
+            val mode = primaryModeLabel(g.modeIndex)
+            binding.goalPrimaryText.setTextColor(
+                ContextCompat.getColor(requireContext(), R.color.text_1),
+            )
+            binding.goalPrimaryText.text = if (g.weightTargetKg > 0.0) {
+                getString(R.string.goal_primary_target, mode, trimNumber(g.weightTargetKg))
+            } else {
+                getString(R.string.goal_primary_line, mode)
+            }
+
+            // 副行：有现值才报值；目标体重存在时才算"还差"
+            binding.goalPrimarySub.text = when {
+                g.latestWeightKg <= 0.0 -> ""
+                g.weightTargetKg <= 0.0 ->
+                    getString(R.string.goal_primary_current_only, trimNumber(g.latestWeightKg))
+                else -> getString(
+                    R.string.goal_primary_current,
+                    trimNumber(g.latestWeightKg),
+                    trimNumber(kotlin.math.abs(g.weightTargetKg - g.latestWeightKg)),
+                )
+            }
+            binding.goalPrimarySub.visibility =
+                if (binding.goalPrimarySub.text.isEmpty()) View.GONE else View.VISIBLE
+
+            binding.goalAdjust.setText(R.string.goal_adjust)
+            binding.goalAdjust.setTextColor(
+                ContextCompat.getColor(requireContext(), R.color.accent),
+            )
         } else {
-            getString(R.string.goal_primary_none)
+            binding.goalPrimaryText.setTextColor(
+                ContextCompat.getColor(requireContext(), R.color.text_2),
+            )
+            binding.goalPrimaryText.setText(R.string.goal_primary_none)
+            binding.goalPrimarySub.visibility = View.GONE
+            binding.goalAdjust.setText(R.string.goal_go_settings)
+            binding.goalAdjust.setTextColor(
+                ContextCompat.getColor(requireContext(), R.color.text_2),
+            )
         }
-        binding.goalStatementText.text = g.statement
-        binding.goalStatementText.visibility =
-            if (g.statement.isEmpty()) View.GONE else View.VISIBLE
     }
 
-    private fun renderTrain(p: TrainProgress) {
-        binding.subTrainValue.text = getString(R.string.sub_goal_train_value, p.done, p.goal)
-        val pct = if (p.goal > 0) p.done * 100 / p.goal else 0
-        binding.subTrainProgress.progress = pct.coerceIn(0, 100)
+    /** 三卡值 + 迷你趋势线（20dp，accent 单色，不铺面）。 */
+    private fun renderCards() {
+        binding.subTrainValue.text =
+            getString(R.string.sub_goal_train_card, lastTrain.done, lastTrain.goal)
+        renderSpark(binding.subTrainSpark, lastTrainSeries)
+
+        binding.subSleepValue.text = lastSleepSeries.lastOrNull()?.let {
+            getString(R.string.unit_hour_short, trimNumber(it))
+        } ?: EMPTY_VALUE
+        renderSpark(binding.subSleepSpark, lastSleepSeries)
+
+        if (lastHideWeight) {
+            binding.subWeightValue.text = getString(R.string.goal_card_masked)
+        } else {
+            binding.subWeightValue.text = lastWeightSeries.lastOrNull()?.let {
+                getString(R.string.unit_kg, trimNumber(it))
+            } ?: EMPTY_VALUE
+        }
+        // 隐私：打码时**不绘制**折线，但 20dp 槽位保留（布局高度固定 → 卡片不塌陷）
+        renderSpark(binding.subWeightSpark, lastWeightSeries, masked = lastHideWeight)
     }
 
-    private fun renderSeries(chart: TrendChartView, values: List<Double>, unit: String, emptyText: String) {
-        chart.submit(values)
-        // 窗口标注留空：行标题已写「近 7 日 / 近 30 日」，图表再标一遍是冗余。
-        chart.setMeta(
-            minLabel = values.minOrNull()?.let { trimNumber(it) } ?: "",
-            maxLabel = values.maxOrNull()?.let { trimNumber(it) } ?: "",
-            windowLabel = "",
-            unit = unit,
-            emptyText = emptyText,
+    /**
+     * 迷你趋势线渲染。<3 点时不连线，改显示占位文案（0 点 `暂无记录` / 1–2 点 `攒够 3 次`）。
+     * [masked] 为 true 时数据位留空、连占位文案也不画（隐私口径）。
+     */
+    private fun renderSpark(view: SparklineView, values: List<Double>, masked: Boolean = false) {
+        if (masked) {
+            view.submit(emptyList())
+            view.setEmptyText("")
+            return
+        }
+        view.setEmptyText(
+            getString(
+                if (values.isEmpty()) R.string.goal_mini_empty else R.string.goal_mini_insufficient,
+            ),
+        )
+        view.submit(values)
+    }
+
+    /** 今日盈余单行：数值 + 6px 圆点按正负着色（positive/negative **只用于圆点，不铺面**）。 */
+    private fun renderGapRow() {
+        if (_binding == null) return
+        val s = lastSummary
+        binding.gapValue.text = if (s.gap >= 0) {
+            getString(R.string.gap_format, s.gap)
+        } else {
+            getString(R.string.gap_negative_format, s.gap)
+        }
+        binding.gapDot.background?.setTint(
+            ContextCompat.getColor(
+                requireContext(),
+                if (s.gap >= 0) R.color.positive else R.color.negative,
+            ),
         )
     }
 
@@ -514,8 +645,7 @@ class RecordFragment : Fragment() {
         }
     }
 
-    /**
-     * 预设横条：点一下 = 一条记录，完全不打字、不调 AI（功能补充 2.1）。
+    /** 预设横条：点一下 = 一条记录，完全不打字、不调 AI（功能补充 2.1）。
      * 这是全 App 摩擦最低的路径。
      */
     private fun renderPresets(list: List<PresetEntity>) {
@@ -533,6 +663,11 @@ class RecordFragment : Fragment() {
             tv.bindPressScale()
             binding.presetRow.addView(tv)
         }
+    }
+
+    private companion object {
+        /** 无数据时的值占位（全角破折号，与状态详情页同一口径）。 */
+        const val EMPTY_VALUE = "—"
     }
 }
 

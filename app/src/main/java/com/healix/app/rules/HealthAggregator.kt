@@ -5,9 +5,9 @@ import com.healix.app.HealixApp
 import com.healix.app.db.AppDatabase
 import com.healix.app.db.BodySignalEntity
 import com.healix.app.db.EventEntity
-import com.healix.app.db.GoalDefaults
 import com.healix.app.db.GoalMetrics
 import com.healix.app.db.SettingsKeys
+import com.healix.app.db.kcalTargetOf
 import com.healix.app.parse.dayKeyOf
 import com.healix.app.parse.dayStartHourOf
 import java.time.LocalDate
@@ -53,7 +53,8 @@ object HealthAggregator {
     /** 聚合回看窗口（天）。取 30 是为了同时覆盖 T3 的「近 30 日」。 */
     private const val LOOKBACK_DAYS: Long = 29
 
-    // 兜底目标摄入已收敛到 `GoalDefaults.TARGET_KCAL`（跨文件唯一来源）。
+    // v8 问题 2a：目标摄入由 `goals` 表承载，读取走唯一入口 `kcalTargetOf`
+    //（兜底仍是跨文件唯一来源 `GoalDefaults.TARGET_KCAL`）。
 
     /**
      * 从 DB 聚合出规则层需要的全部输入。**纯读，不写任何东西。**
@@ -161,8 +162,9 @@ object HealthAggregator {
         val db = HealixApp.from(context).database
         // 日界线走唯一入口 dayStartHourOf（§1 收口）。
         val dayStart = dayStartHourOf(db.settingsDao().get(SettingsKeys.DAY_START))
-        val target = db.settingsDao().get(SettingsKeys.TARGET_KCAL)
-            ?.toIntOrNull() ?: GoalDefaults.TARGET_KCAL
+        // v8 问题 2a：kcal 目标改读 `goals` 表（唯一入口 kcalTargetOf），
+        // settings 键 TARGET_KCAL 仅作老数据迁移源。
+        val target = kcalTargetOf(db)
 
         val snap = snapshot(db, dayStart, target)
         val signals = HealthRules.evaluate(context, snap)

@@ -53,7 +53,6 @@ data class SettingsValues(
     val weight: Double = 0.0,
     val age: Int = 0,
     val activity: String = "1.2",
-    val targetKcal: Int = 2500,
     val dayStart: Int = 4,
     /** 用户背景（自由文本）。空 = 未填写，走原 prompt 路径。 */
     val background: String = "",
@@ -110,6 +109,16 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
     val applyResult: StateFlow<ApplyResult?> = _applyResult.asStateFlow()
 
     /**
+     * v8 问题 2a：老用户的 `TARGET_KCAL` 是否**刚刚**被迁进 `goals` 表。
+     *
+     * 只用于驱动设置页「目标」栏的一次性提示 `热量目标现已移至此栏`。
+     * 用 StateFlow 而不是"让 UI 去读 settings 标记"是为了**消除竞态** ——
+     * 迁移跑在 `init` 的协程里，UI 若直接读标记，可能读到迁移完成前的那一刻。
+     */
+    private val _kcalMoved = MutableStateFlow(false)
+    val kcalMoved: StateFlow<Boolean> = _kcalMoved.asStateFlow()
+
+    /**
      * 是否已接入。
      *
      * 判据 = baseUrl + model + apiKey 三者齐备（即 [ProviderConfig.isUsable]）。
@@ -145,44 +154,64 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         viewModelScope.launch {
-            // 首次进入时补齐默认目标，再读设置值。
-            // ⚠️ v8 需求 4：**不再**预置默认提醒（`ensureReminderDefaultsIfEmpty` 已删）——
-            //    提醒栏改为"空列表 + 添加提醒入口"，由用户按需自建。
-            //    老用户设备上已存在的提醒**不删**（只停止预置行为）。
-            ensureGoalDefaultsIfEmpty()
+            // ⚠️ v8 问题 2b：**不再预置任何默认目标**（原 `ensureGoalDefaultsIfEmpty()`
+            //    已在全新安装时静默灌 6 行、含主目标=增重）—— 与 v8 需求 4 删默认提醒同款诉求。
+            //    现在：主目标只由首启引导 [com.healix.app.ui.GoalSetupSheet] 落一行；
+            //    其余槽位一律由用户「添加目标」显式创建。
+            //    老用户设备上已存在的目标行**不删**（只停止预置行为）。
+            // v8 问题 2a：把历史 settings 键 `TARGET_KCAL` 一次性迁成 `goals` 的 kcal 行，
+            //    保证升级用户的热量目标不丢、且从目标栏可改。
+            migrateLegacyKcalTarget()
             reload()
         }
     }
 
     /**
-     * 首次启动补齐默认目标（仅当 goals 表一条 active 都没有时）。
+     * 老用户迁移（v8 问题 2a）：settings 键 `TARGET_KCAL` → `goals` 的 `kcal_daily` 行。
      *
-     * 默认值**全部来自《中国居民膳食指南(2022)》**，不是拍脑袋：
-     * - 每周训练 `3 次 / 150 分钟`：准则二 —— 中等强度有氧每周累计 150–300 分钟、
-     *   抗阻每周 2–3 天（隔天）。取推荐区间下限。
-     * - 睡眠 `7.5 小时`：指南成人 7–8 小时，取中值。
-     * - 饮水 `1700 ml`：指南成年男性 1700 ml（女性 1500 ml）；默认按男。
-     * - 体重目标：取 settings 里已有的 `WEIGHT`（BMR/TDEE 的起点值）；为空则 0（UI 显示「未设置」）。
-     * - 主目标：默认「增重」（用户当前主诉求）。
+     * 判据与幂等：
+     * - 表里已有 `kcal_daily` 行（**任意状态**，含 archived）→ 视为"已收编"，直接跳过，
+     *   绝不覆盖用户的新值；
+     * - 旧键不存在 / 非数字 / ≤0（老用户从没设过）→ 不建行、不留提示。
      *
-     * ⚠️ 主目标用**一行 GoalEntity** 表示：`metric = GoalMetrics.PRIMARY`，
-     *    `type = "goal_mode"`，`target_value` ∈ {0=增重 / 1=减重 / 2=保持}。
-     *    这是本任务唯一一处"用数值编码枚举"。理由：「主目标」必须只有一个存放位置，
-     *    否则会像 2026-10-03 的键名分裂事故一样，在 settings 表与 goals 表各存一份而互相打架。
-     *    `HealthAggregator` 读 `getByMetric(PRIMARY).targetValue.toInt()` 判 `isWeightLossGoal`。
+     * 迁移完成后写 [SettingsKeys.KCAL_TARGET_MIGRATED]，供设置页「目标」栏显示一次性
+     * 提示 `热量目标现已移至此栏`（[SettingsKeys.KCAL_MOVE_HINT_SEEN] 记录是否已展示）。
      */
-    private suspend fun ensureGoalDefaultsIfEmpty() = withContext(Dispatchers.IO) {
-        if (db.goalDao().countActive() > 0) return@withContext
-        val now = System.currentTimeMillis()
-        val weightTarget = settings.get(SettingsKeys.WEIGHT)?.toDoubleOrNull() ?: 0.0
-        // 展开全部槽位的 metrics → 与 GoalSlots 同源，新增维度不会漏建。
-        GoalSlots.ALL.flatMap { it.metrics }.forEach { metric ->
-            db.goalDao().upsert(defaultGoal(metric, weightTarget, now))
+    private suspend fun migrateLegacyKcalTarget() {
+        withContext(Dispatchers.IO) {
+            if (db.goalDao().getByMetricAny(GoalMetrics.KCAL_DAILY) != null) return@withContext
+            val legacy = settings.get(SettingsKeys.TARGET_KCAL)?.toIntOrNull() ?: return@withContext
+            if (legacy <= 0) return@withContext
+            val now = System.currentTimeMillis()
+            // 复用 defaultGoal 的 type 映射，只把值换成老用户已设的数。
+            db.goalDao().upsert(
+                defaultGoal(GoalMetrics.KCAL_DAILY, 0.0, now).copy(targetValue = legacy.toDouble()),
+            )
+            // 数据已落到 goals 行 → **删除旧键**：从此 kcal 目标只有一个来源。
+            //（`kcalTargetOf` 的"读旧键"分支只为覆盖本协程跑完之前的窗口期。）
+            settings.remove(SettingsKeys.TARGET_KCAL)
+            settings.put(SettingEntity(key = SettingsKeys.KCAL_TARGET_MIGRATED, value = "true"))
+            _kcalMoved.value = true
         }
     }
 
+    // ⚠️ v8 问题 2b：原 `ensureGoalDefaultsIfEmpty()`（全新安装静默灌 6 行默认目标，
+    //    含主目标=增重）已**整体删除** —— 与 v8 需求 4 删默认提醒同款诉求。
+    //    替代路径：主目标由首启引导 `GoalSetupSheet` 落一行（用户亲手选增重/减重/保持）；
+    //    其余槽位由「添加目标」显式创建。下游消费方读不到行时回落 `GoalDefaults` 的机制
+    //    **本就具备**（如 `kcalTargetOf` / `HomeGoal` / `trainProgress`），零消费方改动。
+    //
+    //    主目标的数值编码（`metric = primary` / `type = goal_mode` /
+    //    `target_value` ∈ {0=增重 / 1=减重 / 2=保持}）说明见 [defaultGoal] 与本文件
+    //    `PRIMARY` 分支；`HealthAggregator` 读 `getByMetric(PRIMARY).targetValue.toInt()`
+    //    判 `isWeightLossGoal`。
+
     /**
-     * 某个 metric 的**默认目标行**（唯一构造入口，供"首次预置"与"添加目标"共用）。
+     * 某个 metric 的**默认目标行**（唯一构造入口，供「添加目标」与 kcal 迁移共用）。
+     *
+     * 默认值全部来自《中国居民膳食指南(2022)》与 [GoalDefaults]（不是拍脑袋）：
+     * 每周训练 `3 次 / 150 分钟`、睡眠 `7.5 小时`、饮水 `1700 ml`、
+     * 每日摄入 `2500 kcal`（[GoalDefaults.TARGET_KCAL]）、体重取 settings 里已有的 `WEIGHT`。
      *
      * `created_at`/`updated_at` 由调用方传入 `now`，保证一次操作内所有行的
      * 时间戳一致（列表按 `id ASC` 排序时才不会因毫秒差抖动）。
@@ -193,6 +222,14 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
             metric = metric,
             targetValue = GOAL_MODE_GAIN.toDouble(),
             isPrimary = 1,
+            createdAt = now,
+            updatedAt = now,
+        )
+
+        GoalMetrics.KCAL_DAILY -> GoalEntity(
+            type = GoalTypes.HABIT,
+            metric = metric,
+            targetValue = GoalDefaults.TARGET_KCAL.toDouble(),
             createdAt = now,
             updatedAt = now,
         )
@@ -258,7 +295,6 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
             weight = all[SettingsKeys.WEIGHT]?.toDoubleOrNull() ?: 0.0,
             age = all[SettingsKeys.AGE]?.toIntOrNull() ?: 0,
             activity = all[SettingsKeys.ACTIVITY] ?: "1.2",
-            targetKcal = all[SettingsKeys.TARGET_KCAL]?.toIntOrNull() ?: 2500,
             dayStart = dayStartHourOf(all[SettingsKeys.DAY_START]),
             background = all[SettingsKeys.BACKGROUND].orEmpty(),
             goalStatement = all[SettingsKeys.GOAL_STATEMENT].orEmpty(),
@@ -407,8 +443,8 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
      *
      * 逐 metric 判定，兼容两种来源：
      * - 表里已有该 metric 的行（曾归档）→ [GoalDao.restoreGoal] 改回 active，**保留原值**；
-     * - 表里根本没有该 metric 的行（如用户跳过引导后 `ensureGoalDefaultsIfEmpty`
-     *   因 `countActive()>0` 未补齐）→ 用 [defaultGoal] 补一行。
+     * - 表里根本没有该 metric 的行（如用户跳过引导、或 v8 问题 2b 删掉默认种子后的
+     *   全新安装）→ 用 [defaultGoal] 补一行（默认值）。
      *
      * 幂等：槽位已 active 时两步都不产生变化。
      */

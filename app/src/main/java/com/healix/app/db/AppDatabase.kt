@@ -79,8 +79,9 @@ abstract class AppDatabase : RoomDatabase() {
          * ⚠️ **迁移只做 DDL，不 seed 业务数据**（职责单一：只改结构）。
          * v8 需求 4 起：**提醒不再预置**（原 `SettingsViewModel.ensureReminderDefaultsIfEmpty()`
          * 已删）—— 用户自建，设置页只留「添加提醒」入口。
-         * 默认目标（goals）仍由 `SettingsViewModel.ensureGoalDefaultsIfEmpty()` 在空表时补齐
-         * （取值为膳食指南推荐量，走 `GoalDefaults`，避免在 Kotlin 里硬编码）。
+         * v8 问题 2b 起：**目标也不再预置**（原 `SettingsViewModel.ensureGoalDefaultsIfEmpty()`
+         * 已删）—— 主目标由首启引导 `GoalSetupSheet` 落一行，其余槽位由「添加目标」显式创建；
+         * 下游读不到行时回落 `GoalDefaults`（如 `kcalTargetOf` / `trainProgress`）。
          */
         private val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {

@@ -83,6 +83,10 @@ data class HomeGoal(
     val statement: String,
     /** 是否已设定主目标（`goals` 有 active 的 `primary` 行）。 */
     val set: Boolean,
+    /** 目标体重（kg）。0 = 未设置（v8 问题 4 主目标行 L1 用）。 */
+    val weightTargetKg: Double = 0.0,
+    /** 最近一次体重记录（kg）。0 = 从未记录（v8 问题 4 主目标行 L2 用）。 */
+    val latestWeightKg: Double = 0.0,
 )
 
 /**
@@ -183,17 +187,34 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         MainSummary(kcalIn = kcalIn, kcalOut = kcalOut, target = target, gap = target - kcalIn + kcalOut)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MainSummary())
 
+    /**
+     * 每日目标摄入（v8 问题 2a）：`goals` 表的 `kcal_daily` 行优先。
+     *
+     * 三级回落与 [com.healix.app.db.kcalTargetOf] 同口径（这里必须是 Flow 版）：
+     * goals 行 → 历史 settings 键 `TARGET_KCAL`（只覆盖迁移窗口期，迁移完成后该键被删）
+     * → [GoalDefaults.TARGET_KCAL]。
+     */
     private fun targetKcalFlow(): StateFlow<Int> =
-        db.settingsDao().observe(KEY_TARGET_KCAL)
-            .map { it?.toIntOrNull() ?: GoalDefaults.TARGET_KCAL }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), GoalDefaults.TARGET_KCAL)
+        combine(
+            db.goalDao().observeByMetric(GoalMetrics.KCAL_DAILY),
+            db.settingsDao().observe(SettingsKeys.TARGET_KCAL),
+        ) { goal, legacy ->
+            goal?.targetValue?.toInt()?.takeIf { v -> v > 0 }
+                ?: legacy?.toIntOrNull()?.takeIf { v -> v > 0 }
+                ?: GoalDefaults.TARGET_KCAL
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), GoalDefaults.TARGET_KCAL)
 
     // ==================================================================
     // 多维状态行（设计规范系统 §9.2）
     // ==================================================================
 
-    /** 目标值。`metric -> targetValue`，一处取全，避免每个维度各开一个 Flow。 */
-    private val goalsData: StateFlow<Map<String, Double>> = db.goalDao()
+    /**
+     * 目标值。`metric -> targetValue`，一处取全，避免每个维度各开一个 Flow。
+     *
+     * v8 问题 4 起**对外可见**：记录页目标区三卡与详情弹层（`GoalDetailSheet`）
+     * 都要显示「当前 / 目标」，不应各自再开一份 `observeActive()`。
+     */
+    val goalTargets: StateFlow<Map<String, Double>> = db.goalDao()
         .observeActive()
         .map { list -> list.associate { it.metric to it.targetValue } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
@@ -214,29 +235,10 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     // 需求 5：首页主目标 + 次目标进度
     // ==================================================================
 
-    /**
-     * 主目标展示。`goals.metric='primary'` 的一行承载"主目标是哪个模式"
-     * （`target_value` ∈ {0=增重 / 1=减重 / 2=保持}）；自由文本目标在 settings。
-     */
-    val homeGoal: StateFlow<HomeGoal> = combine(
-        db.goalDao().observeByMetric(GoalMetrics.PRIMARY),
-        db.settingsDao().observe(SettingsKeys.GOAL_STATEMENT),
-    ) { primary, statement ->
-        HomeGoal(
-            modeIndex = primary?.targetValue?.toInt() ?: SettingsViewModel.GOAL_MODE_GAIN,
-            statement = statement.orEmpty().trim(),
-            set = primary != null,
-        )
-    }.stateIn(
-        viewModelScope,
-        SharingStarted.WhileSubscribed(5_000),
-        HomeGoal(SettingsViewModel.GOAL_MODE_GAIN, "", false),
-    )
-
     /** 本周训练：周一 → 今天已完成次数 ÷ 每周目标次数（次目标①，进度线）。 */
     val trainProgress: StateFlow<TrainProgress> = combine(
         todayKey,
-        goalsData,
+        goalTargets,
         todayCount,
     ) { day, goals, _ ->
         val done = runCatching {
@@ -262,6 +264,51 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val weightSeries: StateFlow<List<Double>> = combine(todayKey, todayCount) { day, _ ->
         loadWeightSeries(day)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * 本周训练的**累计**完成数序列（周一 → 今天），v8 问题 4 三卡①与详情弹层共用。
+     *
+     * 为什么是"累计"而不是"每日次数"：每周训练的进度语义是单调不减的阶梯，
+     * 累计曲线的**形状本身就是进度**；每日次数（0/1 抖动）画出来只剩噪声。
+     * 与 [trainProgress] 的 `done` 同源（同一 `countByTypeInRange("exercise", ...)` 口径），
+     * 因此卡片大数字与迷你图末点必然一致。
+     *
+     * 缺记的日**不补 0 而是延续上周累计值** —— 这正是累计口径的自然结果，
+     * 也避免折线在没练的日子假性跌底。
+     */
+    val trainSeries: StateFlow<List<Double>> = combine(todayKey, todayCount) { day, _ ->
+        loadTrainSeries(day)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * 主目标展示。`goals.metric='primary'` 的一行承载"主目标是哪个模式"
+     * （`target_value` ∈ {0=增重 / 1=减重 / 2=保持}）；自由文本目标在 settings。
+     *
+     * v8 问题 4 追加两个数：目标体重（`weight_kg` 目标行）与最近一次体重记录
+     * （复用 [weightSeries] 的末值），供压缩后的主目标行渲染
+     * `增重 · 目标 70 kg` / `现 65.4 kg，还差 4.6 kg` 两行。
+     *
+     * ⚠️ 定义位置必须在 [weightSeries] **之后**：Kotlin 属性按声明顺序初始化，
+     *    这里在初始化期就要读 `weightSeries` 的实例。
+     */
+    val homeGoal: StateFlow<HomeGoal> = combine(
+        db.goalDao().observeByMetric(GoalMetrics.PRIMARY),
+        db.settingsDao().observe(SettingsKeys.GOAL_STATEMENT),
+        db.goalDao().observeByMetric(GoalMetrics.WEIGHT_KG),
+        weightSeries,
+    ) { primary, statement, weightGoal, series ->
+        HomeGoal(
+            modeIndex = primary?.targetValue?.toInt() ?: SettingsViewModel.GOAL_MODE_GAIN,
+            statement = statement.orEmpty().trim(),
+            set = primary != null,
+            weightTargetKg = weightGoal?.targetValue?.takeIf { it > 0.0 } ?: 0.0,
+            latestWeightKg = series.lastOrNull() ?: 0.0,
+        )
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5_000),
+        HomeGoal(SettingsViewModel.GOAL_MODE_GAIN, "", false),
+    )
 
     /**
      * 近 N 日、按 `day_key` 升序的每日「末条记录值」。
@@ -293,6 +340,31 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             .mapNotNull { (_, list) -> list.maxByOrNull { it.ts }?.weightKg }
     }
 
+    /**
+     * 周一 → 今天，按 `day_key` 逐日的**累计**运动次数。
+     *
+     * 区间端点由 `day_key` 反算（`LocalDate.parse(day)` + `previousOrSame(MONDAY)`），
+     * **不出现 `LocalDate.now()`** —— 与 [trainProgress] / 列表 / 日期标签同一口径。
+     * 只发一次查询（`listByTypeInRange`）后在内存里按 `day_key` 分桶，避免逐日 N 次查询。
+     */
+    private suspend fun loadTrainSeries(day: String): List<Double> {
+        val today = runCatching { LocalDate.parse(day) }.getOrNull() ?: return emptyList()
+        val monday = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+        val rows = runCatching { db.eventDao().listByTypeInRange("exercise", monday.toString(), day) }
+            .getOrDefault(emptyList())
+        val perDay = rows.groupBy { it.dayKey }.mapValues { it.value.size }
+
+        val out = mutableListOf<Double>()
+        var acc = 0
+        var cursor = monday
+        while (!cursor.isAfter(today)) {
+            acc += perDay[cursor.toString()] ?: 0
+            out += acc.toDouble()
+            cursor = cursor.plusDays(1)
+        }
+        return out
+    }
+
     /** `day_key` 往前推 `days - 1` 天的起点 day_key；解析失败返回 null（调用方给空序列）。 */
     private fun dayKeyBack(day: String, days: Int): String? =
         runCatching { LocalDate.parse(day).minusDays(days - 1L).toString() }.getOrNull()
@@ -313,7 +385,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         events,
         todayKey,
         signalsToday,
-        goalsData,
+        goalTargets,
         hideWeight,
     ) { todayEvents, day, signals, goals, hideW ->
         val top = signals.minByOrNull { HealthRules.priorityOf(it.ruleId) }
@@ -653,20 +725,26 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     /**
      * 读一个 settings 键（引导判据用）。失败按"未设置"（null）处理，不抛异常。
+     *
+     * ⚠️ 写成**块体**而不是 `= runCatching{...}.getOrNull()`：本项目对本机检查器
+     *    覆盖不到的 suspend 转发一律取块体（表达式体会在 CI 上按未覆盖路径炸）。
      */
-    suspend fun rawSetting(key: String): String? =
-        runCatching { db.settingsDao().get(key) }.getOrNull()
+    suspend fun rawSetting(key: String): String? {
+        return runCatching { db.settingsDao().get(key) }.getOrNull()
+    }
 
     /**
      * 是否已有 active 目标行 —— 判"老用户"的唯一依据。
      *
      * 为什么不是 `GOAL_SETUP_DONE` 本身：该键是本轮新增的，老用户设备上**不存在**，
      * 只看键会把全部老用户误判成新用户而弹一次无意义引导。老用户此前用过设置页，
-     * `ensureGoalDefaultsIfEmpty()` 已往 goals 灌过默认值 → `countActive() > 0`。
+     * 当时（v8 问题 2b 之前，函数已删）的 `ensureGoalDefaultsIfEmpty()` 已往 goals
+     * 灌过默认值 → `countActive() > 0`。
      * 失败时保守返回 false（当作新用户，最多多弹一次引导，不做成"永远不弹"）。
      */
-    suspend fun hasAnyActiveGoal(): Boolean =
-        runCatching { db.goalDao().countActive() > 0 }.getOrDefault(false)
+    suspend fun hasAnyActiveGoal(): Boolean {
+        return runCatching { db.goalDao().countActive() > 0 }.getOrDefault(false)
+    }
 
     /**
      * 完成 / 跳过首次目标引导（需求 5）。
@@ -675,8 +753,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      * 首页「主目标」行仍始终提供「去调整」入口，用户随时能补。
      *
      * ⚠️ 主目标是 `goals` 里 `metric='primary'` 的一行，而 `setPrimary` / `setTarget`
-     * 都是 **UPDATE**：表里没有该行时静默 no-op。`ensureGoalDefaultsIfEmpty()` 只在
-     * 打开设置页时才跑，全新安装时 goals 可能是空表 → 这里必须**先 ensure 行存在**，
+     * 都是 **UPDATE**：表里没有该行时静默 no-op。v8 问题 2b 删掉默认种子后，全新安装的
+     * goals 可能是空表 → 这里必须**先 ensure 行存在**，
      * 否则用户走完引导却什么都没设上（"点了保存没反应"的静默 bug）。
      */
     fun completeGoalSetup(modeIndex: Int?, weightKg: Double?) {
@@ -718,7 +796,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     companion object {
-        const val KEY_TARGET_KCAL = com.healix.app.db.SettingsKeys.TARGET_KCAL
         const val KEY_DAY_START = com.healix.app.db.SettingsKeys.DAY_START
         const val KEY_HIDE_KCAL = com.healix.app.db.SettingsKeys.HIDE_KCAL
         const val KEY_HIDE_WEIGHT = com.healix.app.db.SettingsKeys.HIDE_WEIGHT

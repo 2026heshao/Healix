@@ -69,6 +69,11 @@ data class ReminderEntity(
 /** goals.metric 的取值常量（唯一事实来源，其它文件引用这里，不要重定义）。 */
 object GoalMetrics {
     const val PRIMARY = "primary"
+    /**
+     * 每日目标摄入（千卡）。v8 问题 2a 新增：kcal 目标从 settings 键
+     * `TARGET_KCAL` 收编进 `goals` 表 —— 与其它目标同表、同增删改路径。
+     */
+    const val KCAL_DAILY = "kcal_daily"
     const val WEIGHT_KG = "weight_kg"
     const val SESSIONS_PER_WEEK = "sessions_per_week"
     const val TRAIN_MINUTES_PER_WEEK = "train_minutes_per_week"
@@ -118,6 +123,7 @@ object GoalSlots {
     data class Slot(val key: String, val metrics: List<String>)
 
     val PRIMARY = Slot("primary", listOf(GoalMetrics.PRIMARY))
+    val KCAL = Slot("kcal", listOf(GoalMetrics.KCAL_DAILY))
     val WEIGHT = Slot("weight", listOf(GoalMetrics.WEIGHT_KG))
     val TRAIN = Slot(
         "train",
@@ -126,8 +132,19 @@ object GoalSlots {
     val SLEEP = Slot("sleep", listOf(GoalMetrics.SLEEP_H))
     val WATER = Slot("water", listOf(GoalMetrics.WATER_ML))
 
-    /** 全部槽位，顺序即设置页展示顺序。 */
-    val ALL: List<Slot> = listOf(PRIMARY, WEIGHT, TRAIN, SLEEP, WATER)
+    /** 全部槽位，顺序即设置页展示顺序（热量紧邻主目标 —— 它是增重/减重的量化口径）。 */
+    val ALL: List<Slot> = listOf(PRIMARY, KCAL, WEIGHT, TRAIN, SLEEP, WATER)
+
+    /**
+     * 「添加目标」的**可选槽位**（= [ALL] 去掉主目标）。
+     *
+     * 主目标只能经 [com.healix.app.ui.GoalSetupSheet] 设定 —— 它带 `is_primary` 语义，
+     * 不是"再加一条数值目标"，所以不进「添加目标」列表。
+     *
+     * ⚠️ 这是**目标数量上限的结构性来源**：可增槽位恒 5（+主目标 1 = 6），
+     *    加满后 `GoalSlots.ADDABLE` 中无未启用项 → 入口置灰（无自由新增路径）。
+     */
+    val ADDABLE: List<Slot> = listOf(KCAL, WEIGHT, TRAIN, SLEEP, WATER)
 
     /** 按 key 取槽位（add-sheet 回调 key → Slot）。 */
     fun byKey(key: String): Slot? = ALL.firstOrNull { it.key == key }
@@ -169,6 +186,33 @@ object GoalDefaults {
     /** 每日饮水（毫升）。 */
     const val WATER_ML: Int = 1700
 
-    /** 每日目标摄入（千卡）。用户可在设置页覆盖（`SettingsKeys.TARGET_KCAL`）。 */
+    /**
+     * 每日目标摄入（千卡）。v8 问题 2a 起，用户的 kcal 目标**存放在 `goals` 表**
+     * （`metric = [GoalMetrics.KCAL_DAILY]`），本常量退化为"用户没设过目标时的兜底值"
+     * 与老数据迁移的默认值 —— 与 [TRAIN_SESSIONS_PER_WEEK] 等同一角色。
+     */
     const val TARGET_KCAL: Int = 2500
+}
+
+/**
+ * 读「每日目标摄入」的**唯一入口**（v8 问题 2a）。
+ *
+ * 三级取值（顺序即优先级）：
+ * 1. `goals` 表 `metric = kcal_daily` 且 active 的行的 `target_value`；
+ * 2. 历史 settings 键 [SettingsKeys.TARGET_KCAL] —— 只覆盖**迁移窗口期**
+ *    （老用户升级后、还没进过设置页触发迁移的那段时间），保证读数不回落成默认值；
+ * 3. [GoalDefaults.TARGET_KCAL]。
+ *
+ * 迁移（`SettingsViewModel.migrateLegacyKcalTarget`）成功后会把旧键**删除**，
+ * 于是第 2 级自然失效 —— 此后 "用户归档了 kcal 目标" 会正确回落默认值，
+ * 而不会被一个残留的旧键悄悄顶住。
+ *
+ * ⚠️ 为什么收成一个函数：消费方有 4 处（首页汇总 / 预警聚合 / 计划生成 / 今日摘要），
+ *    散着写 4 遍正是"改一处漏一处"的温床。
+ */
+suspend fun kcalTargetOf(db: AppDatabase): Int {
+    return db.goalDao().getByMetric(GoalMetrics.KCAL_DAILY)
+        ?.targetValue?.toInt()?.takeIf { it > 0 }
+        ?: db.settingsDao().get(SettingsKeys.TARGET_KCAL)?.toIntOrNull()?.takeIf { it > 0 }
+        ?: GoalDefaults.TARGET_KCAL
 }

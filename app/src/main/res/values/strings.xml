@@ -183,7 +183,8 @@
     <string name="setting_day_start">日界线</string>
     <!-- 日界线等整数输入的越界拒绝提示（SettingsFragment.editInt 的 range 校验） -->
     <string name="setting_value_out_of_range">请输入 %1$d 到 %2$d 之间的整数</string>
-    <string name="setting_target_kcal">每日目标摄入</string>
+    <!-- v8 问题 2a：原 @string/setting_target_kcal（个人信息页「每日目标摄入」行）已随该行一并删除；
+         热量目标改由设置页「目标」栏编辑，标签用 @string/setting_kcal_goal。 -->
     <string name="setting_background">我的情况</string>
     <string name="setting_background_hint">写给自己看的背景。AI 出计划和建议时会参考它。</string>
     <string name="setting_background_ph">例如：24 岁男，体重偏轻，目标是增重到 75kg；乳糖不耐受；不吃香菜；下午常犯困；每周三、五去健身房。</string>
@@ -410,6 +411,7 @@
          setting_hide_weight / value_shown / value_hidden 五条文案一并删除；
          settings 键 HIDE_KCAL / HIDE_WEIGHT 与全部消费方保留（老用户取值不变）。 -->
     <string name="setting_primary_goal">主目标</string>
+    <string name="setting_kcal_goal">热量目标</string>
     <string name="setting_weight_goal">体重目标</string>
     <string name="setting_train_goal">每周训练</string>
     <string name="setting_sleep_goal">睡眠目标</string>
@@ -419,11 +421,18 @@
     <string name="add_goal_title">添加目标</string>
     <string name="add_goal_desc">以下目标当前未启用，点击即可重新启用（若曾删除，原设定值会一并恢复）</string>
     <string name="add_goal_empty">所有目标都已启用</string>
+    <!-- v8 问题 2a/②：目标栏的状态与提示文案 -->
+    <!-- 空态（仅主目标、无任何次目标）时主目标行下方的一行说明 -->
+    <string name="goal_empty_no_secondary">还没有次目标</string>
+    <!-- 槽位加满（主目标 1 + 次目标 5 = 6）时「添加目标」右侧的禁用说明，%1$d = 上限 -->
+    <string name="goal_limit_reached">已达上限 %1$d 项</string>
+    <!-- 老用户迁移提示（仅一次）：热量目标的编辑入口从个人信息页挪到「目标」栏 -->
+    <string name="goal_kcal_moved_hint">热量目标现已移至此栏</string>
     <!-- 「我的目标」自由文本行（个人信息页 · 目标组）。空值占位统一 value_not_set。 -->
     <string name="setting_goal_statement">我的目标</string>
     <!-- 规范 9.7 / 921 行：目标组每项值下方 8dp 处 13sp text_3 的「依据提示」，
          仅在用户首次打开该组时显示一次（标记见 SettingsKeys.GOAL_SOURCE_SEEN）。
-         措辞指的是 `ensureGoalDefaultsIfEmpty()` 里训练/睡眠/饮水的默认值来源 ——
+         措辞指的是 goals 默认值（GoalDefaults）的来源 ——
          《中国居民膳食指南(2022)》，不是拍脑袋。 -->
     <string name="setting_goal_source_dietary">来自膳食指南推荐量</string>
     <string name="goal_gain">增重</string>
@@ -432,6 +441,7 @@
     <string name="unit_train_goal">%1$d 次 / %2$d 分钟</string>
     <string name="unit_hours">%1$s 小时</string>
     <string name="unit_ml">%1$d ml</string>
+    <string name="unit_kcal">%1$d kcal</string>
     <!-- 目标未设置时的占位（规范 9.7）。⚠️ 不得在 Kotlin 里硬编码「未设置」，
          一律走这条资源 —— 否则改文案要翻代码。 -->
     <string name="value_not_set">未设置</string>
@@ -444,21 +454,46 @@
     <!-- ── 需求 5：首页主目标 + 次目标进度 + 首次引导 ── -->
     <!-- 「主目标 · {增重|减重|保持}」第一行；值由 goals.metric='primary' 的 target_value 编码决定 -->
     <string name="goal_primary_line">主目标 · %1$s</string>
-    <string name="goal_primary_none">未设定主目标</string>
+    <string name="goal_primary_none">未设置主目标</string>
     <string name="goal_adjust">去调整 ›</string>
-    <string name="sub_goal_title">次目标进度</string>
     <string name="sub_goal_train">本周训练</string>
-    <string name="sub_goal_train_value">%1$d/%2$d</string>
     <string name="sub_goal_sleep">近 7 日睡眠</string>
     <string name="sub_goal_weight">近 30 日体重</string>
-    <!-- TrendChartView 数据点 < 3 时的占位文案（不补 0，避免假性下跌） -->
-    <string name="sub_goal_empty_sleep">数据不足 3 天，先记几天</string>
-    <string name="sub_goal_empty_weight">数据不足 3 次，先记几次</string>
     <!-- 图表范围标注（chart_range）的单字单位；不带数值的裸单位 -->
     <string name="unit_hour">小时</string>
     <string name="unit_kg_chart">kg</string>
+
+    <!-- ── v8 问题 4：记录页目标区压缩后的文案 ── -->
+    <!-- 主目标行 L1 带目标体重（如「增重 · 目标 70 kg」）；@string/goal_primary_line 兜底无体重时 -->
+    <string name="goal_primary_target">%1$s · 目标 %2$s kg</string>
+    <!-- 主目标行 L2：现值与还差（目标体重未设时用 goal_primary_current_only） -->
+    <string name="goal_primary_current">现 %1$s kg，还差 %2$s kg</string>
+    <string name="goal_primary_current_only">现 %1$s kg</string>
+    <!-- 主目标未设时右侧文字入口（点击 → 设置页「目标」栏；该栏主目标行的点击才开首启引导） -->
+    <string name="goal_go_settings">去设置 ›</string>
+    <!-- 设置页主目标行未设时右侧同样用 @string/goal_go_settings；此处不再另留副行文案 -->
+    <!-- 三卡：本周训练当前值（原无单位版 sub_goal_train_value 已随旧渲染删除） -->
+    <string name="sub_goal_train_card">%1$d/%2$d 次</string>
+    <!-- 次数单位（单字，图表 meta 用；与 @string/unit_times 的「%1$d 次」区分） -->
+    <string name="unit_times_plain">次</string>
+    <!-- 三卡：睡眠当前值（紧凑，不带空格单位以外的修饰） -->
+    <string name="unit_hour_short">%1$s h</string>
+    <!-- 隐私隐藏体重时的打码值 -->
+    <string name="goal_card_masked">••••</string>
+    <!-- 迷你趋势位：0 点 / 1–2 点（不足 3 点连不成线，用短文案，避免在 ~90dp 宽里被裁） -->
+    <string name="goal_mini_empty">暂无记录</string>
+    <string name="goal_mini_insufficient">攒够 3 次</string>
+    <!-- 详情弹层（GoalDetailSheet） -->
+    <string name="goal_detail_edit">改目标 ›</string>
+    <string name="goal_detail_add_other">＋ 添加其他目标（热量 / 饮水 / 体重…）</string>
+    <string name="goal_detail_current_target">当前 %1$s　目标 %2$s</string>
+    <string name="goal_detail_empty">记录 3 天后生成趋势</string>
+    <string name="goal_detail_show_once">显示一次</string>
     <!-- 首次进入目标引导（GoalSetupSheet）-->
     <string name="goal_setup_title">先设定你的主目标</string>
+    <!-- 记录页「去调整 ›」开的是同一组件的**编辑态**：标题与说明换一版，且不给「跳过」 -->
+    <string name="goal_setup_title_edit">调整主目标</string>
+    <string name="goal_setup_desc_edit">改完立即生效，首页与计划都会跟着变。</string>
     <string name="goal_setup_desc">设好之后，首页会一直告诉你「要去哪、现在到哪」。之后随时可在设置里调整。</string>
     <string name="goal_setup_weight_label">目标体重</string>
     <string name="goal_setup_weight_hint">kg（可跳过）</string>

@@ -176,18 +176,34 @@ object SettingsKeys {
     /**
      * 目标引导是否已完成。`"true"` = 已完成或已跳过；**键不存在 = 未完成**（弹引导）。
      *
-     * 为什么必须加这个键：`ensureGoalDefaultsIfEmpty()` 会在 goals 空表时
-     * **无条件预置** 6 条默认目标 —— 这让"用户设过目标"与"系统灌的目标"
-     * 在数据上无法区分（判据只剩 `countActive() > 0`）。
-     * 引导弹窗的判据只能是本键，而不是 goals 表是否有行。
+     * 为什么需要一个独立键：v8 问题 2b 之前 `ensureGoalDefaultsIfEmpty()` 会在 goals
+     * 空表时**无条件预置** 6 条默认目标 —— 这让"用户设过目标"与"系统灌的目标"
+     * 在数据上无法区分。该预置已删除；引导弹窗的判据仍只能是本键，而不是 goals 表是否有行。
      *
-     * ⚠️ 写入时机：
-     *   - **老用户升级首启**：在 `ensureGoalDefaultsIfEmpty()` **之前**判
-     *     `countActive() > 0`（此时表还是空的或已有旧数据）→ 有行即视为老用户，
-     *     补写 `"true"`（静默跳过，不弹引导打扰）；
+     * ⚠️ 写入时机（[com.healix.app.ui.RecordFragment.maybeShowGoalSetup]）：
+     *   - **老用户升级首启**：`goals` 已有 active 行 → 视为老用户，补写 `"true"`
+     *     （静默跳过，不弹引导打扰）；
      *   - **全新安装**：goals 为空 → 引导弹窗出现，用户完成或跳过时写 `"true"`。
      */
     const val GOAL_SETUP_DONE = "goal_setup_done"
+
+    // ── 热量目标收编进 goals 表（v8 问题 2a）──────────────────────────
+    /**
+     * 老数据迁移标记：settings 键 [TARGET_KCAL] → `goals` 的 `kcal_daily` 行**已完成**。
+     *
+     * `"true"` = 迁移跑过（老用户设过热量目标并已搬进目标栏）。
+     * 键不存在 = 无需迁移（用户从没设过）或尚未跑。
+     * 迁移逻辑见 `SettingsViewModel.migrateLegacyKcalTarget()`，**幂等**（已有 kcal 行则跳过）。
+     */
+    const val KCAL_TARGET_MIGRATED = "kcal_target_migrated"
+
+    /**
+     * 「热量目标现已移至此栏」一次性提示**是否已展示**。
+     *
+     * `"true"` = 已展示过（不再显示）。只对 [KCAL_TARGET_MIGRATED] 为 `"true"` 的设备有意义
+     * —— 迁移过一次才需要告诉用户"入口挪地方了"。
+     */
+    const val KCAL_MOVE_HINT_SEEN = "kcal_move_hint_seen"
 
     // ── 计划自动重排节流（v8 需求 7）─────────────────────────────────
     /**

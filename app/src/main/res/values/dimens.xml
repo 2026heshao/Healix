@@ -38,6 +38,20 @@
     <dimen name="tab_indicator">2dp</dimen>
 
     <!--
+        v8 问题 4：记录页目标区压缩（≈142dp）新增 4 项，全部只服务这一块版式。
+        加法校验：主目标行 48(touch_min) + 1(divider) + 三卡 60 + 1(divider) + 盈余 32
+                 = 142dp < 20% 屏高（812 × 0.2 = 162dp）。
+        ⚠️ 三卡行取 60dp 而非原型的 56dp：Android 文本默认上下留白（fontPadding）
+           比浏览器多约 4dp，56dp 在「12sp 标题 + 15sp 值 + 20dp sparkline + 间隙」
+           下会压字。宁多 4dp，不冒险裁字。
+    -->
+    <dimen name="goal_card_row_height">60dp</dimen>
+    <dimen name="goal_mini_chart_height">20dp</dimen>
+    <dimen name="goal_insight_row_height">32dp</dimen>
+    <!-- 详情弹层大折线（原 80dp 折线的放大版，问题 4 把图表细节下沉到这里） -->
+    <dimen name="goal_detail_chart_height">180dp</dimen>
+
+    <!--
         v6 交互重构（docs/Healix设计规范系统.md 第十一章）。
         全部沿用原型既有值域：64dp tabbar / 80dp 底部预留 / 72dp 滑动按钮 /
         80dp 弹盘关闭阈值 —— 不新造值。

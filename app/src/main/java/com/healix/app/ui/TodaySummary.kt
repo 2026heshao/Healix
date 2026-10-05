@@ -8,6 +8,7 @@ import com.healix.app.db.EventEntity
 import com.healix.app.db.GoalDefaults
 import com.healix.app.db.GoalMetrics
 import com.healix.app.db.SettingsKeys
+import com.healix.app.db.kcalTargetOf
 import com.healix.app.parse.dayKeyOf
 import com.healix.app.parse.dayStartHourOf
 import com.healix.app.rules.HealthAggregator
@@ -136,10 +137,10 @@ internal data class TodaySummary(
         }
 
     companion object {
-        const val KEY_TARGET_KCAL = SettingsKeys.TARGET_KCAL
-
         // 兜底默认值（目标摄入 / 每周训练次数）已收敛到
         // `com.healix.app.db.GoalDefaults` —— 跨文件唯一来源，不要在这里重定义。
+        // v8 问题 2a：kcal 目标读 `goals` 表（`kcalTargetOf`），
+        // 原 `KEY_TARGET_KCAL` 转发常量随之删除。
 
         /** 生病记录间隔超过这个天数算新的一次病程（与 HealthAggregator 同口径）。 */
         private const val ILLNESS_GAP_DAYS = 2L
@@ -171,8 +172,8 @@ internal data class TodaySummary(
             val dayKey = dayKeyOf(now, dayStart)
             val today = LocalDate.parse(dayKey)
 
-            val target = db.settingsDao().get(KEY_TARGET_KCAL)?.toIntOrNull()
-                ?: GoalDefaults.TARGET_KCAL
+            // v8 问题 2a：kcal 目标改读 `goals` 表（唯一入口 kcalTargetOf）。
+            val target = kcalTargetOf(db)
 
             // 多维聚合直接复用规则层的聚合器 —— 一处口径，避免摘要与预警两套算法漂移
             val snap = HealthAggregator.snapshot(db, dayStart, target)

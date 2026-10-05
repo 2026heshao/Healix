@@ -101,31 +101,8 @@
                 android:layout_marginTop="@dimen/block_gap"
                 android:background="@color/line" />
 
-            <!-- 每日摄入 -->
-            <TextView
-                style="@style/Text.Caption"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:paddingStart="@dimen/screen_margin"
-                android:paddingEnd="@dimen/screen_margin"
-                android:paddingTop="12dp"
-                android:paddingBottom="8dp"
-                android:text="@string/personal_info_group_intake" />
-
-            <include
-                android:id="@+id/rowTargetKcal"
-                layout="@layout/row_setting_value"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
-
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="@dimen/divider"
-                android:layout_marginTop="@dimen/block_gap"
-                android:background="@color/line" />
-
-            <!-- 目标（自由文本「我的目标」，复用设置页 group_goal 组头）。独立成组：
-                 数值目标（kcal）与人生目标（"想练出马甲线"）语义不同，不塞进「每日摄入」。 -->
+            <!-- v8 问题 2a：「每日摄入」组整体移除（原 rowTargetKcal 行迁设置页「目标」栏）。
+                 数值目标唯一归属设置页目标栏；本页只保留静态档案 + 自由文本「我的目标」。 -->
             <TextView
                 style="@style/Text.Caption"
                 android:layout_width="match_parent"

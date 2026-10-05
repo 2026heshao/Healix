@@ -30,6 +30,19 @@
         <item name="android:lineSpacingExtra">6sp</item>
     </style>
 
+    <!--
+        body→medium：15sp/500（行高不放大，供**紧凑卡**的当前值用，v8 问题 4 三卡）。
+        500 的落地方式是 `sans-serif-medium`（全局只允许 400/500，禁 600/700）。
+        includeFontPadding=false：三卡竖向预算紧（12 标题 + 15 值 + 20 sparkline），
+        字体默认上下留白会让整卡在 60dp 里被压。
+    -->
+    <style name="Text.BodyMedium" parent="">
+        <item name="android:textSize">15sp</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:textColor">@color/text_1</item>
+        <item name="android:includeFontPadding">false</item>
+    </style>
+
     <!-- secondary：13sp/400，行高 20sp -->
     <style name="Text.Secondary" parent="">
         <item name="android:textSize">13sp</item>

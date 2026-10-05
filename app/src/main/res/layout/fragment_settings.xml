@@ -248,6 +248,24 @@
                 android:text="@string/group_goal" />
 
             <!--
+                v8 问题 2a：老用户把热量目标从「个人信息页」搬进本栏后，
+                **仅一次**提示「热量目标现已移至此栏」（13sp text_2）。
+                可关闭：点一下即收起并落 KCAL_MOVE_HINT_SEEN 标记（同 goalSourceHint 的一次性纪律）。
+            -->
+            <TextView
+                android:id="@+id/goalKcalMovedHint"
+                style="@style/Text.Secondary"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="?attr/selectableItemBackground"
+                android:paddingStart="@dimen/screen_margin"
+                android:paddingEnd="@dimen/screen_margin"
+                android:paddingBottom="8dp"
+                android:visibility="gone"
+                tools:text="热量目标现已移至此栏"
+                tools:visibility="visible" />
+
+            <!--
                 目标组「依据提示」（规范 9.7）：13sp text_3，仅首次打开该组时显示一次。
                 形式裁决 = 放**组标题下方一行**，而非规范字面的「每项值下方」：
                 体重/训练/睡眠/饮水的默认值同出一个来源（《中国居民膳食指南(2022)》），
@@ -272,6 +290,28 @@
                 android:layout_height="wrap_content"
                 android:orientation="vertical" />
 
+            <!--
+                v8 问题 2b：删掉默认种子后的空态说明 —— 仅主目标、无任何次目标时显示
+                `还没有次目标`（12sp text_3，规范 ②）。可见性由 SettingsFragment.renderGoals 控制。
+            -->
+            <TextView
+                android:id="@+id/goalEmptyHint"
+                style="@style/Text.Caption"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingStart="@dimen/screen_margin"
+                android:paddingEnd="@dimen/screen_margin"
+                android:paddingBottom="4dp"
+                android:text="@string/goal_empty_no_secondary"
+                android:textColor="@color/text_3"
+                android:visibility="gone"
+                tools:visibility="visible" />
+
+            <!--
+                「添加目标」入口（常驻栏底，唯一显式创建入口）。
+                槽位加满时**原地降级**为禁用态：标签 text_3、右侧 caption `已达上限 6 项`、
+                不可点（规范 ②·状态覆盖 + G11）。状态由 SettingsFragment.updateGoalAddEntry 控制。
+            -->
             <include
                 android:id="@+id/rowGoalAdd"
                 layout="@layout/row_setting_value"

@@ -50,155 +50,287 @@
         android:background="@color/line" />
 
     <!--
-        ── 需求 5：主目标行 ──
-        一行说清「我要去哪」：左侧主目标名（增重/减重/保持），右侧「去调整 ›」进设置页目标组。
-        第二行是自由文本目标（`SettingsKeys.GOAL_STATEMENT`，有才显示）。
-        **不显示分数 / 评分**（禁游戏化 + 不给黑箱分）。
+        ══ 目标区（需求 5 → v8 问题 4 压缩：≈300–360dp → ≈142dp）══
+        结构（自上而下）= 主目标行 48dp + 1dp 线 + 三卡横排 60dp + 1dp 线 + 今日盈余单行 32dp。
+        原「目标宣言行 / 睡眠 80dp 折线 / 体重 80dp 折线 / 36sp 大数字 + 进度线 + 汇总行」
+        全部下沉到半屏详情弹层（[com.healix.app.ui.GoalDetailSheet]）。
+        硬约束：无卡片、无阴影 —— 三卡靠 1dp 竖线分区（规范 §1 原则 2）。
     -->
     <LinearLayout
-        android:id="@+id/goalPrimaryRow"
-        android:layout_width="match_parent"
-        android:layout_height="@dimen/touch_min"
-        android:background="?attr/selectableItemBackground"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:paddingStart="@dimen/screen_margin"
-        android:paddingEnd="@dimen/screen_margin">
-
-        <TextView
-            android:id="@+id/goalPrimaryText"
-            style="@style/Text.Body"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:ellipsize="end"
-            android:maxLines="1"
-            tools:text="主目标 · 增重" />
-
-        <TextView
-            android:id="@+id/goalAdjust"
-            style="@style/Text.Link"
-            android:layout_width="wrap_content"
-            android:layout_height="match_parent"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:gravity="center"
-            android:paddingStart="8dp"
-            android:paddingEnd="0dp"
-            android:text="@string/goal_adjust" />
-    </LinearLayout>
-
-    <TextView
-        android:id="@+id/goalStatementText"
-        style="@style/Text.Secondary"
+        android:id="@+id/goalArea"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:paddingStart="@dimen/screen_margin"
-        android:paddingEnd="@dimen/screen_margin"
-        android:paddingBottom="6dp"
-        android:visibility="gone"
-        tools:text="想练出马甲线"
-        tools:visibility="visible" />
+        android:layout_marginTop="8dp"
+        android:orientation="vertical">
 
-    <!--
-        ── 需求 5：次目标进度区 ──
-        三项固定：本周训练（进度线）/ 近 7 日睡眠（折线）/ 近 30 日体重（折线）。
-        图形只用「进度线 / 折线」两种既有控件（禁饼图 / 柱状图，规范 §9.3）。
-        各项整块可点 → 状态详情页对应段。
-    -->
-    <LinearLayout
-        android:id="@+id/subGoalBlock"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:paddingStart="@dimen/screen_margin"
-        android:paddingEnd="@dimen/screen_margin"
-        android:paddingTop="4dp"
-        android:paddingBottom="8dp">
-
-        <TextView
-            style="@style/Text.Caption"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="4dp"
-            android:text="@string/sub_goal_title" />
-
-        <!-- ① 本周训练次数：进度线 + 「N/M」 -->
+        <!--
+            ① 主目标行 48dp（满热区）
+            L1 = 主目标 + 目标体重；L2 = 现值与还差（自由文本目标已归入个人信息页「我的目标」）。
+            「去调整 ›」→ GoalSetupSheet 编辑态（**不跨页跳设置栏**）；整行可点同此去向。
+        -->
         <LinearLayout
-            android:id="@+id/subTrainRow"
+            android:id="@+id/goalPrimaryRow"
             android:layout_width="match_parent"
             android:layout_height="@dimen/touch_min"
             android:background="?attr/selectableItemBackground"
             android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="@dimen/screen_margin"
+            android:paddingEnd="@dimen/screen_margin">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/goalPrimaryText"
+                    style="@style/Text.BodyMedium"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    tools:text="增重 · 目标 70 kg" />
+
+                <TextView
+                    android:id="@+id/goalPrimarySub"
+                    style="@style/Text.Secondary"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    tools:text="现 65.4 kg，还差 4.6 kg" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/goalAdjust"
+                style="@style/Text.Link"
+                android:layout_width="wrap_content"
+                android:layout_height="match_parent"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:gravity="center"
+                android:paddingStart="8dp"
+                android:paddingEnd="0dp"
+                android:text="@string/goal_adjust" />
+        </LinearLayout>
+
+        <View
+            android:id="@+id/goalDividerA"
+            android:layout_width="match_parent"
+            android:layout_height="@dimen/divider"
+            android:layout_marginStart="@dimen/screen_margin"
+            android:layout_marginEnd="@dimen/screen_margin"
+            android:background="@color/line" />
+
+        <!--
+            ② 三卡横排 60dp：本周训练 / 近 7 日睡眠 / 近 30 日体重。
+            **不是卡片**：格间只有 1dp 竖线，无底色、无边框（规范 §1 原则 2「不用容器」）。
+            每格 = 标题(12sp/text_3) + 当前值(15sp/500) + 迷你趋势(20dp SparklineView)。
+            点任一格 → 半屏详情弹层（[com.healix.app.ui.GoalDetailSheet]），默认定位该 metric。
+            目标个数**不影响本块高度**：三格恒为训练 / 睡眠 / 体重（热量、饮水只在弹层里）。
+        -->
+        <LinearLayout
+            android:id="@+id/goalCardRow"
+            android:layout_width="match_parent"
+            android:layout_height="@dimen/goal_card_row_height"
             android:orientation="horizontal">
 
-            <TextView
-                android:id="@+id/subTrainLabel"
-                style="@style/Text.Secondary"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/sub_goal_train" />
-
-            <ProgressBar
-                android:id="@+id/subTrainProgress"
-                style="?android:attr/progressBarStyleHorizontal"
+            <!-- ① 本周训练 -->
+            <LinearLayout
+                android:id="@+id/subTrainRow"
                 android:layout_width="0dp"
-                android:layout_height="@dimen/progress_height"
-                android:layout_marginStart="12dp"
-                android:layout_marginEnd="12dp"
+                android:layout_height="match_parent"
                 android:layout_weight="1"
-                android:max="100"
-                android:progressDrawable="@drawable/progress_line" />
+                android:background="?attr/selectableItemBackground"
+                android:gravity="center_vertical"
+                android:orientation="vertical"
+                android:paddingStart="@dimen/screen_margin"
+                android:paddingEnd="10dp">
 
-            <TextView
-                android:id="@+id/subTrainValue"
-                style="@style/Text.Secondary"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                tools:text="2/3" />
+                <TextView
+                    style="@style/Text.Caption"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:includeFontPadding="false"
+                    android:maxLines="1"
+                    android:text="@string/sub_goal_train"
+                    android:textColor="@color/text_3" />
+
+                <TextView
+                    android:id="@+id/subTrainValue"
+                    style="@style/Text.BodyMedium"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:maxLines="1"
+                    tools:text="2/3 次" />
+
+                <com.healix.app.ui.widget.SparklineView
+                    android:id="@+id/subTrainSpark"
+                    android:layout_width="match_parent"
+                    android:layout_height="@dimen/goal_mini_chart_height"
+                    android:layout_marginTop="4dp" />
+            </LinearLayout>
+
+            <View
+                android:layout_width="@dimen/divider"
+                android:layout_height="match_parent"
+                android:layout_marginTop="10dp"
+                android:layout_marginBottom="10dp"
+                android:background="@color/line" />
+
+            <!-- ② 近 7 日睡眠 -->
+            <LinearLayout
+                android:id="@+id/subSleepRow"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:background="?attr/selectableItemBackground"
+                android:gravity="center_vertical"
+                android:orientation="vertical"
+                android:paddingStart="14dp"
+                android:paddingEnd="10dp">
+
+                <TextView
+                    style="@style/Text.Caption"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:includeFontPadding="false"
+                    android:maxLines="1"
+                    android:text="@string/sub_goal_sleep"
+                    android:textColor="@color/text_3" />
+
+                <TextView
+                    android:id="@+id/subSleepValue"
+                    style="@style/Text.BodyMedium"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:maxLines="1"
+                    tools:text="7.2 h" />
+
+                <com.healix.app.ui.widget.SparklineView
+                    android:id="@+id/subSleepSpark"
+                    android:layout_width="match_parent"
+                    android:layout_height="@dimen/goal_mini_chart_height"
+                    android:layout_marginTop="4dp" />
+            </LinearLayout>
+
+            <View
+                android:layout_width="@dimen/divider"
+                android:layout_height="match_parent"
+                android:layout_marginTop="10dp"
+                android:layout_marginBottom="10dp"
+                android:background="@color/line" />
+
+            <!-- ③ 近 30 日体重（隐私隐藏时不绘制迷你图，但保留 20dp 空高，卡片不塌陷） -->
+            <LinearLayout
+                android:id="@+id/subWeightRow"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:background="?attr/selectableItemBackground"
+                android:gravity="center_vertical"
+                android:orientation="vertical"
+                android:paddingStart="14dp"
+                android:paddingEnd="@dimen/screen_margin">
+
+                <TextView
+                    style="@style/Text.Caption"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:includeFontPadding="false"
+                    android:maxLines="1"
+                    android:text="@string/sub_goal_weight"
+                    android:textColor="@color/text_3" />
+
+                <TextView
+                    android:id="@+id/subWeightValue"
+                    style="@style/Text.BodyMedium"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:maxLines="1"
+                    tools:text="65.4 kg" />
+
+                <com.healix.app.ui.widget.SparklineView
+                    android:id="@+id/subWeightSpark"
+                    android:layout_width="match_parent"
+                    android:layout_height="@dimen/goal_mini_chart_height"
+                    android:layout_marginTop="4dp" />
+            </LinearLayout>
         </LinearLayout>
 
-        <!-- ② 近 7 日睡眠：折线 -->
-        <LinearLayout
-            android:id="@+id/subSleepRow"
+        <View
+            android:id="@+id/goalDividerB"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
+            android:layout_height="@dimen/divider"
+            android:layout_marginStart="@dimen/screen_margin"
+            android:layout_marginEnd="@dimen/screen_margin"
+            android:background="@color/line" />
+
+        <!--
+            ③ 今日盈余单行 32dp（原 36sp 大数字 + 进度线 + 汇总行 → 一条摘要）。
+            正负由 6px 圆点着色（positive/negative **只用于圆点，不铺面**，规范 §2.1）。
+            点整行 → 详情弹层（盈余视角）。
+        -->
+        <LinearLayout
+            android:id="@+id/gapRow"
+            android:layout_width="match_parent"
+            android:layout_height="@dimen/goal_insight_row_height"
             android:background="?attr/selectableItemBackground"
-            android:orientation="vertical"
-            android:paddingTop="4dp">
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="@dimen/screen_margin"
+            android:paddingEnd="@dimen/screen_margin">
 
             <TextView
-                android:id="@+id/subSleepLabel"
-                style="@style/Text.Secondary"
+                style="@style/Text.Caption"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="@string/sub_goal_sleep" />
+                android:includeFontPadding="false"
+                android:text="@string/summary_label"
+                android:textColor="@color/text_3" />
 
-            <com.healix.app.ui.widget.TrendChartView
-                android:id="@+id/subSleepChart"
-                android:layout_width="match_parent"
-                android:layout_height="80dp" />
-        </LinearLayout>
+            <View
+                android:layout_width="0dp"
+                android:layout_height="1dp"
+                android:layout_weight="1" />
 
-        <!-- ③ 近 30 日体重：折线（隐私开关打开时整块 GONE） -->
-        <LinearLayout
-            android:id="@+id/subWeightRow"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:background="?attr/selectableItemBackground"
-            android:orientation="vertical"
-            android:paddingTop="4dp">
+            <View
+                android:id="@+id/gapDot"
+                android:layout_width="@dimen/dot_size"
+                android:layout_height="@dimen/dot_size"
+                android:layout_marginEnd="6dp"
+                android:background="@drawable/dot" />
 
             <TextView
-                android:id="@+id/subWeightLabel"
-                style="@style/Text.Secondary"
+                android:id="@+id/gapValue"
+                style="@style/Text.BodyMedium"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="@string/sub_goal_weight" />
+                tools:text="+350" />
 
-            <com.healix.app.ui.widget.TrendChartView
-                android:id="@+id/subWeightChart"
-                android:layout_width="match_parent"
-                android:layout_height="80dp" />
+            <TextView
+                style="@style/Text.Caption"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
+                android:includeFontPadding="false"
+                android:text="@string/kcal_unit"
+                android:textColor="@color/text_2" />
+
+            <ImageView
+                android:id="@+id/gapChevron"
+                android:layout_width="16dp"
+                android:layout_height="16dp"
+                android:layout_marginStart="4dp"
+                android:contentDescription="@null"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_chevron"
+                android:tint="@color/text_3"
+                tools:ignore="ContentDescription" />
         </LinearLayout>
     </LinearLayout>
 
@@ -229,65 +361,11 @@
         android:visibility="gone"
         tools:visibility="visible" />
 
-    <!-- 汇总区：无卡片，大数字本身是视觉中心 -->
-    <LinearLayout
-        android:id="@+id/summaryBlock"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:paddingStart="@dimen/screen_margin"
-        android:paddingEnd="@dimen/screen_margin"
-        android:paddingTop="20dp"
-        android:paddingBottom="20dp">
-
-        <TextView
-            style="@style/Text.Caption"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/summary_label" />
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:baselineAligned="true"
-            android:orientation="horizontal">
-
-            <TextView
-                android:id="@+id/gapValue"
-                style="@style/Text.Numeral"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                tools:text="+320" />
-
-            <TextView
-                style="@style/Text.Secondary"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="6dp"
-                android:text="@string/kcal_unit"
-                android:layout_gravity="bottom"
-                android:paddingBottom="6dp" />
-        </LinearLayout>
-
-        <!-- 进度线：高 2dp，圆角 1dp -->
-        <ProgressBar
-            android:id="@+id/progressLine"
-            style="?android:attr/progressBarStyleHorizontal"
-            android:layout_width="match_parent"
-            android:layout_height="@dimen/progress_height"
-            android:layout_marginTop="12dp"
-            android:max="100"
-            android:progressDrawable="@drawable/progress_line" />
-
-        <TextView
-            android:id="@+id/summaryLine"
-            style="@style/Text.Secondary"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            tools:text="摄入 2180 · 消耗 1860 · 目标 2500" />
-    </LinearLayout>
+    <!--
+        v8 问题 4：原「汇总区」（36sp 大数字 + 2dp 进度线 + 「摄入/消耗/目标」行，≈140dp）
+        已**整体移除** —— 压扁成上面目标区里的「今日盈余」单行 32dp（点击进详情弹层）。
+        大数字、进度线、摄入/消耗明细全部下沉到 GoalDetailSheet 的「盈余」视角。
+    -->
 
     <!--
         多维状态行（设计规范系统 §9.2）。

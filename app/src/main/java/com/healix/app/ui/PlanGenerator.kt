@@ -6,6 +6,7 @@ import com.healix.app.db.DailyPlanEntity
 import com.healix.app.db.GoalDefaults
 import com.healix.app.db.GoalMetrics
 import com.healix.app.db.SettingsKeys
+import com.healix.app.db.kcalTargetOf
 import com.healix.app.net.ChatMessage
 import com.healix.app.net.ChatRequest
 import com.healix.app.net.ChatResult
@@ -341,8 +342,7 @@ class PlanGenerator(context: Context) {
         val goalStatement = db.settingsDao().get(SettingsKeys.GOAL_STATEMENT).orEmpty().trim()
         val primaryIdx = db.goalDao().getByMetric(GoalMetrics.PRIMARY)
             ?.targetValue?.toInt() ?: PLAN_PRIMARY_GAIN
-        val targetKcal = db.settingsDao().get(SettingsKeys.TARGET_KCAL)
-            ?.toIntOrNull()?.takeIf { it > 0 } ?: GoalDefaults.TARGET_KCAL
+        val targetKcal = kcalTargetOf(db)
         val sessions = goalInt(GoalMetrics.SESSIONS_PER_WEEK, GoalDefaults.TRAIN_SESSIONS_PER_WEEK)
         val minutes = goalInt(GoalMetrics.TRAIN_MINUTES_PER_WEEK, GoalDefaults.TRAIN_MINUTES_PER_WEEK)
         val sleepH = db.goalDao().getByMetric(GoalMetrics.SLEEP_H)

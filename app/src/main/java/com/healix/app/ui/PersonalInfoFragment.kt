@@ -22,8 +22,8 @@ import kotlinx.coroutines.launch
 /**
  * 个人信息页（P1）：从设置页「个人 / 我的情况」两组迁移而来。
  *
- * 交互：基本信息（当前体重 / 身高 / 年龄 / 活动系数）→ 每日摄入（每日目标摄入）
- * → 我的情况（忌口过敏 / 疼痛不适 / 就餐场景 / 作息 / 补充说明）。
+ * 交互：基本信息（当前体重 / 身高 / 年龄 / 活动系数）→ 我的情况（忌口过敏 /
+ * 疼痛不适 / 就餐场景 / 作息 / 补充说明）。
  *
  * 数据层**复用**现成的 [SettingsViewModel]（存储键名值域零改动）；本页只做 UI：
  * - **字段输入类**走 [FieldSheet]（底色容器，§5.1 统一载体）；
@@ -31,7 +31,8 @@ import kotlinx.coroutines.launch
  * - 「当前体重」入口与存储分离：确认后经 [SettingsViewModel.saveCurrentWeight]
  *   写一条 `events(type=body)`（与「记一笔」同管道，契约不变）。
  *
- * ⚠️ 不含任何新的数值兜底常量：目标卡路里默认沿用 [SettingsViewModel.reload]；
+ * ⚠️ 本页**不再承载任何目标数值**（v8 问题 2a：热量目标行已迁「目标」栏）——
+ * 数值目标唯一归属设置页「目标」栏。也不含任何新的数值兜底常量；
  * 活动系数取值 [ACTIVITY_VALUES] 由设置页迁来（**不复制两份**）。
  *
  * v8 T03：由 `PersonalInfoActivity` 迁为宿主 [MainActivity] 内的二级页 Fragment。
@@ -68,7 +69,9 @@ class PersonalInfoFragment : Fragment() {
         setupRow(binding.rowActivity, R.string.setting_activity) { chooseActivity() }
 
         // ── 每日摄入 ──────────────────────────────────────────────
-        setupRow(binding.rowTargetKcal, R.string.setting_target_kcal) { editTargetKcal() }
+        // v8 问题 2a：「每日目标摄入」行**整体移除** —— 数值目标（含热量）唯一归属
+        // 设置页「目标」栏（`fragment_settings.xml` 动态目标行）；本页只保留静态档案。
+        // 原 settings 键 TARGET_KCAL 仅作老数据迁移源（SettingsViewModel.migrateLegacyKcalTarget）。
 
         // ── 目标（自由文本「我的目标」，settings 键 GOAL_STATEMENT）──
         // 独立成组：数值目标（kcal）与人生目标（"想练出马甲线"）语义不同，
@@ -151,22 +154,6 @@ class PersonalInfoFragment : Fragment() {
                 vm.put(SettingsKeys.AGE, "")
             } else {
                 text.toIntOrNull()?.takeIf { it > 0 }?.let { vm.put(SettingsKeys.AGE, it.toString()) }
-            }
-        }
-    }
-
-    /** 每日目标摄入（正整数，空输入清除）。 */
-    private fun editTargetKcal() {
-        val cur = vm.values.value.targetKcal
-        showField(
-            R.string.setting_target_kcal,
-            listOf(FieldSheet.FieldSpec(R.string.setting_target_kcal, if (cur > 0) cur.toString() else "", NUMBER_INT)),
-        ) { raw ->
-            val text = raw.firstOrNull().orEmpty()
-            if (text.isBlank()) {
-                vm.put(SettingsKeys.TARGET_KCAL, "")
-            } else {
-                text.toIntOrNull()?.takeIf { it > 0 }?.let { vm.put(SettingsKeys.TARGET_KCAL, it.toString()) }
             }
         }
     }
@@ -363,8 +350,6 @@ class PersonalInfoFragment : Fragment() {
                     }
 
                     binding.rowActivity.value.text = activityLabel(v.activity)
-                    binding.rowTargetKcal.value.text =
-                        getString(R.string.plan_item_kcal, "", v.targetKcal).trimStart(' ', '·')
 
                     // 目标（自由文本）：空则显示统一「未设置」占位（不硬编码）
                     binding.rowGoalStatement.value.text =
