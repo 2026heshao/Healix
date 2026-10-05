@@ -534,7 +534,7 @@ _SUSPEND_RECEIVER_RE = re.compile(r'(?:[Dd]ao|Repository|repository|database|\bd
 
 
 def _calls_suspend(body: str, name: str) -> bool:
-    """`body` 里是否有对挂起函数 `name` 的调用。两种合法形态，缺一不可：
+    r"""`body` 里是否有对挂起函数 `name` 的调用。两种合法形态，缺一不可：
 
     (A) **无接收者的裸调用** `name(` —— 同文件 / 顶层 / 成员挂起函数；
     (B) **带接收者且接收者指向挂起源**的调用 `receiver.name(` ——
