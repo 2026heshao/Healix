@@ -71,7 +71,7 @@ data class EventEntity(
     @ColumnInfo(name = "sleep_h")
     val sleepH: Double = 0.0,
 
-    /** app | notification | preset | ai_suggestion */
+    /** app | notification | preset | ai_suggestion | recent */
     @ColumnInfo(name = "source")
     val source: String = "app",
 

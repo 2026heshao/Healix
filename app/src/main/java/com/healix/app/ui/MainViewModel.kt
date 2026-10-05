@@ -19,10 +19,13 @@ import com.healix.app.notify.QuickInputService
 import com.healix.app.net.NetworkStatus
 import com.healix.app.parse.ParsedEvent
 import com.healix.app.repo.EventRepository
+import com.healix.app.repo.ORIGIN_USER
 import com.healix.app.repo.SOURCE_PRESET
+import com.healix.app.repo.SOURCE_RECENT
 import com.healix.app.repo.SubmitResult
 import com.healix.app.rules.HealthAggregator
 import com.healix.app.rules.HealthRules
+import com.healix.app.rules.RecentChips
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -176,6 +179,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     val presets: StateFlow<List<PresetEntity>> = db.presetDao()
         .observeTop(6)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * 「最近记录」chips（v8 需求 9 功能 5）：首页预设横条右侧的一键复用项。
+     *
+     * 取 [RecentChips.SCAN_LIMIT] 条最新记录（`EventDao.observeRecent` 已 `deleted_at IS NULL`
+     * + `ts DESC`），[RecentChips.pick] 去重后只留 [RecentChips.MAX_CHIPS] 个**不同内容**
+     * —— 连续记三顿「米饭」不该把横条占满。只读、不调 AI。
+     */
+    val recentChips: StateFlow<List<EventEntity>> = db.eventDao()
+        .observeRecent(RecentChips.SCAN_LIMIT)
+        .map { list -> RecentChips.pick(list) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** 汇总：摄入 / 消耗 / 目标 / 缺口。目标来自设置页（BMR+盈余本地算）。 */
@@ -694,6 +709,50 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     } else {
                         ""
                     },
+                    totalCount = 1,
+                ),
+            )
+        }
+    }
+
+    /**
+     * 「最近记录」一键复用（功能 5）：把一条历史记录的**结构化字段原样**再入库。
+     *
+     * ⚠️ 用 [EventEntity.copy] 而**不是**重新解析 `rawText`：复用不需要 AI、不该花配额，
+     *    更不能因解析波动导致"复现出来的东西和上次不一样"。只有 id / 幂等键 / 时间 /
+     *    日键 / 来源 / 重试状态 / 时间戳被改写，其余字段（foods / exercise / amount /
+     *    kcal / symptom / weight_kg / sleep_h / time_hint）逐字沿用。
+     *
+     * 与 [logPreset] 同一条线：直接以 `done` 入库 + 5 秒撤销（规范 §9.6）。
+     */
+    fun logRecent(event: EventEntity) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val now = System.currentTimeMillis()
+            val dayStart = com.healix.app.parse.dayStartHourOf(db.settingsDao().get(KEY_DAY_START))
+            val clientEventId = java.util.UUID.randomUUID().toString()
+
+            db.eventDao().insertIgnore(
+                event.copy(
+                    id = 0,
+                    clientEventId = clientEventId,
+                    ts = now,
+                    dayKey = com.healix.app.parse.dayKeyOf(now, dayStart),
+                    source = SOURCE_RECENT,
+                    parseStatus = "done",
+                    retryCount = 0,
+                    lastError = null,
+                    origin = ORIGIN_USER,
+                    deletedAt = null,
+                    createdAt = now,
+                    updatedAt = now,
+                ),
+            )
+
+            _undo.tryEmit(
+                UndoPayload(
+                    clientEventId = clientEventId,
+                    typeName = EventText.typeName(getApplication(), event.type),
+                    valueText = EventText.summary(getApplication(), event, hideKcal.value).orEmpty(),
                     totalCount = 1,
                 ),
             )

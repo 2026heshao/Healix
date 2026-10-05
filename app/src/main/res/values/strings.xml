@@ -548,6 +548,10 @@
     <string name="unit_hour_short">%1$s h</string>
     <!-- 隐私隐藏体重时的打码值 -->
     <string name="goal_card_masked">••••</string>
+
+    <!-- 功能 5「最近记录」chip 的体重遮罩：HIDE_WEIGHT 打开时替代具体数值
+         （与三卡同口径 —— 开关不能只在首页生效、却在旁边漏出数字）。 -->
+    <string name="recent_masked">体重 ••••</string>
     <!-- 迷你趋势位：0 点 / 1–2 点（不足 3 点连不成线，用短文案，避免在 ~90dp 宽里被裁） -->
     <string name="goal_mini_empty">暂无记录</string>
     <string name="goal_mini_insufficient">攒够 3 次</string>

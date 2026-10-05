@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    横条内的 1dp 竖线分隔：预设段与「最近记录」段之间（v8 需求 9 功能 5）。
+    与三卡之间、首页各段之间的分隔线同口径（@dimen/divider + @color/line），
+    间距 20dp 对齐 item_preset 自身的 marginEnd。
+-->
+<View xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="@dimen/divider"
+    android:layout_height="match_parent"
+    android:layout_marginTop="10dp"
+    android:layout_marginBottom="10dp"
+    android:layout_marginEnd="20dp"
+    android:background="@color/line" />

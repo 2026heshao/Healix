@@ -24,6 +24,7 @@ import com.healix.app.db.SettingsKeys
 import com.healix.app.notify.AppEvent
 import com.healix.app.notify.AppEventBus
 import com.healix.app.notify.EventText
+import com.healix.app.rules.RecentChips
 import com.healix.app.ui.widget.SparklineView
 import com.healix.app.widget.HealixWidgetProvider
 import kotlinx.coroutines.launch
@@ -79,6 +80,12 @@ class RecordFragment : Fragment() {
     private var lastSummary: MainSummary = MainSummary()
     private var lastHideKcal: Boolean = false
     private var lastHideWeight: Boolean = false
+
+    // ── 功能 5：首页横条（预设 + 最近记录）快照 ───────────────────────
+    // 两路 Flow 到达顺序不确定，各自只写自己的快照再调一次 [renderPresetStrip]
+    // 全量重渲染（与目标区同一套做法）。
+    private var lastPresets: List<PresetEntity> = emptyList()
+    private var lastRecents: List<EventEntity> = emptyList()
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -373,7 +380,9 @@ class RecordFragment : Fragment() {
                     }
                 }
 
-                launch { vm.presets.collect { renderPresets(it) } }
+                // 预设 + 最近记录（功能 5）：共用一条横滚；两路各写快照后整体重渲染
+                launch { vm.presets.collect { lastPresets = it; renderPresetStrip() } }
+                launch { vm.recentChips.collect { lastRecents = it; renderPresetStrip() } }
 
                 // 状态行：两态互斥渲染（规范 §9.2）；「我的」页副行由 MineFragment 自行订阅同源 flow
                 launch {
@@ -645,23 +654,48 @@ class RecordFragment : Fragment() {
         }
     }
 
-    /** 预设横条：点一下 = 一条记录，完全不打字、不调 AI（功能补充 2.1）。
-     * 这是全 App 摩擦最低的路径。
+    /**
+     * 首页横条：预设 chips + 1dp 竖线 + 「最近记录」chips（功能补充 2.1 / v8 需求 9 功能 5）。
+     *
+     * 点一下 = 一条记录，完全不打字、不调 AI —— 这是全 App 摩擦最低的路径。
+     * 两段**共用同一条横滚**：拆成两条会让首页多出一整行高度；竖线只在两段都有时
+     * 插入（只有最近项时不必凭空加一条线）。最近 chip 的文案与体重遮罩由
+     * [RecentChips.label] 决定（受 HIDE_WEIGHT 约束，与三卡同口径）。
      */
-    private fun renderPresets(list: List<PresetEntity>) {
+    private fun renderPresetStrip() {
         binding.presetRow.removeAllViews()
-        val visible = list.isNotEmpty()
+        val presets = lastPresets
+        val recents = lastRecents
+        val visible = presets.isNotEmpty() || recents.isNotEmpty()
         binding.presetScroll.visibility = if (visible) View.VISIBLE else View.GONE
         binding.presetDivider.visibility = if (visible) View.VISIBLE else View.GONE
         if (!visible) return
 
-        for (preset in list) {
+        for (preset in presets) {
             val tv = layoutInflater.inflate(R.layout.item_preset, binding.presetRow, false)
                 as android.widget.TextView
             tv.text = preset.name
             tv.setOnClickListener { vm.logPreset(preset) }
             tv.bindPressScale()
             binding.presetRow.addView(tv)
+        }
+
+        if (recents.isNotEmpty()) {
+            if (presets.isNotEmpty()) {
+                binding.presetRow.addView(
+                    layoutInflater.inflate(
+                        R.layout.item_preset_separator, binding.presetRow, false,
+                    ),
+                )
+            }
+            for (event in recents) {
+                val tv = layoutInflater.inflate(R.layout.item_preset, binding.presetRow, false)
+                    as android.widget.TextView
+                tv.text = RecentChips.label(requireContext(), event, lastHideWeight)
+                tv.setOnClickListener { vm.logRecent(event) }
+                tv.bindPressScale()
+                binding.presetRow.addView(tv)
+            }
         }
     }
 

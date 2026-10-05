@@ -946,6 +946,9 @@ const val SOURCE_NOTIFICATION = "notification"
 const val SOURCE_PRESET = "preset"
 const val SOURCE_AI_SUGGESTION = "ai_suggestion"
 
+/** 「最近记录」一键复用（v8 需求 9 功能 5）：由历史记录 copy 而来，不经解析。 */
+const val SOURCE_RECENT = "recent"
+
 /** 来源归属 */
 const val ORIGIN_USER = "user"
 const val ORIGIN_AI = "ai_suggestion"
