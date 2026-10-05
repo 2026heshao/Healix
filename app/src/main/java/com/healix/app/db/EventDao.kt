@@ -235,6 +235,23 @@ interface EventDao {
     /** 导出备份用：取全部未删除记录（不分页，导出是低频操作）。 */
     @Query("SELECT * FROM events WHERE deleted_at IS NULL ORDER BY ts ASC")
     suspend fun listAll(): List<EventEntity>
+
+    /**
+     * 「上次值」回显用（v8 需求 9 功能 2）：取该类型**最近一条**未删除记录。
+     *
+     * ⚠️ 必须排除**当前正在编辑的那条**（`client_event_id != :excludeClientEventId`）：
+     *    确认弹窗里这条记录刚写库、`ts` 最大，不排除的话它会把**自己的值**当成
+     *    "上次值"回显给自己（自指），用户看到的是一个毫无信息量的"沿用"。
+     */
+    @Query(
+        """
+        SELECT * FROM events
+        WHERE type = :type AND deleted_at IS NULL
+              AND client_event_id != :excludeClientEventId
+        ORDER BY ts DESC LIMIT 1
+        """
+    )
+    suspend fun latestByTypeExcluding(type: String, excludeClientEventId: String): EventEntity?
 }
 
 /**

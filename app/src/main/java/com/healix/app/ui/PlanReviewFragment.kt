@@ -298,8 +298,14 @@ class PlanReviewFragment : Fragment() {
         detail.text = entry.detail
         detail.visibility = if (entry.detail.isBlank()) View.GONE else View.VISIBLE
 
-        meta.text = entry.meta
-        meta.visibility = if (entry.meta.isBlank()) View.GONE else View.VISIBLE
+        // meta 与恢复度注记共用这一行：两者都是"可核对的补充事实"，且**互斥**
+        // （计划条目只有 meta、训练日条目只有 recoveryNote）。仍按列表拼接而非
+        // `ifBlank{}` 兜底 —— 万一将来两者同时出现，宁可显示两段也不能静默丢一段。
+        val sub = listOf(entry.meta, entry.recoveryNote)
+            .filter { it.isNotBlank() }
+            .joinToString(" · ")
+        meta.text = sub
+        meta.visibility = if (sub.isBlank()) View.GONE else View.VISIBLE
 
         when {
             entry.canLog -> {

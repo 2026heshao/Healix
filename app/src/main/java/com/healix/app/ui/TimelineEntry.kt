@@ -2,6 +2,8 @@ package com.healix.app.ui
 
 import android.content.Context
 import com.healix.app.R
+import com.healix.app.db.EventEntity
+import com.healix.app.rules.RecoveryNote
 
 /**
  * [TimelineEntry.source] 的来源。
@@ -109,6 +111,8 @@ object PlanSlot {
  * @property canLog 是否显示「记一笔」
  * @property done 是否已完成（训练日 = 本周该天已记录；计划条目恒 false）
  * @property kcal 估算热量（「记一笔」原样落库；训练日 / 明天锚点 = 0）
+ * @property recoveryNote 训练日的恢复度注记（v8 需求 9 功能 1；非训练日 / 无法给出
+ *   可核对事实时为空串 → 该行整行隐藏）。构建见 [com.healix.app.rules.RecoveryNote]。
  */
 data class TimelineEntry(
     val dayIndex: Int,
@@ -123,6 +127,7 @@ data class TimelineEntry(
     val done: Boolean,
     val kcal: Int = 0,
     val day: Int = PLAN_DAY_TODAY,
+    val recoveryNote: String = "",
 )
 
 /**
@@ -164,6 +169,8 @@ object TimelineMerger {
      * @param training 本周训练计划（null = 尚未生成）
      * @param completedDows 本周已记录的训练日 ISO dow 集合
      * @param todayDow 今日 ISO dow（1 = 周一 … 7 = 周日）
+     * @param history 就近训练史（仅训练日的恢复度注记用；空 = 不显示注记）
+     * @param now 当前时间戳（调用方取一次传入，保证同屏内所有条目「距今」同口径）
      */
     fun merge(
         ctx: Context,
@@ -171,6 +178,8 @@ object TimelineMerger {
         training: TrainingPlan?,
         completedDows: Set<Int>,
         todayDow: Int,
+        history: List<EventEntity> = emptyList(),
+        now: Long = 0L,
     ): List<TimelineEntry> {
         val todayIndex = (todayDow - 1).coerceIn(0, DAYS_IN_WEEK - 1)
         val tomorrowIndex = todayIndex + 1
@@ -206,6 +215,13 @@ object TimelineMerger {
                         source = TimelineSource.TRAINING,
                         canLog = !day.isRest && !done,
                         done = done,
+                        // 需求 9 功能 1：按**已有**记录算恢复度注记（0 AI）。
+                        // 休息日 / 抓不出肌群 / 该肌群无历史 → 空串（整行隐藏）。
+                        recoveryNote = if (day.isRest) {
+                            ""
+                        } else {
+                            RecoveryNote.of(ctx, day.title, day.itemsLine(), history, now)
+                        },
                     )
                 }
             }

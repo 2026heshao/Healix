@@ -381,6 +381,24 @@ class EventRepository(private val context: Context) {
     }
 
     /**
+     * 「上次值」回显（v8 需求 9 功能 2）：同 `type` 的最近一条记录，**排除本行**。
+     *
+     * 用途：确认 / 编辑弹窗在某个字段本次没抽出内容时，把上一次同名字段的值
+     * 以灰字预填，用户看一眼确认或直接改 —— 服务「打开即记」。
+     *
+     * 读库异常一律返回 null：回显是锦上添花，**绝不能让确认弹窗打不开**
+     * （那是"模型输出必须人工确认"这条硬规则的最后一道闸门）。
+     */
+    suspend fun latestByType(type: String, excludeClientEventId: String): EventEntity? =
+        withContext(Dispatchers.IO) {
+            try {
+                eventDao.latestByTypeExcluding(type, excludeClientEventId)
+            } catch (e: Exception) {
+                null
+            }
+        }
+
+    /**
      * 软删除恢复（规范 11.3 左滑删除的「撤销」，V3 断言）：
      * 清掉 deleted_at，记录按原 ts 回插到列表原位。
      */

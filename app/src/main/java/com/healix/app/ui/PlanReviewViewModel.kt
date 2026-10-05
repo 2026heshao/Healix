@@ -147,6 +147,21 @@ class PlanReviewViewModel(app: Application) : AndroidViewModel(app) {
          *    会被 `check_duplicate_constants` 判为「同名且同值」重复定义。
          */
         private const val DAY_HEADER_COUNT = 7
+
+        /**
+         * 就近训练史的时间窗（天）。需求 9 功能 1 的恢复度注记用。
+         *
+         * 取 14 天：恢复窗口只有 48h，而「上次练距今天数」超过两周对用户没有决策价值；
+         * 窗口再放大会把整张 events 表拉进内存，而这是**每次进入计划页**都要跑的本地重算。
+         */
+        private const val RECOVERY_LOOKBACK_DAYS = 14L
+
+        /**
+         * `type = 'exercise'` 的字面量。
+         * ⚠️ 不能叫 `EVENT_EXERCISE`：`TimelineMerger` 已有同名同值常量（也在本包内），
+         *    会被 `check_duplicate_constants` 判为「同名且同值」重复定义。
+         */
+        private const val EXERCISE_EVENT_TYPE = "exercise"
     }
 
     // ------------------------------------------------------------------
@@ -210,12 +225,28 @@ class PlanReviewViewModel(app: Application) : AndroidViewModel(app) {
 
         // ── 合并统一时间轴（纯 UI 层，0 AI）────────────────────────────
         val todayDow = planner.todayDow()
+        val now = System.currentTimeMillis()
+        // 需求 9 功能 1：就近训练史 → 训练日的恢复度注记（0 AI）。
+        // 时间窗 = 今天往前 14 天：48h 恢复窗口之外，"上次 N 天前"再久也没有展示意义。
+        // ⚠️ 窗口起点从 [key]（唯一日键来源）派生，**不用 `LocalDate.now()`** ——
+        //    日界线设置改过之后两者会分叉。
+        val history = key?.let { today ->
+            runCatching {
+                db.eventDao().listByTypeInRange(
+                    type = EXERCISE_EVENT_TYPE,
+                    dayFrom = LocalDate.parse(today).minusDays(RECOVERY_LOOKBACK_DAYS).toString(),
+                    dayTo = today,
+                )
+            }.getOrNull()
+        }.orEmpty()
         val entries = TimelineMerger.merge(
             ctx = getApplication(),
             plan = result?.items.orEmpty(),
             training = training,
             completedDows = completed,
             todayDow = todayDow,
+            history = history,
+            now = now,
         )
 
         _plan.value = _plan.value.copy(

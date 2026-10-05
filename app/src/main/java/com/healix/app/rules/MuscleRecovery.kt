@@ -48,21 +48,31 @@ object MuscleRecovery {
     }
 
     /**
+     * 该肌群最近一次训练的 `ts`；**从没练过返回 null**（不是 0 —— 0 是合法时间戳，
+     * 用 0 当哨兵值会让"1970 年练过"这种荒谬结论混进来）。
+     *
+     * ⚠️ 与 [recoveryOf] 共用**同一套**「算不算练了这个肌群」的判定。两处若各写一份
+     *    filter，迟早出现同一屏里「恢复度说练过、距今说没练过」的自相矛盾。
+     *
+     * 只考虑 `type == "exercise"` 且 `deletedAt == null`（未软删）的记录。
+     */
+    fun lastTsOf(muscle: String, history: List<EventEntity>): Long? =
+        history
+            .filter { it.type == "exercise" && it.deletedAt == null }
+            .filter { musclesOf(it.rawText, it.exercise).contains(muscle) }
+            .maxOfOrNull { it.ts }
+
+    /**
      * 0–100 恢复度。未练过的肌群 = 100（新手友好）。
      *
-     * 只考虑 `type == "exercise"` 且 `deletedAt == null`（未软删）的记录，
-     * 取该肌群最近一次命中的 `ts`：
+     * 取该肌群最近一次命中的 `ts`（见 [lastTsOf]）：
      *   `hours = (now - ts) / 3600_000.0`
      *   `recovery = ((hours / 48.0) * 100).toInt().coerceIn(0, 100)`
      *
      * 找不到记录 → 100。`toInt()` 向零截断，恰好 24h → 50，≥48h → 100。
      */
     fun recoveryOf(muscle: String, history: List<EventEntity>, now: Long): Int {
-        val lastTs = history
-            .filter { it.type == "exercise" && it.deletedAt == null }
-            .filter { musclesOf(it.rawText, it.exercise).contains(muscle) }
-            .maxOfOrNull { it.ts }
-            ?: return 100
+        val lastTs = lastTsOf(muscle, history) ?: return 100
         val hours = (now - lastTs) / 3_600_000.0
         return ((hours / 48.0) * 100).toInt().coerceIn(0, 100)
     }

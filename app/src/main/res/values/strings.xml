@@ -174,6 +174,14 @@
     <string name="plan_item_kcal">%1$s · 约 %2$d kcal</string>
     <string name="plan_gap_label">还差 %1$d kcal</string>
     <string name="plan_action_meta">%1$s · %2$s</string>
+    <!-- v8 需求 9 功能 1（恢复度驱动训练）：训练日条目的「可核对事实」一行。
+         只用能从记录里逐字核对的事实（哪个肌群 / 多久以前 / 百分之几），
+         **不出现**评分、1RM、力量总分或训练建议口吻（PRD A4 / §5.7 硬边界）。
+         `%%` 是转义后的百分号（`getString` 走 Formatter）。 -->
+    <string name="recovery_ago_days">%1$d 天前</string>
+    <string name="recovery_ago_hours">%1$d 小时前</string>
+    <string name="plan_recovery_note">%1$s 上次 %2$s · 恢复 %3$d%%</string>
+    <string name="plan_recovery_alt">%1$s · 可练 %2$s</string>
     <!-- 计划 Tab 时间轴 · 顶部行（来源行）与失败/配额提示。
          v8 需求 7：手动「更新」已去除，AI 重排改后台自动 —— 在途时只给一行状态提示。 -->
     <string name="plan_auto_updating">正在按你的最新数据重排…</string>
