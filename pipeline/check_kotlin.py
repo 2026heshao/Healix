@@ -1131,6 +1131,25 @@ def check_object_scope() -> None:
         if not scopes:
             continue
 
+        # ── 同名成员消歧（2026-10-05）──────────────────────────────
+        # 若**使用点所在的对象体**里也声明了同名成员，Kotlin 会解析到该对象的成员
+        # （隐式接收者 `this` 的成员优先级高于外层/顶层声明）→ 这是合法引用，
+        # **不是** Unresolved reference。
+        # 典型误报：`object GoalSlots { val PRIMARY = ...; val ALL = listOf(PRIMARY) }`
+        # 与 `object GoalMetrics { const val PRIMARY = "primary" }` 同名 →
+        # 旧逻辑按"出 GoalMetrics 宿主作用域"报了 3 处假阳性。
+        # 只跳过"使用点位于**声明了同名成员**的宿主体内"这一种情况：
+        # 若使用点所在对象**没有**同名成员（真正的漏写 `Owner.`），仍照常报出。
+        host_members: dict[tuple[int, int], set[str]] = {}
+        for nm, hlo, hhi, _host, _ln in scopes:
+            host_members.setdefault((hlo, hhi), set()).add(nm)
+
+        def shadowed_by_enclosing(p: int, nm: str) -> bool:
+            return any(
+                hlo <= p <= hhi and nm in names
+                for (hlo, hhi), names in host_members.items()
+            )
+
         seen: set[tuple[str, int]] = set()
         for name, lo, hi, host, decl_line in scopes:
             if name in file_level or name in imported:
@@ -1140,6 +1159,8 @@ def check_object_scope() -> None:
                 p = um.start()
                 if lo <= p <= hi:
                     continue
+                if shadowed_by_enclosing(p, name):
+                    continue  # 使用点所在对象声明了同名成员 → 合法解析，跳过
                 if DECL_BEFORE_RE.search(masked[max(0, p - 12): p]):
                     continue  # 这是同名声明本身，不是引用
                 line = masked[:p].count("\n") + 1

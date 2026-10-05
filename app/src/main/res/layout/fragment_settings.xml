@@ -1,5 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 设置页（设计规范系统 4.4）：纯列表 + 分隔线，分组标题 12sp text_2，行高 56dp。 -->
+<!-- 设置页（设计规范系统 4.4）：纯列表 + 分隔线，分组标题 12sp text_2，行高 56dp。
+     v8 需求 4/6：
+       · 目标组由**固定 include** 改为**动态容器 goalContainer**（左滑删除 + 添加目标）；
+       · 删除「隐私」组（HIDE_KCAL/HIDE_WEIGHT 键与消费方保留，仅去掉 UI 入口）；
+       · 新增内联撤销条 undoBar（与首页同构，左滑删除后 5 秒可撤销）。 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
@@ -39,9 +43,47 @@
         android:layout_height="@dimen/divider"
         android:background="@color/line" />
 
+    <!--
+        内联撤销条（规范 §9.6）：左滑删除目标 / 提醒后出现，5 秒后自动消失。
+        与首页同构 —— **无底色无边框**，靠文字区分。放在工具栏正下方（不进 ScrollView），
+        保证无论列表滚到哪里都可见。
+    -->
+    <LinearLayout
+        android:id="@+id/undoBar"
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/touch_min"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="@dimen/screen_margin"
+        android:paddingEnd="@dimen/screen_margin"
+        android:visibility="gone"
+        tools:visibility="visible">
+
+        <TextView
+            android:id="@+id/undoLeft"
+            style="@style/Text.Secondary"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:maxLines="1"
+            tools:text="已删除「睡眠目标」" />
+
+        <TextView
+            android:id="@+id/undoAction"
+            style="@style/Text.Link"
+            android:layout_width="wrap_content"
+            android:layout_height="@dimen/touch_min"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:gravity="center"
+            android:minWidth="@dimen/touch_min"
+            android:text="@string/undo" />
+    </LinearLayout>
+
     <ScrollView
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
         android:scrollbars="none">
 
         <LinearLayout
@@ -186,7 +228,9 @@
 
             <!-- ══ 目标 ★v4（规范 9.7 ①）══
                  读写落在 goals 表（不是 settings 表）：目标有"起始值 / 目标值 / 主目标"
-                 三个维度，且首页状态行、训练处方都要读它，塞进 settings 会再次分裂语义。 -->
+                 三个维度，且首页状态行、训练处方都要读它，塞进 settings 会再次分裂语义。
+                 v8 需求 4：行由 `goalDao().observeActive()` **动态渲染**（左滑删除），
+                 主目标行不出删除位（is_primary==1）；末尾「添加目标」恢复归档项。 -->
             <View
                 android:layout_width="match_parent"
                 android:layout_height="@dimen/divider"
@@ -221,39 +265,23 @@
                 tools:text="来自膳食指南推荐量"
                 tools:visibility="visible" />
 
-            <include
-                android:id="@+id/rowGoalPrimary"
-                layout="@layout/row_setting_value"
+            <!-- 动态目标行容器：每行 inflate item_swipe_row.xml 后加入 -->
+            <LinearLayout
+                android:id="@+id/goalContainer"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
 
             <include
-                android:id="@+id/rowGoalWeight"
-                layout="@layout/row_setting_value"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
-
-            <include
-                android:id="@+id/rowGoalTrain"
-                layout="@layout/row_setting_value"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
-
-            <include
-                android:id="@+id/rowGoalSleep"
-                layout="@layout/row_setting_value"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
-
-            <include
-                android:id="@+id/rowGoalWater"
+                android:id="@+id/rowGoalAdd"
                 layout="@layout/row_setting_value"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content" />
 
             <!-- ══ 提醒 ★v4（规范 9.7 ③）══
-                 读写落在 reminders 表。行是**动态渲染**的（可增删），
-                 所以容器用 LinearLayout，行由代码 inflate row_setting_value 后加入。 -->
+                 读写落在 reminders 表。行是**动态渲染**的（可增删 + 左滑删除），
+                 所以容器用 LinearLayout，行由代码 inflate item_swipe_row.xml 后加入。
+                 v8 需求 4：**不再预置**默认提醒（体检/洗牙/配镜），仅保留「添加提醒」入口。 -->
             <View
                 android:layout_width="match_parent"
                 android:layout_height="@dimen/divider"
@@ -282,41 +310,10 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content" />
 
-            <!-- ══ 隐私 ★v4（规范 9.7 ④）══
-                 读写落在 settings 表（HIDE_KCAL / HIDE_WEIGHT 两个布尔键）。
-                 **不引入 Switch**：全 App 无底色容器，Switch 的彩色轨道会成为
-                 唯一的"彩色面"，破坏"全 App 只有 1 个强调色"。状态由右侧值文字承载。 -->
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="@dimen/divider"
-                android:layout_marginTop="@dimen/block_gap"
-                android:background="@color/line" />
-
-            <TextView
-                style="@style/Text.Caption"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:paddingStart="@dimen/screen_margin"
-                android:paddingEnd="@dimen/screen_margin"
-                android:paddingTop="12dp"
-                android:paddingBottom="8dp"
-                android:text="@string/group_privacy" />
-
-            <include
-                android:id="@+id/rowHideKcal"
-                layout="@layout/row_setting_value"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
-
-            <include
-                android:id="@+id/rowHideWeight"
-                layout="@layout/row_setting_value"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
-
             <!-- v6（11.1）：「数据 / 调试 / 知识库」三组迁「我的」页（fragment_mine.xml），
-                 设置页回归纯配置（模型服务 / 调用限制 / 目标 / 提醒 / 隐私）。
-                 v7（下一轮 §5.1）：「个人 / 我的情况」两组亦迁「我的」页 · 个人信息。 -->
+                 设置页回归纯配置（模型服务 / 调用限制 / 目标 / 提醒）。
+                 v8 需求 6：原「隐私」组（HIDE_KCAL / HIDE_WEIGHT）UI 入口整体移除；
+                 两个 settings 键与全部消费方（首页汇总区 / 状态详情页 / 对话系统提示）保留。 -->
         </LinearLayout>
     </ScrollView>
 

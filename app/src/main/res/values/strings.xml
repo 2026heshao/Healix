@@ -407,16 +407,21 @@
     <!-- ── 设置页新增三组（规范 9.7） ── -->
     <string name="group_goal">目标</string>
     <string name="group_reminder">提醒</string>
-    <string name="group_privacy">隐私</string>
+    <!-- v8 需求 6：原「隐私」组 UI 入口移除 —— group_privacy / setting_hide_kcal /
+         setting_hide_weight / value_shown / value_hidden 五条文案一并删除；
+         settings 键 HIDE_KCAL / HIDE_WEIGHT 与全部消费方保留（老用户取值不变）。 -->
     <string name="setting_primary_goal">主目标</string>
     <string name="setting_weight_goal">体重目标</string>
     <string name="setting_train_goal">每周训练</string>
     <string name="setting_sleep_goal">睡眠目标</string>
     <string name="setting_water_goal">饮水目标</string>
+    <!-- v8 需求 4：目标栏「添加目标」入口 + 弹窗（恢复归档目标 / 补齐缺失目标） -->
+    <string name="goal_add">添加目标</string>
+    <string name="add_goal_title">添加目标</string>
+    <string name="add_goal_desc">以下目标当前未启用，点击即可重新启用（若曾删除，原设定值会一并恢复）</string>
+    <string name="add_goal_empty">所有目标都已启用</string>
     <!-- 「我的目标」自由文本行（个人信息页 · 目标组）。空值占位统一 value_not_set。 -->
     <string name="setting_goal_statement">我的目标</string>
-    <string name="setting_hide_kcal">隐藏热量数字</string>
-    <string name="setting_hide_weight">隐藏体重数字</string>
     <!-- 规范 9.7 / 921 行：目标组每项值下方 8dp 处 13sp text_3 的「依据提示」，
          仅在用户首次打开该组时显示一次（标记见 SettingsKeys.GOAL_SOURCE_SEEN）。
          措辞指的是 `ensureGoalDefaultsIfEmpty()` 里训练/睡眠/饮水的默认值来源 ——
@@ -425,8 +430,6 @@
     <string name="goal_gain">增重</string>
     <string name="goal_loss">减重</string>
     <string name="goal_keep">保持</string>
-    <string name="value_shown">显示</string>
-    <string name="value_hidden">已隐藏</string>
     <string name="unit_train_goal">%1$d 次 / %2$d 分钟</string>
     <string name="unit_hours">%1$s 小时</string>
     <string name="unit_ml">%1$d ml</string>

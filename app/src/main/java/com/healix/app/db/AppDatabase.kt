@@ -77,8 +77,10 @@ abstract class AppDatabase : RoomDatabase() {
          * 可空列不加 NOT NULL、非自增主键在列定义后用 `PRIMARY KEY(...)` 声明。
          *
          * ⚠️ **迁移只做 DDL，不 seed 业务数据**（职责单一：只改结构）。
-         * 默认提醒不是结构的一部分，由 `SettingsViewModel.ensureReminderDefaultsIfEmpty()`
-         * 在空表时补齐（文案走 `R.string.reminder_*`，避免在 Kotlin 里硬编码中文）。
+         * v8 需求 4 起：**提醒不再预置**（原 `SettingsViewModel.ensureReminderDefaultsIfEmpty()`
+         * 已删）—— 用户自建，设置页只留「添加提醒」入口。
+         * 默认目标（goals）仍由 `SettingsViewModel.ensureGoalDefaultsIfEmpty()` 在空表时补齐
+         * （取值为膳食指南推荐量，走 `GoalDefaults`，避免在 Kotlin 里硬编码）。
          */
         private val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {

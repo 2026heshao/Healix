@@ -9,6 +9,7 @@ import com.healix.app.db.EventEntity
 import com.healix.app.db.GoalDefaults
 import com.healix.app.db.GoalEntity
 import com.healix.app.db.GoalMetrics
+import com.healix.app.db.GoalSlots
 import com.healix.app.db.GoalTypes
 import com.healix.app.db.ReminderEntity
 import com.healix.app.db.SettingEntity
@@ -127,6 +128,13 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
     val goals: StateFlow<List<GoalEntity>> = db.goalDao().observeActive()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /**
+     * 已归档目标（v8 需求 4）。「添加目标」弹窗据此判断哪些槽位可恢复。
+     * 只读订阅，写操作走 [archiveSlot] / [ensureSlotActive]。
+     */
+    val archivedGoals: StateFlow<List<GoalEntity>> = db.goalDao().observeArchived()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     // ── 提醒（reminders 表）─────────────────────────────────────────
     /** 启用中的提醒，按到期日升序。 */
     val reminders: StateFlow<List<ReminderEntity>> = db.reminderDao().observeEnabled()
@@ -137,9 +145,11 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         viewModelScope.launch {
-            // 首次进入时补齐默认目标 / 预设提醒，再读设置值。
+            // 首次进入时补齐默认目标，再读设置值。
+            // ⚠️ v8 需求 4：**不再**预置默认提醒（`ensureReminderDefaultsIfEmpty` 已删）——
+            //    提醒栏改为"空列表 + 添加提醒入口"，由用户按需自建。
+            //    老用户设备上已存在的提醒**不删**（只停止预置行为）。
             ensureGoalDefaultsIfEmpty()
-            ensureReminderDefaultsIfEmpty()
             reload()
         }
     }
@@ -165,81 +175,69 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
         if (db.goalDao().countActive() > 0) return@withContext
         val now = System.currentTimeMillis()
         val weightTarget = settings.get(SettingsKeys.WEIGHT)?.toDoubleOrNull() ?: 0.0
-        val defaults = listOf(
-            GoalEntity(
-                type = GoalTypes.GOAL_MODE,
-                metric = GoalMetrics.PRIMARY,
-                targetValue = GOAL_MODE_GAIN.toDouble(),
-                isPrimary = 1,
-                createdAt = now,
-                updatedAt = now,
-            ),
-            GoalEntity(
-                type = GoalTypes.WEIGHT,
-                metric = GoalMetrics.WEIGHT_KG,
-                targetValue = weightTarget,
-                createdAt = now,
-                updatedAt = now,
-            ),
-            GoalEntity(
-                type = GoalTypes.TRAINING,
-                metric = GoalMetrics.SESSIONS_PER_WEEK,
-                targetValue = GoalDefaults.TRAIN_SESSIONS_PER_WEEK.toDouble(),
-                createdAt = now,
-                updatedAt = now,
-            ),
-            GoalEntity(
-                type = GoalTypes.TRAINING,
-                metric = GoalMetrics.TRAIN_MINUTES_PER_WEEK,
-                targetValue = GoalDefaults.TRAIN_MINUTES_PER_WEEK.toDouble(),
-                createdAt = now,
-                updatedAt = now,
-            ),
-            GoalEntity(
-                type = GoalTypes.SLEEP,
-                metric = GoalMetrics.SLEEP_H,
-                targetValue = GoalDefaults.SLEEP_H,
-                createdAt = now,
-                updatedAt = now,
-            ),
-            GoalEntity(
-                type = GoalTypes.HABIT,
-                metric = GoalMetrics.WATER_ML,
-                targetValue = GoalDefaults.WATER_ML.toDouble(),
-                createdAt = now,
-                updatedAt = now,
-            ),
-        )
-        defaults.forEach { db.goalDao().upsert(it) }
+        // 展开全部槽位的 metrics → 与 GoalSlots 同源，新增维度不会漏建。
+        GoalSlots.ALL.flatMap { it.metrics }.forEach { metric ->
+            db.goalDao().upsert(defaultGoal(metric, weightTarget, now))
+        }
     }
 
     /**
-     * 首次启动补齐预设提醒（仅当 reminders 表为空时）。
+     * 某个 metric 的**默认目标行**（唯一构造入口，供"首次预置"与"添加目标"共用）。
      *
-     * 预设来自 PRD §5.4：体检 365 天 / 洗牙 180 天 / 配镜 365 天（疫苗由用户自填，不预置）。
-     * 名称走 `strings.xml`（`reminder_*`），周期天数即名称对应的常见复查间隔。
-     * 首次到期日 = 今天 + 周期天数（无历史"上次日期"）。
+     * `created_at`/`updated_at` 由调用方传入 `now`，保证一次操作内所有行的
+     * 时间戳一致（列表按 `id ASC` 排序时才不会因毫秒差抖动）。
      */
-    private suspend fun ensureReminderDefaultsIfEmpty() = withContext(Dispatchers.IO) {
-        if (db.reminderDao().count() > 0) return@withContext
-        val app = getApplication<Application>()
-        val now = System.currentTimeMillis()
-        val presets = listOf(
-            app.getString(R.string.reminder_checkup) to 365,
-            app.getString(R.string.reminder_dental) to 180,
-            app.getString(R.string.reminder_glasses) to 365,
+    private fun defaultGoal(metric: String, weightTarget: Double, now: Long): GoalEntity = when (metric) {
+        GoalMetrics.PRIMARY -> GoalEntity(
+            type = GoalTypes.GOAL_MODE,
+            metric = metric,
+            targetValue = GOAL_MODE_GAIN.toDouble(),
+            isPrimary = 1,
+            createdAt = now,
+            updatedAt = now,
         )
-        presets.forEach { (name, days) ->
-            db.reminderDao().upsert(
-                ReminderEntity(
-                    name = name,
-                    intervalDays = days,
-                    lastDoneAt = null,
-                    nextDueAt = now + days.toLong() * HealixDate.DAY_MS,
-                    createdAt = now,
-                )
-            )
-        }
+
+        GoalMetrics.WEIGHT_KG -> GoalEntity(
+            type = GoalTypes.WEIGHT,
+            metric = metric,
+            targetValue = weightTarget,
+            createdAt = now,
+            updatedAt = now,
+        )
+
+        GoalMetrics.SESSIONS_PER_WEEK -> GoalEntity(
+            type = GoalTypes.TRAINING,
+            metric = metric,
+            targetValue = GoalDefaults.TRAIN_SESSIONS_PER_WEEK.toDouble(),
+            createdAt = now,
+            updatedAt = now,
+        )
+
+        GoalMetrics.TRAIN_MINUTES_PER_WEEK -> GoalEntity(
+            type = GoalTypes.TRAINING,
+            metric = metric,
+            targetValue = GoalDefaults.TRAIN_MINUTES_PER_WEEK.toDouble(),
+            createdAt = now,
+            updatedAt = now,
+        )
+
+        GoalMetrics.SLEEP_H -> GoalEntity(
+            type = GoalTypes.SLEEP,
+            metric = metric,
+            targetValue = GoalDefaults.SLEEP_H,
+            createdAt = now,
+            updatedAt = now,
+        )
+
+        GoalMetrics.WATER_ML -> GoalEntity(
+            type = GoalTypes.HABIT,
+            metric = metric,
+            targetValue = GoalDefaults.WATER_ML.toDouble(),
+            createdAt = now,
+            updatedAt = now,
+        )
+
+        else -> error("未登记的 goal.metric: $metric —— 请在 GoalMetrics/GoalSlots 补全")
     }
 
     private suspend fun reload() {
@@ -385,11 +383,60 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    // ── 目标归档 / 恢复（v8 需求 4：左滑删除 + 添加目标）───────────────
+
+    /**
+     * 归档一个目标槽位（左滑删除的落地点）。
+     *
+     * **成组归档**：`Train` 槽位含 2 个 metric，必须一起归档，否则会出现
+     * "删了次数、时长还在"的半个目标（见 [GoalSlots] 头注释）。
+     * 归档 = `status='archived'`，**不物理删除**：`observeActive()` 立即不再返回它，
+     * 但数据仍在表里，「添加目标」可原值恢复。
+     *
+     * 一次操作内所有行用**同一个 `now`**，避免 `updated_at` 毫秒差。
+     */
+    fun archiveSlot(slot: GoalSlots.Slot) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val now = System.currentTimeMillis()
+            slot.metrics.forEach { db.goalDao().archiveGoal(it, now) }
+        }
+    }
+
+    /**
+     * 让一个目标槽位重新生效（「添加目标」的落地点）。
+     *
+     * 逐 metric 判定，兼容两种来源：
+     * - 表里已有该 metric 的行（曾归档）→ [GoalDao.restoreGoal] 改回 active，**保留原值**；
+     * - 表里根本没有该 metric 的行（如用户跳过引导后 `ensureGoalDefaultsIfEmpty`
+     *   因 `countActive()>0` 未补齐）→ 用 [defaultGoal] 补一行。
+     *
+     * 幂等：槽位已 active 时两步都不产生变化。
+     */
+    fun ensureSlotActive(slot: GoalSlots.Slot) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val now = System.currentTimeMillis()
+            // 体重槽位的默认值取用户已填的 WEIGHT（与首次预置同口径）
+            val weightTarget = settings.get(SettingsKeys.WEIGHT)?.toDoubleOrNull() ?: 0.0
+            slot.metrics.forEach { metric ->
+                if (db.goalDao().getByMetricAny(metric) != null) {
+                    db.goalDao().restoreGoal(metric, now)
+                } else {
+                    db.goalDao().upsert(defaultGoal(metric, weightTarget, now))
+                }
+            }
+        }
+    }
+
     // ── 隐私（settings 表：HIDE_KCAL / HIDE_WEIGHT）─────────────────
 
     /**
      * 切换一个布尔隐私开关。`key` 只允许传 `SettingsKeys.HIDE_*`（键名纪律）。
      * 状态存 `"true"` / `"false"`，默认（键不存在）视为 `false`。
+     *
+     * ⚠️ v8 需求 6：设置页「隐私」组 UI 入口已移除，本方法**当前没有调用点**，
+     * 但**刻意保留** —— 两个键与全部消费方（首页汇总区 / 状态详情页 / 对话系统提示）
+     * 仍在生效，老用户设备上的既有取值继续沿用（架构设计 §Q3：不新增兜底入口）。
+     * 将来若在别处（如「我的」页）恢复入口，直接调本方法即可，无需重建写入链。
      */
     fun toggleHide(key: String) {
         viewModelScope.launch(Dispatchers.IO) {
@@ -442,6 +489,17 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
 
     fun deleteReminder(id: Long) {
         viewModelScope.launch(Dispatchers.IO) { db.reminderDao().delete(id) }
+    }
+
+    /**
+     * 撤销删除：把一条提醒**原样**插回（v8 需求 4 左滑删除的撤销落地点）。
+     *
+     * 与 [saveReminder] 的区别：后者会按"上次日期 + 周期"**重算** `nextDueAt`，
+     * 用于用户编辑；本方法直接 `upsert` 整个快照 → id 与 `next_due_at` 与删除前**逐字一致**，
+     * 撤销后行回到原位（排序键 `next_due_at` 不变）。
+     */
+    fun restoreReminder(reminder: ReminderEntity) {
+        viewModelScope.launch(Dispatchers.IO) { db.reminderDao().upsert(reminder) }
     }
 
     fun providerNames(): List<String> =

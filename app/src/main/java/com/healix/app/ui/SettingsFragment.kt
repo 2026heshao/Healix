@@ -4,6 +4,7 @@ import android.content.DialogInterface
 import android.os.Bundle
 import android.text.InputType
 import android.view.LayoutInflater
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.EditText
@@ -17,8 +18,11 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.healix.app.HealixApp
 import com.healix.app.R
 import com.healix.app.databinding.FragmentSettingsBinding
+import com.healix.app.databinding.ItemSwipeRowBinding
 import com.healix.app.databinding.RowSettingValueBinding
+import com.healix.app.db.GoalEntity
 import com.healix.app.db.GoalMetrics
+import com.healix.app.db.GoalSlots
 import com.healix.app.db.ReminderEntity
 import com.healix.app.db.SettingsKeys
 import java.time.Instant
@@ -45,6 +49,9 @@ class SettingsFragment : Fragment() {
     private val binding get() = _binding!!
 
     private lateinit var vm: SettingsViewModel
+
+    /** 左滑删除（11.3 / v8 需求 4）：目标行与提醒行共用 1 个实例 → 全局单开。 */
+    private lateinit var swipe: SwipeController
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -84,23 +91,28 @@ class SettingsFragment : Fragment() {
         setupRow(binding.rowRetryDelay, R.string.setting_retry_delay) { editDecimal(KEY_RETRY_DELAY, R.string.setting_retry_delay) }
 
         // ── 目标（goals 表）──────────────────────────────────────
-        setupRow(binding.rowGoalPrimary, R.string.setting_primary_goal) { choosePrimaryGoal() }
-        setupRow(binding.rowGoalWeight, R.string.setting_weight_goal) { editGoalWeight() }
-        setupRow(binding.rowGoalTrain, R.string.setting_train_goal) { editGoalTrain() }
-        setupRow(binding.rowGoalSleep, R.string.setting_sleep_goal) { editGoalSleep() }
-        setupRow(binding.rowGoalWater, R.string.setting_water_goal) { editGoalWater() }
+        // v8 需求 4：行改为按 `goalDao().observeActive()` **动态渲染**（见 renderGoals，
+        // 支持左滑删除）；此处只接末尾的「添加目标」入口（恢复归档项 / 补齐缺失项）。
+        setupRow(binding.rowGoalAdd, R.string.goal_add) { showAddGoal() }
 
         // 目标组「依据提示」：仅首次打开该组时显示一次（规范 9.7）
         setupGoalSourceHint()
 
         // ── 提醒（reminders 表）──────────────────────────────────
+        // v8 需求 4：不再预置默认提醒，仅保留「添加提醒」入口；行支持左滑删除。
         setupRow(binding.rowReminderAdd, R.string.reminder_add) { editReminder(null) }
 
-        // ── 隐私（settings：HIDE_KCAL / HIDE_WEIGHT）──────────────
-        setupRow(binding.rowHideKcal, R.string.setting_hide_kcal) { vm.toggleHide(KEY_HIDE_KCAL) }
-        setupRow(binding.rowHideWeight, R.string.setting_hide_weight) { vm.toggleHide(KEY_HIDE_WEIGHT) }
-
         // v6（11.1）：「数据 / 调试 / 知识库」三组迁「我的」页，设置页回归纯配置。
+        // v8 需求 6：原「隐私」组（HIDE_KCAL / HIDE_WEIGHT）UI 入口整体移除；
+        //            两个 settings 键与全部消费方（首页 / 状态详情 / 对话提示）保留。
+
+        // ── 左滑删除（11.3 / v8 需求 4）────────────────────────────
+        swipe = SwipeController(requireContext())
+        // 列表可视区外的按下（工具栏 / 按钮区 / 分组标题等）也收起滑开的行
+        binding.root.setOnTouchListener { _, e ->
+            if (e.actionMasked == MotionEvent.ACTION_DOWN) swipe.closeIfOutside(null)
+            false // 不消费
+        }
 
         observe()
     }
@@ -134,12 +146,6 @@ class SettingsFragment : Fragment() {
                     binding.rowRetry.value.text = getString(R.string.unit_times, v.retry)
                     binding.rowRetryDelay.value.text = getString(R.string.unit_seconds, trim(v.retryDelay))
                     binding.rowDayStart.value.text = getString(R.string.unit_hour_clock, v.dayStart)
-
-                    // 隐私：右侧值文字即状态，点击切换（不引入 Switch，规范 9.7 ④）
-                    binding.rowHideKcal.value.text =
-                        getString(if (v.hideKcal) R.string.value_hidden else R.string.value_shown)
-                    binding.rowHideWeight.value.text =
-                        getString(if (v.hideWeight) R.string.value_hidden else R.string.value_shown)
                 }
             }
         }
@@ -231,29 +237,136 @@ class SettingsFragment : Fragment() {
         }
     }
 
-    private fun renderGoals(list: List<com.healix.app.db.GoalEntity>) {
+    /**
+     * 目标组动态渲染（v8 需求 4）：按 [GoalSlots] 的顺序，为每个"有生效行"的槽位
+     * inflate 一行 `item_swipe_row.xml`。**主目标行不出删除位**（`is_primary` 语义 +
+     * 目标组必须始终有一个主目标）。
+     *
+     * 槽位全部 metric 都未启用时**不显示该行** —— 由末尾「添加目标」恢复
+     * （归档 ≠ 物理删除，见 [GoalSlots] 头注释）。
+     */
+    private fun renderGoals(list: List<GoalEntity>) {
         val byMetric = list.associateBy { it.metric }
+        val container = binding.goalContainer
+        // 重渲染会销毁旧行视图 → 先收起滑开态，避免 SwipeController 跟踪已 detach 的视图
+        swipe.closeAll()
+        container.removeAllViews()
 
-        val mode = byMetric[GoalMetrics.PRIMARY]?.targetValue?.toInt() ?: SettingsViewModel.GOAL_MODE_GAIN
-        binding.rowGoalPrimary.value.text = when (mode) {
-            SettingsViewModel.GOAL_MODE_LOSS -> getString(R.string.goal_loss)
-            SettingsViewModel.GOAL_MODE_KEEP -> getString(R.string.goal_keep)
-            else -> getString(R.string.goal_gain)
+        GoalSlots.ALL.forEach { slot ->
+            val active = slot.metrics.mapNotNull { byMetric[it] }
+            if (active.isEmpty()) return@forEach // 全部未启用 → 交给「添加目标」入口
+
+            val row = ItemSwipeRowBinding.inflate(layoutInflater, container, false)
+            row.swipeRow.label.setText(goalLabelRes(slot))
+            row.swipeRow.value.text = goalValueText(slot, active)
+            row.swipeRow.chevron.visibility = View.VISIBLE
+
+            if (slot == GoalSlots.PRIMARY) {
+                // 主目标：不可删（无删除位，也不接滑动）
+                row.actDelete.visibility = View.GONE
+            } else {
+                row.swipeItem.setOnTouchListener { v, ev ->
+                    swipe.onTouch(v, ev)
+                    false // 不消费：点击 / 滚动照旧
+                }
+                row.actDelete.setOnClickListener {
+                    if (!swipe.clickAllowed()) return@setOnClickListener
+                    swipe.closeAll()
+                    archiveSlotWithUndo(slot)
+                }
+            }
+
+            // 整行点击 → 编辑（按 slot 分发到既有编辑逻辑）
+            row.swipeRow.root.setOnClickListener {
+                if (!swipe.clickAllowed()) return@setOnClickListener
+                swipe.closeAll()
+                editGoal(slot)
+            }
+            container.addView(row.root)
         }
+    }
 
-        val weight = byMetric[GoalMetrics.WEIGHT_KG]?.targetValue ?: 0.0
-        binding.rowGoalWeight.value.text =
-            if (weight > 0) getString(R.string.unit_kg, trim(weight)) else getString(R.string.value_not_set)
+    /** 槽位 → 行标签资源。 */
+    private fun goalLabelRes(slot: GoalSlots.Slot): Int = when (slot) {
+        GoalSlots.PRIMARY -> R.string.setting_primary_goal
+        GoalSlots.WEIGHT -> R.string.setting_weight_goal
+        GoalSlots.TRAIN -> R.string.setting_train_goal
+        GoalSlots.SLEEP -> R.string.setting_sleep_goal
+        else -> R.string.setting_water_goal
+    }
 
-        val sessions = byMetric[GoalMetrics.SESSIONS_PER_WEEK]?.targetValue?.toInt() ?: 0
-        val minutes = byMetric[GoalMetrics.TRAIN_MINUTES_PER_WEEK]?.targetValue?.toInt() ?: 0
-        binding.rowGoalTrain.value.text = getString(R.string.unit_train_goal, sessions, minutes)
+    /** 槽位当前值文案（口径与旧固定行一致；空值走 [R.string.value_not_set]）。 */
+    private fun goalValueText(slot: GoalSlots.Slot, active: List<GoalEntity>): CharSequence {
+        val m = active.associateBy { it.metric }
+        return when (slot) {
+            GoalSlots.PRIMARY -> {
+                val mode = m[GoalMetrics.PRIMARY]?.targetValue?.toInt() ?: SettingsViewModel.GOAL_MODE_GAIN
+                when (mode) {
+                    SettingsViewModel.GOAL_MODE_LOSS -> getString(R.string.goal_loss)
+                    SettingsViewModel.GOAL_MODE_KEEP -> getString(R.string.goal_keep)
+                    else -> getString(R.string.goal_gain)
+                }
+            }
 
-        val sleepH = byMetric[GoalMetrics.SLEEP_H]?.targetValue ?: 0.0
-        binding.rowGoalSleep.value.text = getString(R.string.unit_hours, trim(sleepH))
+            GoalSlots.WEIGHT -> {
+                val w = m[GoalMetrics.WEIGHT_KG]?.targetValue ?: 0.0
+                if (w > 0) getString(R.string.unit_kg, trim(w)) else getString(R.string.value_not_set)
+            }
 
-        val water = byMetric[GoalMetrics.WATER_ML]?.targetValue?.toInt() ?: 0
-        binding.rowGoalWater.value.text = getString(R.string.unit_ml, water)
+            GoalSlots.TRAIN -> {
+                val s = m[GoalMetrics.SESSIONS_PER_WEEK]?.targetValue?.toInt() ?: 0
+                val min = m[GoalMetrics.TRAIN_MINUTES_PER_WEEK]?.targetValue?.toInt() ?: 0
+                getString(R.string.unit_train_goal, s, min)
+            }
+
+            GoalSlots.SLEEP -> getString(R.string.unit_hours, trim(m[GoalMetrics.SLEEP_H]?.targetValue ?: 0.0))
+
+            else -> getString(R.string.unit_ml, m[GoalMetrics.WATER_ML]?.targetValue?.toInt() ?: 0)
+        }
+    }
+
+    /** 整行点击 → 按槽位分发到既有编辑逻辑。 */
+    private fun editGoal(slot: GoalSlots.Slot) {
+        when (slot) {
+            GoalSlots.PRIMARY -> choosePrimaryGoal()
+            GoalSlots.WEIGHT -> editGoalWeight()
+            GoalSlots.TRAIN -> editGoalTrain()
+            GoalSlots.SLEEP -> editGoalSleep()
+            else -> editGoalWater()
+        }
+    }
+
+    /**
+     * 左滑删除一个目标槽位（归档 + 5 秒撤销）。
+     * 「撤销」= `ensureSlotActive`（归档行按原值恢复，不新增行）。
+     */
+    private fun archiveSlotWithUndo(slot: GoalSlots.Slot) {
+        vm.archiveSlot(slot)
+        UndoBar.bind(
+            container = binding.undoBar,
+            leftText = binding.undoLeft,
+            action = binding.undoAction,
+            text = getString(R.string.undo_deleted, getString(goalLabelRes(slot))),
+            announce = null,
+            onUndo = { vm.ensureSlotActive(slot) },
+        )
+    }
+
+    /** 打开「添加目标」弹窗（列出当前未启用的槽位；选中即恢复 / 补齐）。 */
+    private fun showAddGoal() {
+        // 已启用 = 该槽位至少有一个 active metric
+        val activeMetrics = vm.goals.value.map { it.metric }.toSet()
+        val pending = GoalSlots.ALL.filter { slot -> slot.metrics.none { it in activeMetrics } }
+        if (pending.isEmpty()) {
+            android.widget.Toast.makeText(requireContext(), R.string.add_goal_empty, android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
+        val sheet = AddGoalSheet.newInstance(
+            keys = pending.map { it.key },
+            labels = pending.map { getString(goalLabelRes(it)) },
+        )
+        sheet.onPick = { key -> GoalSlots.byKey(key)?.let { vm.ensureSlotActive(it) } }
+        sheet.show(childFragmentManager, AddGoalSheet.TAG)
     }
 
     /** 当前目标值（编辑弹窗回显用）。 */
@@ -322,23 +435,58 @@ class SettingsFragment : Fragment() {
 
     // ── 提醒渲染与编辑 ────────────────────────────────────────────
 
+    /**
+     * 提醒组动态渲染（v8 需求 4）：每条提醒 inflate 一行 `item_swipe_row.xml`，
+     * 支持左滑删除（删除后 5 秒可撤销，撤销 = 原样插回）。
+     */
     private fun renderReminders(list: List<ReminderEntity>) {
         val container = binding.reminderContainer
+        // 先收起滑开态（旧行视图即将被销毁）
+        swipe.closeAll()
         container.removeAllViews()
         val now = System.currentTimeMillis()
         list.forEach { reminder ->
-            val row = RowSettingValueBinding.inflate(layoutInflater, container, false)
-            row.label.text = reminder.name
-            row.chevron.visibility = View.VISIBLE
-            row.value.text = getString(R.string.status_reminder_next, dateLabel(reminder.nextDueAt))
+            val row = ItemSwipeRowBinding.inflate(layoutInflater, container, false)
+            row.swipeRow.label.text = reminder.name
+            row.swipeRow.chevron.visibility = View.VISIBLE
+            row.swipeRow.value.text = getString(R.string.status_reminder_next, dateLabel(reminder.nextDueAt))
             // 到期或临期（≤7 天）：右侧日期用 accent（规范 9.7 ③）
             val due = reminder.nextDueAt - now <= 7L * HealixDate.DAY_MS
-            row.value.setTextColor(
+            row.swipeRow.value.setTextColor(
                 ContextCompat.getColor(requireContext(), if (due) R.color.accent else R.color.text_2),
             )
-            row.root.setOnClickListener { reminderActions(reminder) }
+            row.swipeItem.setOnTouchListener { v, ev ->
+                swipe.onTouch(v, ev)
+                false // 不消费：点击 / 滚动照旧
+            }
+            row.actDelete.setOnClickListener {
+                if (!swipe.clickAllowed()) return@setOnClickListener
+                swipe.closeAll()
+                deleteReminderWithUndo(reminder)
+            }
+            row.swipeRow.root.setOnClickListener {
+                if (!swipe.clickAllowed()) return@setOnClickListener
+                swipe.closeAll()
+                reminderActions(reminder)
+            }
             container.addView(row.root)
         }
+    }
+
+    /**
+     * 左滑删除一条提醒 + 5 秒撤销。
+     * 提醒是**物理删除**，撤销需保留整条快照原样插回（[SettingsViewModel.restoreReminder]）。
+     */
+    private fun deleteReminderWithUndo(reminder: ReminderEntity) {
+        vm.deleteReminder(reminder.id)
+        UndoBar.bind(
+            container = binding.undoBar,
+            leftText = binding.undoLeft,
+            action = binding.undoAction,
+            text = getString(R.string.undo_deleted, reminder.name),
+            announce = null,
+            onUndo = { vm.restoreReminder(reminder) },
+        )
     }
 
     /** 点一条提醒：标记完成（顺延）/ 编辑 / 删除。 */
@@ -609,9 +757,8 @@ class SettingsFragment : Fragment() {
         /** 用户背景（自由文本）。空 = 未填写，AI prompt 走无背景的原路径。 */
         const val KEY_BACKGROUND = SettingsKeys.BACKGROUND
 
-        // 隐私开关（SettingsKeys 是唯一事实来源；这里只做转发引用）
-        const val KEY_HIDE_KCAL = SettingsKeys.HIDE_KCAL
-        const val KEY_HIDE_WEIGHT = SettingsKeys.HIDE_WEIGHT
+        // ⚠️ v8 需求 6：原「隐私」组（`KEY_HIDE_KCAL` / `KEY_HIDE_WEIGHT`）UI 入口已移除，
+        //    两条转发常量随之删除。`SettingsKeys.HIDE_KCAL` / `HIDE_WEIGHT` 及全部消费方保留。
 
         private const val NUMBER_INT = InputType.TYPE_CLASS_NUMBER
         private const val NUMBER_DECIMAL =

@@ -94,6 +94,46 @@ object GoalTypes {
 }
 
 /**
+ * 设置页「目标」栏的**展示分组**（唯一事实来源，其它文件引用这里，不要重定义）。
+ *
+ * ══════════════════════════════════════════════════════════════════════════
+ * 为什么需要"分组"这一层
+ * ══════════════════════════════════════════════════════════════════════════
+ * `goals` 表里"每周训练"是**两行**（`sessions_per_week` + `train_minutes_per_week`），
+ * 但界面上是一个「每周训练」条目（`3 次 / 150 分钟`）。左滑删除 / 后续恢复
+ * 必须**成组**处理，否则会出现"删了次数、时长还在"的半个目标。
+ *
+ * 把分组定义收敛到此处（而非散在 SettingsFragment / SettingsViewModel），
+ * 与 [GoalMetrics] / [GoalTypes] / [GoalDefaults] 同一纪律：
+ * 添加一个新目标维度时只改这里一处。
+ */
+object GoalSlots {
+
+    /**
+     * 一个展示分组。
+     *
+     * @param key 稳定标识（跨进程仅用于 add-sheet 的 arguments，非持久化键）
+     * @param metrics 该组覆盖的 `goals.metric` 集合（≥1）
+     */
+    data class Slot(val key: String, val metrics: List<String>)
+
+    val PRIMARY = Slot("primary", listOf(GoalMetrics.PRIMARY))
+    val WEIGHT = Slot("weight", listOf(GoalMetrics.WEIGHT_KG))
+    val TRAIN = Slot(
+        "train",
+        listOf(GoalMetrics.SESSIONS_PER_WEEK, GoalMetrics.TRAIN_MINUTES_PER_WEEK),
+    )
+    val SLEEP = Slot("sleep", listOf(GoalMetrics.SLEEP_H))
+    val WATER = Slot("water", listOf(GoalMetrics.WATER_ML))
+
+    /** 全部槽位，顺序即设置页展示顺序。 */
+    val ALL: List<Slot> = listOf(PRIMARY, WEIGHT, TRAIN, SLEEP, WATER)
+
+    /** 按 key 取槽位（add-sheet 回调 key → Slot）。 */
+    fun byKey(key: String): Slot? = ALL.firstOrNull { it.key == key }
+}
+
+/**
  * 目标值的**兜底默认**（唯一事实来源，其它文件引用这里，不要重定义）。
  *
  * 与 [GoalMetrics] 的区别：`GoalMetrics` 是 `goal.metric` 的**键**，

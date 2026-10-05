@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    可左滑的设置行（v8 需求 4）：目标 / 提醒 行的通用外壳。
+
+    结构复用 `item_event.xml` 的 swipewrap：
+      · 外层 FrameLayout(swipeWrap)：滑动层（swipeItem）盖在常驻操作层（swipeActs）上；
+      · 下层常驻「删除」按钮（negative 底，72dp）；
+      · 内容层 = `row_setting_value`（56dp 设置行），背景 surface 保证盖住删除位。
+
+    与记录列表项的差异：设置行**只有「删除」一个动作**（编辑走整行点击），
+    因此 swipeActs 只有 1 枚按钮、满程 72dp（SwipeController 的 SWIPE_ACT_DP 仍是 72，
+    2 × 72 = 144 只是它的 clamp 上限，单按钮场景自然不会滑到满程）。
+    手势由 [com.healix.app.ui.SwipeController] 统一裁决（全局单开 + 300ms click 屏蔽）。
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/swipeWrap"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content">
+
+    <!-- 下层常驻操作按钮：删除（negative 底） -->
+    <LinearLayout
+        android:id="@+id/swipeActs"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:gravity="end"
+        android:orientation="horizontal">
+
+        <TextView
+            android:id="@+id/actDelete"
+            android:layout_width="@dimen/swipe_act_width"
+            android:layout_height="match_parent"
+            android:background="@color/negative"
+            android:gravity="center"
+            android:text="@string/delete"
+            android:textColor="@color/btn_primary_text" />
+    </LinearLayout>
+
+    <!-- 内容层：row_setting_value（其根 style 自带 ripple），背景 surface 盖住下层 -->
+    <LinearLayout
+        android:id="@+id/swipeItem"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@color/surface"
+        android:orientation="vertical">
+
+        <include
+            android:id="@+id/swipeRow"
+            layout="@layout/row_setting_value"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content" />
+
+    </LinearLayout>
+
+</FrameLayout>

@@ -22,6 +22,33 @@ interface GoalDao {
     @Query("UPDATE goals SET is_primary = CASE WHEN metric = :metric THEN 1 ELSE 0 END, updated_at = :now WHERE status = 'active'")
     suspend fun setPrimary(metric: String, now: Long)
     @Query("SELECT COUNT(*) FROM goals WHERE status = 'active'") suspend fun countActive(): Int
+
+    // ── 归档 / 恢复（v8 需求 4）：只改数据行 status，**不碰 schema、不升 version** ──
+    //
+    // 归档 = `status='archived'`。`observeActive()` / `getByMetric()` / `listActive()`
+    // 都带 `status='active'` → 归档项自动从设置页消失，且下游消费方
+    // （MainViewModel / PlanGenerator / TrainingPlanner / HealthAggregator）
+    // 读 `getByMetric` 拿到 null → 各自回落 `GoalDefaults`，**无需改任何消费方**。
+
+    /** 归档一个指标（active → archived）。仅对当前 active 行生效，重复调用幂等。 */
+    @Query("UPDATE goals SET status = 'archived', updated_at = :now WHERE metric = :metric AND status = 'active'")
+    suspend fun archiveGoal(metric: String, now: Long)
+
+    /** 恢复一个指标（archived → active）。仅对当前 archived 行生效，重复调用幂等。 */
+    @Query("UPDATE goals SET status = 'active', updated_at = :now WHERE metric = :metric AND status = 'archived'")
+    suspend fun restoreGoal(metric: String, now: Long)
+
+    /**
+     * 按 metric 取**任意状态**的一行（不限 active）。
+     * 与 [getByMetric] 的区别：后者只查 active，用于"有没有生效的目标"；
+     * 本查询用于「添加目标」时判断"该指标是曾归档过（restore）还是从未创建（insert）"。
+     */
+    @Query("SELECT * FROM goals WHERE metric = :metric LIMIT 1")
+    suspend fun getByMetricAny(metric: String): GoalEntity?
+
+    /** 全部归档目标（「添加目标」弹窗的"可恢复"列表）。 */
+    @Query("SELECT * FROM goals WHERE status = 'archived' ORDER BY is_primary DESC, id ASC")
+    fun observeArchived(): Flow<List<GoalEntity>>
 }
 
 @Dao
