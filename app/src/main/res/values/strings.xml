@@ -27,8 +27,9 @@
     <string name="plan_gap">还差 %1$d kcal</string>
     <string name="plan_reached">今日已达标</string>
     <string name="log_this">记一笔</string>
-    <string name="refresh">刷新</string>
     <string name="disclaimer">估算值，非医疗建议</string>
+    <!-- 统一时间轴的日头（v8 需求 7）：周X；今天追加「· 今天」 -->
+    <string name="timeline_today_label">%1$s · 今天</string>
 
     <!-- 对话 -->
     <string name="assistant">助理</string>
@@ -154,9 +155,9 @@
     <string name="plan_item_kcal">%1$s · 约 %2$d kcal</string>
     <string name="plan_gap_label">还差 %1$d kcal</string>
     <string name="plan_action_meta">%1$s · %2$s</string>
-    <!-- 计划 Tab 时间轴 · 顶部行（来源行 + 更新按钮）与失败/配额提示 -->
-    <string name="plan_update">更新</string>
-    <string name="plan_updating">更新中</string>
+    <!-- 计划 Tab 时间轴 · 顶部行（来源行）与失败/配额提示。
+         v8 需求 7：手动「更新」已去除，AI 重排改后台自动 —— 在途时只给一行状态提示。 -->
+    <string name="plan_auto_updating">正在按你的最新数据重排…</string>
     <string name="plan_source_ai">AI 计划</string>
     <!-- 本地兜底计划的来源名：让用户看得出 kcal 是估算（§2 口径 a）。
          ⚠️ 不复用 mode_simplified_local —— 那条训练页共用，改了会串味。 -->
@@ -384,20 +385,18 @@
     <string name="unit_kg_plain">公斤</string>
     <string name="unit_hour_plain">小时</string>
 
-    <!-- ── 计划页「训练」Tab（规范 9.5） ── -->
-    <string name="tab_training">训练</string>
+    <!-- ── 本周训练（规范 9.5；v8 需求 7 起并入计划页统一时间轴，不再单独成 Tab） ── -->
     <string name="training_rest">休息</string>
     <string name="training_generate">生成本周计划</string>
     <string name="training_generate_intro">结合你的目标（%1$s）和本周已练肌群，一次生成 7 天安排。</string>
     <string name="training_generating">生成中</string>
-    <string name="training_generating_hint">正在排这周的训练…</string>
     <string name="training_goal_footer">本周目标 %1$d 次 · 休息日也会排出来</string>
+    <!-- 本周训练重点（TrainingPlan.note）：v8 需求 7 并入计划页汇总行下方 -->
     <string name="training_focus">本周重点：%1$s</string>
     <string name="training_failed">生成失败（已限流）</string>
     <string name="mode_simplified_local">简化模式 · 本地生成</string>
     <string name="recorded">已记录</string>
     <string name="training_log_cd">记录今天的训练：%1$s</string>
-    <string name="training_empty">还没有训练安排</string>
 
     <!-- ── 内联撤销条（规范 9.6） ── -->
     <string name="undo_recorded">已记录 %1$s · %2$s</string>

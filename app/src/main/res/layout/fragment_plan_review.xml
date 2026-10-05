@@ -1,5 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 计划 / 复盘（设计规范系统 4.3）：三宫格用文字对齐，不给数字套卡片。 -->
+<!--
+    计划 / 回顾（设计规范系统 4.3 / 增量设计 §E）。
+    v8 需求 7：原「计划 | 训练 | 回顾」三 Tab 收敛为「计划 | 回顾」——
+    训练日与今日计划条目合并到**同一条按周铺开的时间轴**（见 TimelineMerger），
+    页面不再有手动「更新」「刷新」主按钮（AI 重排改为后台自动，≤1 次/日）。
+-->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
@@ -54,31 +59,6 @@
                     android:background="@color/accent" />
             </LinearLayout>
 
-            <!-- 训练 Tab（三 Tab：计划 | 训练 | 回顾，规范 §4.3 / §9.5） -->
-            <LinearLayout
-                android:layout_width="wrap_content"
-                android:layout_height="match_parent"
-                android:orientation="vertical">
-
-                <TextView
-                    android:id="@+id/tabTraining"
-                    style="@style/Text.Button"
-                    android:layout_width="wrap_content"
-                    android:layout_height="0dp"
-                    android:layout_weight="1"
-                    android:background="?attr/selectableItemBackground"
-                    android:gravity="center"
-                    android:minWidth="64dp"
-                    android:text="@string/tab_training" />
-
-                <View
-                    android:id="@+id/tabTrainingUnderline"
-                    android:layout_width="match_parent"
-                    android:layout_height="2dp"
-                    android:background="@color/accent"
-                    android:visibility="invisible" />
-            </LinearLayout>
-
             <LinearLayout
                 android:layout_width="wrap_content"
                 android:layout_height="match_parent"
@@ -103,19 +83,6 @@
                     android:visibility="invisible" />
             </LinearLayout>
         </LinearLayout>
-
-        <TextView
-            android:id="@+id/btnRefresh"
-            style="@style/Text.Link"
-            android:layout_width="wrap_content"
-            android:layout_height="@dimen/touch_min"
-            android:layout_alignParentEnd="true"
-            android:layout_centerVertical="true"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:gravity="center"
-            android:paddingStart="8dp"
-            android:paddingEnd="8dp"
-            android:text="@string/refresh" />
     </RelativeLayout>
 
     <View
@@ -154,46 +121,26 @@
             android:layout_height="wrap_content"
             android:orientation="vertical">
 
-            <!-- 计划 Tab 内容 -->
+            <!-- 计划 Tab 内容：一条按周铺开的统一时间轴（训练日 + 今日计划） -->
             <LinearLayout
                 android:id="@+id/planGroup"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical">
 
-                <!-- 计划 Tab 顶部：来源行（左）+ 更新按钮（右）。「更新」= 调 AI 重排；
-                     「刷新」(btnRefresh) = 只重读本地数据，两者语义不同不冲突。 -->
-                <LinearLayout
-                    android:id="@+id/planHeader"
+                <!-- 来源行：来源名 · HH:mm 生成（无计划条目时不显示） -->
+                <TextView
+                    android:id="@+id/planSourceLabel"
+                    style="@style/Text.Secondary"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal"
                     android:paddingStart="@dimen/screen_margin"
-                    android:paddingTop="12dp"
                     android:paddingEnd="@dimen/screen_margin"
-                    android:paddingBottom="4dp">
+                    android:paddingTop="12dp"
+                    android:paddingBottom="4dp"
+                    tools:text="AI 计划 · 09:30 生成" />
 
-                    <TextView
-                        android:id="@+id/planSourceLabel"
-                        style="@style/Text.Secondary"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        tools:text="AI 计划 · 09:30 生成" />
-
-                    <TextView
-                        android:id="@+id/btnUpdatePlan"
-                        style="@style/Text.Link"
-                        android:layout_width="wrap_content"
-                        android:layout_height="@dimen/touch_min"
-                        android:background="?attr/selectableItemBackgroundBorderless"
-                        android:gravity="center"
-                        android:minWidth="@dimen/touch_min"
-                        android:text="@string/plan_update" />
-                </LinearLayout>
-
-                <!-- 兜底/失败提示行：source=fallback 或更新失败/配额不足时可见 -->
+                <!-- 提示行：自动重排中 / 失败 / 配额不足 / 兜底模式 -->
                 <TextView
                     android:id="@+id/planModeLabel"
                     style="@style/Text.Secondary"
@@ -204,6 +151,66 @@
                     android:paddingBottom="8dp"
                     android:text="@string/mode_simplified_local"
                     android:visibility="gone"
+                    tools:visibility="visible" />
+
+                <!-- 内联撤销条（规范 §9.6）：全宽 48dp，无底色无边框，同时最多 1 条 -->
+                <LinearLayout
+                    android:id="@+id/undoBar"
+                    android:layout_width="match_parent"
+                    android:layout_height="@dimen/touch_min"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingStart="@dimen/screen_margin"
+                    android:paddingEnd="@dimen/screen_margin"
+                    android:visibility="gone"
+                    tools:visibility="visible">
+
+                    <TextView
+                        android:id="@+id/undoLeft"
+                        style="@style/Text.Secondary"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        tools:text="已记录 运动 · 推（胸/肩/三头）" />
+
+                    <TextView
+                        android:id="@+id/undoAction"
+                        style="@style/Text.Link"
+                        android:layout_width="wrap_content"
+                        android:layout_height="@dimen/touch_min"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:gravity="center"
+                        android:minWidth="@dimen/touch_min"
+                        android:text="@string/undo" />
+                </LinearLayout>
+
+                <!-- 本周训练汇总行：本周 N 练 · 已完成 M（无训练计划时隐藏） -->
+                <TextView
+                    android:id="@+id/trainingSummary"
+                    style="@style/Text.Body"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:paddingStart="@dimen/screen_margin"
+                    android:paddingEnd="@dimen/screen_margin"
+                    android:paddingTop="20dp"
+                    android:paddingBottom="8dp"
+                    android:visibility="gone"
+                    tools:text="本周 3 练 · 已完成 2"
+                    tools:visibility="visible" />
+
+                <!-- 本周训练重点（TrainingPlan.note）：原「训练」Tab 页脚迁移至此 -->
+                <TextView
+                    android:id="@+id/trainingFocus"
+                    style="@style/Text.Secondary"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:paddingStart="@dimen/screen_margin"
+                    android:paddingEnd="@dimen/screen_margin"
+                    android:paddingBottom="8dp"
+                    android:visibility="gone"
+                    tools:text="本周重点：卧推尝试比上周加 2.5kg"
                     tools:visibility="visible" />
 
                 <LinearLayout
@@ -222,6 +229,58 @@
                     android:paddingTop="@dimen/block_gap"
                     android:paddingBottom="@dimen/block_gap"
                     tools:text="今日蛋白质偏低，晚餐优先补蛋白" />
+
+                <!-- 无训练计划时的**低调文字入口**（非主按钮）：
+                     需求 7 去掉手动「更新」后，整周计划仍需一个生成入口。 -->
+                <LinearLayout
+                    android:id="@+id/trainingGenerateRow"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:paddingStart="@dimen/screen_margin"
+                    android:paddingEnd="@dimen/screen_margin"
+                    android:paddingTop="@dimen/block_gap"
+                    android:paddingBottom="@dimen/block_gap"
+                    android:visibility="gone"
+                    tools:visibility="visible">
+
+                    <TextView
+                        android:id="@+id/trainingIntro"
+                        style="@style/Text.Secondary"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        tools:text="结合你的目标（增重）和本周已练肌群，一次生成 7 天安排。" />
+
+                    <TextView
+                        android:id="@+id/trainingFailed"
+                        style="@style/Text.Secondary"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:text="@string/training_failed"
+                        android:textColor="@color/negative"
+                        android:visibility="gone"
+                        tools:visibility="visible" />
+
+                    <TextView
+                        android:id="@+id/btnGenerateWeek"
+                        style="@style/Text.Link"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:background="?attr/selectableItemBackground"
+                        android:gravity="start|center_vertical"
+                        android:minHeight="@dimen/touch_min"
+                        android:text="@string/training_generate" />
+
+                    <TextView
+                        android:id="@+id/trainingGoalFooter"
+                        style="@style/Text.Secondary"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        tools:text="本周目标 3 次 · 休息日也会排出来" />
+                </LinearLayout>
             </LinearLayout>
 
             <!-- 复盘 Tab 内容：三宫格用文字对齐 -->
@@ -315,191 +374,6 @@
                     android:paddingEnd="@dimen/screen_margin"
                     android:paddingTop="24dp"
                     tools:text="今天热量盈余 320 kcal，达到增重目标。" />
-            </LinearLayout>
-
-            <!-- 训练 Tab 内容（规范 §9.5）：汇总行 / 训练日列表 / 空态 / 页脚 -->
-            <LinearLayout
-                android:id="@+id/trainingGroup"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:visibility="gone"
-                tools:visibility="visible">
-
-                <!-- 内联撤销条（规范 §9.6）：全宽 48dp，无底色无边框，同时最多 1 条 -->
-                <LinearLayout
-                    android:id="@+id/undoBar"
-                    android:layout_width="match_parent"
-                    android:layout_height="@dimen/touch_min"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal"
-                    android:paddingStart="@dimen/screen_margin"
-                    android:paddingEnd="@dimen/screen_margin"
-                    android:visibility="gone"
-                    tools:visibility="visible">
-
-                    <TextView
-                        android:id="@+id/undoLeft"
-                        style="@style/Text.Secondary"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:ellipsize="end"
-                        android:maxLines="1"
-                        tools:text="已记录 运动 · 推（胸/肩/三头）" />
-
-                    <TextView
-                        android:id="@+id/undoAction"
-                        style="@style/Text.Link"
-                        android:layout_width="wrap_content"
-                        android:layout_height="@dimen/touch_min"
-                        android:background="?attr/selectableItemBackgroundBorderless"
-                        android:gravity="center"
-                        android:minWidth="@dimen/touch_min"
-                        android:text="@string/undo" />
-                </LinearLayout>
-
-                <!-- 降级提示：source = fallback 时显示在页顶 -->
-                <TextView
-                    android:id="@+id/trainingModeLabel"
-                    style="@style/Text.Secondary"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:paddingStart="@dimen/screen_margin"
-                    android:paddingEnd="@dimen/screen_margin"
-                    android:paddingTop="12dp"
-                    android:text="@string/mode_simplified_local"
-                    android:visibility="gone"
-                    tools:visibility="visible" />
-
-                <!-- 汇总行：本周 N 练 · 已完成 M -->
-                <TextView
-                    android:id="@+id/trainingSummary"
-                    style="@style/Text.Body"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:paddingStart="@dimen/screen_margin"
-                    android:paddingEnd="@dimen/screen_margin"
-                    android:paddingTop="20dp"
-                    android:paddingBottom="20dp"
-                    android:visibility="gone"
-                    tools:text="本周 3 练 · 已完成 2"
-                    tools:visibility="visible" />
-
-                <LinearLayout
-                    android:id="@+id/trainingContainer"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical" />
-
-                <!-- 无计划时的空态 -->
-                <LinearLayout
-                    android:id="@+id/trainingEmpty"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:visibility="gone"
-                    tools:visibility="visible">
-
-                    <TextView
-                        android:id="@+id/trainingEmptyTitle"
-                        style="@style/Text.Body"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:paddingStart="@dimen/screen_margin"
-                        android:paddingEnd="@dimen/screen_margin"
-                        android:paddingTop="20dp"
-                        android:text="@string/training_empty" />
-
-                    <TextView
-                        android:id="@+id/trainingIntro"
-                        style="@style/Text.Secondary"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="6dp"
-                        android:paddingStart="@dimen/screen_margin"
-                        android:paddingEnd="@dimen/screen_margin"
-                        tools:text="结合你的目标（增重）和本周已练肌群，一次生成 7 天安排。" />
-
-                    <androidx.appcompat.widget.AppCompatButton
-                        android:id="@+id/btnGenerate"
-                        style="@style/Widget.Healix.Button"
-                        android:layout_width="match_parent"
-                        android:layout_height="48dp"
-                        android:layout_marginStart="@dimen/screen_margin"
-                        android:layout_marginTop="20dp"
-                        android:layout_marginEnd="@dimen/screen_margin"
-                        android:text="@string/training_generate" />
-
-                    <TextView
-                        android:id="@+id/trainingGeneratingHint"
-                        style="@style/Text.Secondary"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="8dp"
-                        android:paddingStart="@dimen/screen_margin"
-                        android:paddingEnd="@dimen/screen_margin"
-                        android:text="@string/training_generating_hint"
-                        android:visibility="gone"
-                        tools:visibility="visible" />
-
-                    <LinearLayout
-                        android:id="@+id/trainingFailedRow"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="8dp"
-                        android:gravity="center_vertical"
-                        android:orientation="horizontal"
-                        android:paddingStart="@dimen/screen_margin"
-                        android:paddingEnd="@dimen/screen_margin"
-                        android:visibility="gone"
-                        tools:visibility="visible">
-
-                        <TextView
-                            android:id="@+id/trainingFailed"
-                            style="@style/Text.Secondary"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:text="@string/training_failed"
-                            android:textColor="@color/negative" />
-
-                        <TextView
-                            android:id="@+id/btnTrainingRetry"
-                            style="@style/Text.Link"
-                            android:layout_width="wrap_content"
-                            android:layout_height="@dimen/touch_min"
-                            android:background="?attr/selectableItemBackgroundBorderless"
-                            android:gravity="center"
-                            android:minWidth="@dimen/touch_min"
-                            android:text="@string/retry" />
-                    </LinearLayout>
-
-                    <TextView
-                        android:id="@+id/trainingGoalFooter"
-                        style="@style/Text.Secondary"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:paddingStart="@dimen/screen_margin"
-                        android:paddingEnd="@dimen/screen_margin"
-                        android:paddingTop="20dp"
-                        android:paddingBottom="20dp"
-                        tools:text="本周目标 3 次 · 休息日也会排出来" />
-                </LinearLayout>
-
-                <!-- 页脚：本周重点 -->
-                <TextView
-                    android:id="@+id/trainingNote"
-                    style="@style/Text.Secondary"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:paddingStart="@dimen/screen_margin"
-                    android:paddingEnd="@dimen/screen_margin"
-                    android:paddingTop="20dp"
-                    android:paddingBottom="20dp"
-                    android:visibility="gone"
-                    tools:text="本周重点：卧推尝试比上周加 2.5kg"
-                    tools:visibility="visible" />
             </LinearLayout>
         </LinearLayout>
     </ScrollView>

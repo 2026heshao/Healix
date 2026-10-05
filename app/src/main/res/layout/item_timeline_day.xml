@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    统一时间轴的「日头」（v8 需求 7）：周一 … 周日；今天追加「· 今天」。
+    13sp text_3 的轻分隔标签，无卡片、无底色（硬约束）。渲染见 PlanReviewFragment.dayHeader()。
+-->
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/dayLabel"
+    style="@style/Text.Caption"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:paddingStart="@dimen/screen_margin"
+    android:paddingEnd="@dimen/screen_margin"
+    android:paddingTop="16dp"
+    android:paddingBottom="2dp"
+    tools:text="周一 · 今天" />

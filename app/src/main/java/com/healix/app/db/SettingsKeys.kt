@@ -202,5 +202,5 @@ object SettingsKeys {
      *    取得（日界线纪律），本键只做存储，不做任何日期计算。
      *    键不存在 = 从未自动重排过（允许触发，还需同时满足其它门槛）。
      */
-    const val PLAN_AUTO_SHUFFLE_DAY = "plan_auto_reshuffle_day"
+    const val PLAN_AUTO_RERANK_DAY = "plan_auto_rerank_day"
 }
