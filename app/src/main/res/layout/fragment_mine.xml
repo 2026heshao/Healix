@@ -154,6 +154,40 @@
                 layout="@layout/row_setting_value"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content" />
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="@dimen/divider"
+                android:layout_marginStart="@dimen/screen_margin"
+                android:layout_marginEnd="@dimen/screen_margin"
+                android:background="@color/line" />
+
+            <!--
+                导入数据（v8 T07 / 需求 8）：与「导出备份」配成一对 ——
+                只有导出没有读回时，导出的 JSON 是死数据，换机/重装没有任何还原路径。
+                被 include 复用的 id 会带 rowImport 前缀（片段里访问 rowImport.label 等）。
+            -->
+            <include
+                android:id="@+id/rowImport"
+                layout="@layout/row_setting_value"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+
+            <!--
+                备份须知（13sp text_3，无底色）：导出文件是**明文** JSON，含健康记录与
+                个人描述；导入不含 API Key。两句都是用户做决定前必须知道的
+                （调研文档 §3.3「导出为明文 → UI 明示」）。用 caption 而不是弹窗 ——
+                这不是需要确认的动作，只是须知。
+            -->
+            <TextView
+                style="@style/Text.Caption"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="@dimen/screen_margin"
+                android:layout_marginTop="8dp"
+                android:layout_marginEnd="@dimen/screen_margin"
+                android:text="@string/backup_note"
+                android:textColor="@color/text_3" />
         </LinearLayout>
 
         <!-- ── 应用 ── -->

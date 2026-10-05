@@ -118,3 +118,17 @@ jobs:
           path: app/schemas/**
           if-no-files-found: warn
           retention-days: 30
+
+      # Room schema 完整性：@Database(version=N) 必须有已入库的 N.json、
+      # 新增表/索引的 DDL 必须逐字出现在对应 Migration 块里、禁
+      # fallbackToDestructiveMigration（见 pipeline/check_schema.py 的注释）。
+      #
+      # ⚠️ **必须放在编译与产物上传之后**，与上面两个静态检查相反 ——
+      #    N.json 由 Room 在 KSP 编译期生成，本机没有 JDK 造不出来，唯一来源
+      #    就是上一步的 artifact。若把本检查提前到编译之前，就会死锁：
+      #    升 version → 检查报"缺 N.json" → 编译被跳过 → artifact 里没有 N.json
+      #    → 永远拉不回来。放在这里，编译照跑、artifact 照传，
+      #    检查红着，开发者用 pipeline/pull_schemas.py 拉回提交即转绿。
+      - name: Room schema 完整性检查
+        if: always()
+        run: python3 pipeline/check_schema.py

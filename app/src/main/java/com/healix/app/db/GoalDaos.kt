@@ -49,6 +49,15 @@ interface GoalDao {
     /** 全部归档目标（「添加目标」弹窗的"可恢复"列表）。 */
     @Query("SELECT * FROM goals WHERE status = 'archived' ORDER BY is_primary DESC, id ASC")
     fun observeArchived(): Flow<List<GoalEntity>>
+
+    /**
+     * 导出备份用（v8 T07）：一次拿全部目标，**含 archived 行**。
+     *
+     * 为什么不复用 [listActive]：归档是"移出目标栏"，不是"删除"（重新添加即恢复）。
+     * 只导出 active 的话，用户在新机上重新添加那个目标时历史就断了。
+     */
+    @Query("SELECT * FROM goals ORDER BY id ASC")
+    suspend fun listAll(): List<GoalEntity>
 }
 
 @Dao
@@ -58,6 +67,10 @@ interface TrainingPlanDao {
     fun observeWeek(weekKey: String): Flow<TrainingPlanEntity?>
     @Query("SELECT * FROM training_plans WHERE week_key = :weekKey LIMIT 1")
     suspend fun getWeek(weekKey: String): TrainingPlanEntity?
+
+    /** 导出备份用（v8 T07）：全部周计划，按周键升序。 */
+    @Query("SELECT * FROM training_plans ORDER BY week_key ASC")
+    suspend fun listAll(): List<TrainingPlanEntity>
 }
 
 @Dao
@@ -87,4 +100,12 @@ interface ReminderDao {
     @Query("UPDATE reminders SET last_done_at = :doneAt, next_due_at = :nextDueAt WHERE id = :id")
     suspend fun markDone(id: Long, doneAt: Long, nextDueAt: Long)
     @Query("DELETE FROM reminders WHERE id = :id") suspend fun delete(id: Long)
+
+    /**
+     * 导出备份用（v8 T07）：全部提醒，**含 `enabled = 0` 的行**。
+     * 停用是"暂时不想被提醒"，不是删除 —— 只导出 enabled 的会让用户重装后
+     * 发现自己停用的事项永久消失。
+     */
+    @Query("SELECT * FROM reminders ORDER BY id ASC")
+    suspend fun listAll(): List<ReminderEntity>
 }

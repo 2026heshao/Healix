@@ -270,6 +270,22 @@
     <!-- 导出 -->
     <string name="export_success">已导出到所选位置</string>
     <string name="export_failed">导出失败</string>
+
+    <!-- ── 导入数据（v8 T07 / 需求 8：本地数据继承）──────────────────────── -->
+    <string name="import_data">导入数据</string>
+    <!-- 导出/导入的须知（明文 + 不含密钥），挂在数据组行下方，13sp text_3 -->
+    <string name="backup_note">备份是明文 JSON，含你的健康记录与个人描述；导入不含 API Key。</string>
+    <string name="import_success">已导入 %1$d 条，跳过 %2$d 条（已存在）</string>
+    <string name="import_nothing_new">没有新增内容（%1$d 条已存在）</string>
+    <string name="import_done_short">已导入 %1$d 条</string>
+    <string name="import_none_short">无新增</string>
+    <string name="import_failed_short">导入失败</string>
+    <string name="import_no_key_hint">备份不含 API Key，请到设置页重新填写</string>
+    <string name="import_err_not_backup">这个文件不是 Healix 备份</string>
+    <string name="import_err_too_new">备份来自更新的版本，请先升级 App 再导入</string>
+    <string name="import_err_too_large">备份文件超过 %1$d MB，暂不支持导入</string>
+    <string name="import_err_unreadable">读不到这个文件，换一个再试</string>
+    <string name="import_err_internal">导入出错，数据未改动</string>
     <string name="export_share_title">导出 Healix 备份</string>
 
     <!-- 意见 / 提示 -->

@@ -120,6 +120,17 @@ class MineFragment : Fragment() {
         binding.rowExport.root.setOnClickListener { exportBackup() }
         binding.rowExport.root.bindPressScale()
 
+        // ── 数据：导入数据（v8 T07 / 需求 8）—— 与「导出备份」配成一对 ──
+        // 只有导出没有读回时，导出的 JSON 是"死数据"：换机 / 重装没有任何还原路径
+        // （allowBackup=false + dataExtractionRules 全排除 = 系统级零恢复，见调研文档 §一）。
+        binding.rowImport.label.setText(R.string.import_data)
+        binding.rowImport.value.text = "JSON"
+        binding.rowImport.chevron.visibility = View.VISIBLE
+        binding.rowImport.root.setOnClickListener {
+            ImportReader.launchOpenDocument(requireActivity())
+        }
+        binding.rowImport.root.bindPressScale()
+
         // ── 应用：设置 / 调试 / 通知栏录入 ──
         binding.rowSettings.label.setText(R.string.settings)
         binding.rowSettings.chevron.visibility = View.VISIBLE
@@ -149,6 +160,87 @@ class MineFragment : Fragment() {
         observeResourceCount()
         observePresetsCount()
         observePersonalInfo()
+        observeImportReport()
+    }
+
+    /**
+     * 导入结果（v8 T07）。
+     *
+     * 结果来自 [ImportReader.report] —— 一次性事件但用 `StateFlow` 承载：
+     * 导入发生在 SAF 选择器返回之后，期间本页可能不在 STARTED 态
+     * （用户切过 Tab / 系统回收过视图），StateFlow 会重放最新值，
+     * 回到本页照样看得到结果。显示完立刻 [ImportReader.consume]，
+     * 否则下次进页面会重复弹。
+     *
+     * 反馈分两处：Toast 说全（几条 / 失败原因），行副行留一句短摘要 ——
+     * 用户过一会儿再进这一页，仍能看出"上次导入到底成没成"。
+     *
+     * ⚠️ 已知的刷新边界：Room 的 Flow 订阅（知识库份数 / 预设条数 / 首页目标区）
+     * 会被导入自动刷新；但设置类的副行（资源清单完成度 / 个人信息身高体重）走的是
+     * `repeatOnLifecycle(STARTED)` 重读，导入期间本页一直 STARTED → **不会立刻变**，
+     * 切一次 Tab 即可（数据早已入库，只是那两行文案没重读）。
+     * 要让它即时刷新得给这些订阅引入一个显式 trigger 流，属于独立改动，不夹在这里做。
+     */
+    private fun observeImportReport() {
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                ImportReader.report.collect { report ->
+                    if (report == null) return@collect
+                    showImportReport(report)
+                    ImportReader.consume()
+                }
+            }
+        }
+    }
+
+    private fun showImportReport(report: ImportReader.Report) {
+        val failure = report.failure
+        if (failure != null) {
+            binding.rowImport.value.text = getString(R.string.import_failed_short)
+            binding.rowImport.value.setTextColor(container.getColor(R.color.text_3))
+            toast(importFailureText(failure))
+            return
+        }
+
+        // 成功：条数写进 Toast，短摘要留在行上
+        binding.rowImport.value.text = if (report.inserted > 0) {
+            getString(R.string.import_done_short, report.inserted)
+        } else {
+            getString(R.string.import_none_short)
+        }
+        binding.rowImport.value.setTextColor(container.getColor(R.color.text_2))
+        toast(
+            buildString {
+                append(
+                    if (report.inserted > 0) {
+                        getString(R.string.import_success, report.inserted, report.skipped)
+                    } else {
+                        getString(R.string.import_nothing_new, report.skipped)
+                    },
+                )
+                // API Key 刻意不随备份搬运（key 在 EncryptedSharedPreferences，
+                // 不进业务表也进不了导出文件）。只有真的缺才提示，不无脑唠叨。
+                if (report.needsApiKey && report.inserted > 0) {
+                    append('\n')
+                    append(getString(R.string.import_no_key_hint))
+                }
+            },
+        )
+    }
+
+    /** 失败原因 → 用户能看懂的一句话（[ImportReader] 本身不拼文案）。 */
+    private fun importFailureText(failure: ImportReader.Failure): String = when (failure) {
+        ImportReader.Failure.NOT_BACKUP -> getString(R.string.import_err_not_backup)
+        ImportReader.Failure.TOO_NEW -> getString(R.string.import_err_too_new)
+        ImportReader.Failure.TOO_LARGE ->
+            getString(R.string.import_err_too_large, ImportReader.MAX_BYTES / (1024 * 1024))
+        ImportReader.Failure.UNREADABLE -> getString(R.string.import_err_unreadable)
+        ImportReader.Failure.INTERNAL -> getString(R.string.import_err_internal)
+    }
+
+    private fun toast(text: String) {
+        android.widget.Toast.makeText(requireContext(), text, android.widget.Toast.LENGTH_LONG)
+            .show()
     }
 
     /** 状态详情副行：与首页状态行同源（`HomeStatus` 两态直接复用文案）。 */

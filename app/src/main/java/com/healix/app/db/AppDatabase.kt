@@ -8,6 +8,16 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 /**
+ * DB schema 版本的**唯一事实来源**（供 [DbSnapshot] 与迁移判据使用）。
+ *
+ * ⚠️ 为什么不直接写进 `@Database(version = DB_VERSION)`：Kotlin 注解里引用
+ * 顶层 `const val` 在 KSP/Room 侧属于"能过但不是官方文档承诺的形态"，
+ * 本机没有 JDK、编译不了，赌不起。因此注解里保留**字面量**，
+ * 由 `pipeline/check_schema.py` 强制两者相等 —— 一旦漂移，CI 立刻报错。
+ */
+internal const val DB_VERSION = 3
+
+/**
  * Healix 本地数据库。
  *
  * **Migration 纪律（硬约束，不可协商）**
@@ -17,6 +27,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  *
  * 理由很硬：数据只有手机本地一份副本。迁移失败静默删库 = 数据全灭。
  * 宁可崩溃报错，也不要静默重建。
+ *
+ * 升级前的最后一道保险是 [DbSnapshot]：真正要迁移之前把库文件整份留档
+ * （`docs/v8/调研-数据继承方案.md` §3.2）。
  */
 @Database(
     entities = [
@@ -61,7 +74,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun knowledgeChunkDao(): KnowledgeChunkDao
 
     companion object {
-        private const val DB_NAME = "healix.db"
+        /** 库文件名。[DbSnapshot] 也要按它推算 `-wal` / `-shm` 伴生文件。 */
+        internal const val DB_NAME = "healix.db"
 
         @Volatile
         private var instance: AppDatabase? = null
@@ -135,6 +149,10 @@ abstract class AppDatabase : RoomDatabase() {
             }
 
         private fun build(context: Context): AppDatabase {
+            // ⚠️ 必须在 Room 打开库之前：本次打开若会触发版本迁移，先把库文件整份留档。
+            // 放在这里而不是 HealixApp.onCreate —— 见 DbSnapshot 的 KDoc 第 1 条。
+            DbSnapshot.beforeOpen(context, DB_VERSION)
+
             val builder = Room.databaseBuilder(
                 context.applicationContext,
                 AppDatabase::class.java,

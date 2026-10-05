@@ -1249,6 +1249,261 @@ def check_missing_coroutine_imports() -> None:
                 )
 
 
+def check_backup_parity() -> None:
+    """导出字段 ↔ 导入字段必须一一对应（v8 T07 需求 8 数据继承）。
+
+    ══════════════════════════════════════════════════════════════════════════
+    为什么这条最值得查
+    ══════════════════════════════════════════════════════════════════════════
+    `ExportWriter` 把实体写成一堆 `put("字段名", 值)`，`ImportReader` 再从
+    JSON 里 `optString("字段名")` 取回来。两侧的"字段名"是**字符串字面量**：
+
+        put("weight_kg", e.weightKg)      // 导出
+        optDouble("weightKg", 0.0)        // 导入 —— 少了下划线
+
+    kotlinc 不报错、KSP 不报错、单测（如果没有真备份文件）也覆盖不到。
+    表现是：用户换了手机，导入提示"已导入 128 条"，**然后体重全变成 0**。
+    这类静默丢数据是本项目最不能接受的一类 bug —— 而且它只在真机换机时才发作。
+
+    与 `check_prompt_parity` 同一思路：把"两侧必须逐字一致"的事实交给机器守。
+    这里比 prompt 那条更简单 —— 没有字节级要求，只要求**集合相等**。
+
+    判据：
+      - 导出侧按 `root.put("<表名>", ...)` 分节，节内所有 `put("字段", ...)`
+        的字面量即该表的字段集；
+      - 导入侧按 `each(root.optJSONArray(JSON_X)) { ... }` 分节（块体用括号配平取），
+        块内所有 `optString/optInt/...("字段")` 的字面量即该表的字段集；
+      - 两张表必须相等，多一个少一个都报。
+      - `settings` 两侧都是**动态键**（`s.key` / `for (key in settingsObj.keys())`），
+        没有固定字段集 → 跳过。
+
+    ⚠️ **解析失败必须报错，不能静默通过**：本函数开头会检查"至少解析出若干张表"，
+    一个都没解析出来就直接报错（2026-10-05 的教训：静默跳过的检查器比没有更糟）。
+    """
+    export = JAVA / "com/healix/app/ui/ExportWriter.kt"
+    reader = JAVA / "com/healix/app/ui/ImportReader.kt"
+    if not export.exists() or not reader.exists():
+        errors.append(
+            "找不到 ExportWriter.kt / ImportReader.kt —— 备份的写侧与读侧必须成对存在，"
+            "只有一侧等于没有迁移能力"
+        )
+        return
+
+    e_text = export.read_text(encoding="utf-8")
+
+    # ── 导出侧：表名 → 字段集合 ──
+    # 节边界 = `root.put("<表名>", <数组>)`；节内 `put("字段", ...)` 归属该表。
+    # 字段 put 是 `JSONObject().apply { put("x", ...) }` 里的**无接收者**调用，
+    # 所以第二分支匹配不带点的 `put(`；用 (?<![\w.]) 把 `root.put(` / `x.put(` 排掉。
+    out_tables: dict[str, set[str]] = {}
+    cur: set[str] = set()
+    for m in re.finditer(
+        r'(root\.put\(\s*"(\w+)"\s*,)|((?<![\w.])put\(\s*"(\w+)"\s*,)', e_text
+    ):
+        if m.group(1):
+            out_tables.setdefault(m.group(2), set()).update(cur)
+            cur = set()
+        else:
+            cur.add(m.group(4))
+
+    # ── 导入侧：表名 → 字段集合 ──
+    r_text = reader.read_text(encoding="utf-8")
+    masked = mask_noncode(r_text)
+    # 常量 → 字面量：JSON_X = "表名"，以及 FIELD_WEIGHT_KG = "weight_kg" 这类字段名常量
+    # （字段名用常量是为了避开 check_settings_keys 的裸字符串启发式）。
+    consts: dict[str, str] = dict(re.findall(r'const\s+val\s+(\w+)\s*=\s*"([^"]+)"', r_text))
+
+    KEY_TAIL = (
+        r'(?:optString|optInt|optLong|optDouble|optBoolean|textOrNull'
+        r'|optionalDouble|optionalLong|isNull)'
+    )
+    # 字段读取有两种写法，都要收：
+    #   显式接收者（each 块 / 块体 helper）：`o.optString("x")`
+    #   隐式接收者（表达式体 helper）      ：`= optString("source").takeIf { ... }`
+    # 前者要求有 `.`，后者没有 —— 于是前缀写成「可选的一个 `标识符.`」，
+    # 并用 (?<![\w.]) 保证不是从某个链式调用的中段开始匹配。
+    KEY_RE = re.compile(
+        r'(?<![\w.])(?:[A-Za-z_]\w*\.)?' + KEY_TAIL + r'\(\s*(?:"(\w+)"|(\w+))'
+    )
+
+    def keys_in(code: str, *, helper_body: bool = False) -> set[str]:
+        """收「这段代码读了哪些字段名」。
+
+        `helper_body=True` 用于 **helper 函数体**：那里出现的裸标识符多半是
+        **形参名**（`private fun JSONObject.textOrNull(key)` 的 body 里是
+        `optString(key)`），跟进来会凭空多出假字段 `"key"`、把检查器搞成
+        "永远报一堆假错"最后被无视。所以 helper body 里只认字面量，以及能在
+        本文件里查到 `const val` 声明的常量名 —— 形参名两种情况都不满足。
+        """
+        found: set[str] = set()
+        for km in KEY_RE.finditer(code):
+            if km.group(1):
+                found.add(km.group(1))
+                continue
+            name = km.group(2)
+            if name in consts:
+                found.add(consts[name])
+            elif not helper_body:
+                found.add(name)
+        return found
+
+    # helper 函数：each 块（或其调用的 helper）里读的字段也算该表的字段。
+    #
+    # 为什么必须跟这一层：单行 event 的解析整个搬进了 `eventOf(o, dayStart)`，
+    # 字段名在那里读 —— 不跟的话 "events 的字段集"是空的，检查直接失效。
+    #
+    # 为什么要连**带接收者的扩展函数**一起收：`private fun JSONObject.sourceOf()`
+    # 从备份里读 `source`；只收无接收者的函数就会漏掉它，把 `daily_plans` /
+    # `training_plans` 的 `source` 误报成"导入侧从不读它"（真实发生过的误报）。
+    #
+    # 两种体都要能取：块体（`... { ... }`）与表达式体（`... = expr`）——
+    # `sourceOf` / `textOrNull` 正是表达式体，只认 `{` 会整天漏掉。
+    FUN_DECL = re.compile(
+        r'(?:private|internal)\s+'
+        r'(?:(?:inline|suspend|operator|infix|tailrec|external)\s+)*'
+        r'fun\s+'
+        r'(?:[A-Za-z_]\w*\s*\.\s*)?'   # 可选接收者：`JSONObject.`
+        r'(\w+)\s*\([^)]*\)'
+    )
+    helpers: dict[str, str] = {}
+    for hm in FUN_DECL.finditer(masked):
+        body = _fun_body(r_text, masked, hm.end())
+        if body:
+            helpers[hm.group(1)] = body
+
+    in_tables: dict[str, set[str]] = {}
+    for m in re.finditer(r'each\(\s*root\.optJSONArray\((\w+)\)\s*\)\s*\{', masked):
+        name = consts.get(m.group(1))
+        if name is None:
+            errors.append(
+                f"{rel(reader)}: `each(root.optJSONArray({m.group(1)}))` 里的常量没有在"
+                f"文件内声明 —— 字段一致性检查无法确定它对应备份里的哪张表"
+            )
+            continue
+        body = _block_body(r_text, masked, m.end() - 1)
+        keys = keys_in(body)
+        for hname, hbody in helpers.items():
+            if re.search(rf'\b{re.escape(hname)}\s*\(', body):
+                keys |= keys_in(hbody, helper_body=True)
+        in_tables[name] = keys
+
+    # ── 防静默失效：两侧都必须真的解析出东西 ──
+    if not out_tables or not in_tables:
+        errors.append(
+            "备份字段一致性检查器**自身解析失败**（导出侧 "
+            f"{len(out_tables)} 张表 / 导入侧 {len(in_tables)} 张表）—— "
+            "多半是 ExportWriter / ImportReader 的写法变了导致正则对不上。"
+            "这类检查器一旦静默通过就比没有更糟，所以这里直接报错。"
+        )
+        return
+
+    # 头部键不是"表"，settings 两侧都是动态键 → 都不参与比对。
+    HEADER_KEYS = {"format", "version", "schema_version", "exported_at", "exported_date"}
+    skip = HEADER_KEYS | {"settings"}
+
+    for table, out_keys in sorted(out_tables.items()):
+        if table in skip:
+            continue
+        in_keys = in_tables.get(table)
+        if in_keys is None:
+            errors.append(
+                f"备份里的 `{table}` 会被导出，但 ImportReader 没有对应的 each() 分支 "
+                f"→ 换机后这张表**静默丢失**（用户只看到「已导入 N 条」，"
+                f"以为全搬过来了 —— 静默丢数据是本项目最不能接受的一类 bug）"
+            )
+            continue
+        for k in sorted(out_keys - in_keys):
+            errors.append(
+                f"备份字段不一致：`{table}` 导出时写了 `{k}`，导入侧从不读它 "
+                f"→ 该字段在换机 / 重装后丢失（ExportWriter 与 ImportReader 必须同步改）"
+            )
+        for k in sorted(in_keys - out_keys):
+            errors.append(
+                f"备份字段不一致：`{table}` 导入侧读 `{k}`，导出侧从不写它 "
+                f"→ 永远读到兜底值（八成是字段名拼错了）"
+            )
+
+    for table in sorted(set(in_tables) - set(out_tables) - {"settings"}):
+        errors.append(
+            f"ImportReader 读备份里的 `{table}`，但 ExportWriter 从不导出它 "
+            f"→ 这个分支永远拿到 null，是一段死代码"
+        )
+
+
+_DECL_LINE = re.compile(
+    r'[ \t]*(?:@|private\b|internal\b|public\b|protected\b|fun\b|object\b|val\b|var\b|\})'
+)
+
+
+def _fun_body(raw: str, masked: str, after_params: int) -> str:
+    """取「参数表之后」的函数体：块体 `{...}` 或表达式体 `= ...`。
+
+    起点判据统一：「参数表之后第一个 `{` 或 `=`」（`==` 不算）。
+    两种体都要能取，因为 `private fun JSONObject.sourceOf(): String =` 是
+    **表达式体** —— 只认 `{` 的写法会整天漏掉它（于是把 `source` 误报成
+    "导入侧从不读它"）。
+
+    表达式体的**结束**判据是「括号配平回到 0 之后，下一行是同级声明行」。
+    不能只看「下一行以 `}` 开头」：`sourceOf()` 里的续行
+    `} ?: TrainingPlanner.SOURCE_FALLBACK` 恰好就是以 `}` 开头的一行 ——
+    那样会在续行处提前截断。截断本身只会漏键（报假错，可见），不会静默，
+    但仍应当避免。
+    """
+    n = len(masked)
+    i = after_params
+    start = -1
+    is_block = False
+    while i < n:
+        c = masked[i]
+        if c == "\n":
+            return ""
+        if c == "{":
+            start, is_block = i, True
+            break
+        if c == "=" and masked[i:i + 2] != "==":
+            start, is_block = i + 1, False
+            break
+        i += 1
+    if start < 0:
+        return ""
+    if is_block:
+        return _block_body(raw, masked, start)
+
+    depth = 0
+    j = start
+    while j < n:
+        c = masked[j]
+        if c in "([{":
+            depth += 1
+        elif c in ")]}":
+            depth -= 1
+        elif c == "\n" and depth <= 0:
+            nl = masked.find("\n", j + 1)
+            nxt = masked[j + 1: n if nl < 0 else nl]
+            if _DECL_LINE.match(nxt):
+                return raw[start:j]
+        j += 1
+    return raw[start:]
+
+
+def _block_body(raw: str, masked: str, brace_pos: int) -> str:
+    """取 `masked[brace_pos] == '{'` 起的配平块体（内容从 raw 里切，保留字符串）。
+
+    `masked` 与 `raw` 等长（`mask_noncode` 保证），所以索引可直接沿用。
+    """
+    depth = 0
+    i = brace_pos
+    while i < len(masked):
+        if masked[i] == "{":
+            depth += 1
+        elif masked[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return raw[brace_pos + 1: i]
+        i += 1
+    return raw[brace_pos + 1:]
+
+
 def main() -> int:
     if not DB.exists():
         print(f"找不到 db 目录：{DB}")
@@ -1272,6 +1527,7 @@ def main() -> int:
     check_object_scope()
     check_duplicate_constants()
     check_missing_coroutine_imports()
+    check_backup_parity()
 
     print("=" * 64)
     print("Healix Kotlin/Room 静态检查")

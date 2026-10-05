@@ -6,25 +6,41 @@ import android.content.Intent
 import android.net.Uri
 import androidx.activity.result.contract.ActivityResultContracts
 import com.healix.app.HealixApp
+import com.healix.app.db.DB_VERSION
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.OutputStream
 import java.time.LocalDate
 
 /**
- * 导出备份（功能补充 2.4）。
+ * 导出备份（功能补充 2.4；v8 T07 升级为「可还原的迁移包」）。
  *
  * 策略：明文 JSON + 版本头，走 SAF `ACTION_CREATE_DOCUMENT` 让用户选路径，
- * **不申请任何存储权限**。
+ * **不申请任何存储权限**。配套读回见 [ImportReader]。
  *
- * 导出内容：events + presets + daily_plans + daily_reviews + 非敏感 settings。
- * ⚠️ **不含 API Key** —— key 存在 EncryptedSharedPreferences，不在业务表里，天然导不出。
+ * ══════════════════════════════════════════════════════════════════════════
+ * v1 → v2（2026-10-05，需求 8 数据继承）
+ * ══════════════════════════════════════════════════════════════════════════
+ * v1 只导出 events / presets / daily_plans / daily_reviews / settings，
+ * 而 `ImportReader` 的职责是"把备份还原成一台能用的新机" —— 目标（goals）、
+ * 周期性提醒（reminders）、周训练计划（training_plans）都还原不了，
+ * 等于备份里少了"用户配置"这一半。所以 v2 补齐这三张表，并在头部写入
+ * `schema_version`，供导入侧判断"这个备份是不是比当前 App 还新"。
  *
- * 加密与 gzip 是可选增强，MVP 不做（明文比没有强 10 倍）。
+ * 仍然**刻意不导出**的：
+ * - `llm_calls`：调用日志/埋点，是设备本地运行痕迹，不是用户数据；
+ * - `chat_messages`：对话是当天上下文，跨设备搬运没有语义（且体积大）；
+ * - `body_signals`：由规则从 events 重新推导得出，`acknowledged` 是瞬时 UI 状态；
+ * - `knowledge_docs` / `knowledge_chunks`：`uri` 指向本机 SAF 文档，新机上必然失效。
+ *   知识库的迁移路径是"在新机重新上传 PDF"，而不是搬一串打不开的路径。
+ * - **API Key**：key 存在 EncryptedSharedPreferences，不在业务表里，天然导不出。
+ *
+ * 向后兼容：v1 的老备份仍可被 [ImportReader] 导入（缺的表就是不导入）。
  */
 internal object ExportWriter {
 
-    private const val FORMAT_VERSION = 1
+    /** 导出文件的格式版本。v2 起新增 goals / reminders / training_plans + schema_version。 */
+    const val FORMAT_VERSION = 2
 
     /** 组装导出 JSON。不带换行缩进（体积优先），带版本头（便于日后迁移）。 */
     fun buildJson(context: Context): String = runBlockingSafe {
@@ -33,6 +49,9 @@ internal object ExportWriter {
 
         root.put("format", "healix-backup")
         root.put("version", FORMAT_VERSION)
+        // 产生这份备份时的 DB schema 版本（DB_VERSION，唯一事实来源）。
+        // 导入侧据此拒绝"来自更新版本"的文件，而不是静默丢字段。
+        root.put("schema_version", DB_VERSION)
         root.put("exported_at", System.currentTimeMillis())
         root.put("exported_date", LocalDate.now().toString())
 
@@ -65,7 +84,8 @@ internal object ExportWriter {
         }
         root.put("events", events)
 
-        // presets
+        // presets（不导 id：主键是设备本地的自增值，搬过去只会和已有行撞号；
+        //          导入侧按 name 去重 —— 名称才是用户眼里的身份）
         val presets = JSONArray()
         for (p in db.presetDao().listAll()) {
             presets.put(
@@ -75,6 +95,7 @@ internal object ExportWriter {
                     put("kcal", p.kcal)
                     put("use_count", p.useCount)
                     put("last_used_at", p.lastUsedAt)
+                    put("created_at", p.createdAt)
                 },
             )
         }
@@ -109,6 +130,57 @@ internal object ExportWriter {
             )
         }
         root.put("daily_reviews", reviews)
+
+        // goals（v2 新增；不导 id —— 导入侧按 metric 去重，metric 才是自然键）
+        val goals = JSONArray()
+        for (g in db.goalDao().listAll()) {
+            goals.put(
+                JSONObject().apply {
+                    put("type", g.type)
+                    put("metric", g.metric)
+                    put("target_value", g.targetValue)
+                    put("start_value", g.startValue ?: JSONObject.NULL)
+                    put("deadline", g.deadline ?: JSONObject.NULL)
+                    put("is_primary", g.isPrimary)
+                    // 含 archived 行：归档是"移出目标栏"不是删除，重新添加即恢复
+                    put("status", g.status)
+                    put("created_at", g.createdAt)
+                    put("updated_at", g.updatedAt)
+                },
+            )
+        }
+        root.put("goals", goals)
+
+        // reminders（v2 新增；按 name 去重。含 enabled = 0 的行，同 goals 的理由）
+        val reminders = JSONArray()
+        for (r in db.reminderDao().listAll()) {
+            reminders.put(
+                JSONObject().apply {
+                    put("name", r.name)
+                    put("interval_days", r.intervalDays)
+                    put("last_done_at", r.lastDoneAt ?: JSONObject.NULL)
+                    put("next_due_at", r.nextDueAt)
+                    put("enabled", r.enabled)
+                    put("created_at", r.createdAt)
+                },
+            )
+        }
+        root.put("reminders", reminders)
+
+        // training_plans（v2 新增；主键 week_key，导入侧按它去重）
+        val weekPlans = JSONArray()
+        for (t in db.trainingPlanDao().listAll()) {
+            weekPlans.put(
+                JSONObject().apply {
+                    put("week_key", t.weekKey)
+                    put("plan_json", t.planJson ?: JSONObject.NULL)
+                    put("content", t.content ?: JSONObject.NULL)
+                    put("generated_at", t.generatedAt)
+                    put("source", t.source)
+                },
+            )
+        }
+        root.put("training_plans", weekPlans)
 
         // settings（非敏感项；apiKey 不在其中）
         val settings = JSONObject()
