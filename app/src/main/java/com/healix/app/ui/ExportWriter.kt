@@ -76,6 +76,10 @@ internal object ExportWriter {
                     put("origin", e.origin)
                     put("created_at", e.createdAt)
                     put("updated_at", e.updatedAt)
+                    // 软删时间戳：必须随备份走，否则"全新设备首次导入"时已删记录
+                    // 会以未删除状态复活（同机重导不受影响 —— UNIQUE 键直接 IGNORE）。
+                    // 可空 → JSON null；导入侧 optLong 默认 0 再 takeIf { it > 0 } 还原。
+                    put("deleted_at", e.deletedAt ?: JSONObject.NULL)
                 },
             )
         }

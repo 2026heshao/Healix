@@ -520,6 +520,9 @@ internal object ImportReader {
             // 好过 0（0 会让「最近记录」排序把它甩到最后）
             createdAt = o.optLong("created_at", ts),
             updatedAt = o.optLong("updated_at", ts),
+            // 软删标记必须还原，否则备份里已删的记录在新机上会"复活"。
+            // JSON null / 键缺失 / 非正值 → null（未删除）—— 旧版备份（无此字段）天然兼容。
+            deletedAt = o.optLong("deleted_at", 0L).takeIf { it > 0L },
         )
     }
 
