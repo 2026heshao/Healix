@@ -1,15 +1,25 @@
 package com.healix.app.perf
 
 import android.content.Context
+import android.hardware.display.DisplayManager
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
 import android.os.SystemClock
+import android.util.Printer
 import android.view.Choreographer
+import android.view.Display
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+/**
+ * Dispatch 行解析：`>>>>> Dispatching to Handler (main) {abcd} android.view.ViewRootImpl$H 0 100`
+ * → group(1)=target 类全名、group(2)=msg.what。格式不符不匹配（调用端兜底 unknown）。
+ */
+private val DISPATCH_RE =
+    Regex("""Dispatching to Handler \([^)]*\) \{[^}]*\} (\S+) (\d+)""")
 
 /**
  * 帧率探针（清单3 R4）：**独立诊断模块，零业务耦合**。
@@ -100,9 +110,9 @@ object PerfProbe {
      * 主线程消息配对 Printer。`>>>>> Dispatching to Handler (main) {..} <target类> <what> ..`
      * 用正则取 target 类名与 what（防御性解析：格式不符按 unknown 处理，不抛异常）。
      */
-    private val printer = object : android.os.Printer {
-        override fun println(x: String) {
-            if (!running) return
+    private val printer = object : Printer {
+        override fun println(x: String?) {
+            if (!running || x == null) return
             if (x.startsWith(">>>>> Dispatching to")) {
                 val m = DISPATCH_RE.find(x)
                 dispatchTarget = m?.groupValues?.getOrNull(1)?.substringAfterLast('.') ?: "unknown"
@@ -192,8 +202,19 @@ object PerfProbe {
         Looper.getMainLooper().setMessageLogging(null)
     }
 
-    /** vsync 帧间隔（ms，动态取，≈16.67 @60Hz、≈8.33 @120Hz）。 */
-    private fun frameIntervalMs(): Double = Choreographer.getInstance().frameIntervalNanos / 1_000_000.0
+    /**
+     * vsync 帧间隔（ms，动态取，≈16.67 @60Hz、≈8.33 @120Hz）。
+     * CI 修复：`Choreographer.frameIntervalNanos` 非公开 API（Unresolved reference）——
+     * 改走默认显示屏刷新率（[DisplayManager]，applicationContext 可取），
+     * 与架构设计 Q5 假设②「2×vsync 动态阈值、高刷屏自适应」同效。
+     */
+    private fun frameIntervalMs(): Double {
+        val refreshHz = runCatching {
+            appContext?.getSystemService(DisplayManager::class.java)
+                ?.getDisplay(Display.DEFAULT_DISPLAY)?.refreshRate
+        }.getOrNull()?.takeIf { it > 0f } ?: 60f
+        return 1000.0 / refreshHz
+    }
 
     private fun ensureWriter() {
         if (writerThread == null) {
@@ -244,13 +265,4 @@ object PerfProbe {
 
     private fun today(): String =
         SimpleDateFormat(LOG_DATE_FMT, Locale.US).format(Date())
-
-    companion object {
-        /**
-         * Dispatch 行解析：`>>>>> Dispatching to Handler (main) {abcd} android.view.ViewRootImpl$H 0 100`
-         * → group(1)=target 类全名、group(2)=msg.what。格式不符不匹配（调用端兜底 unknown）。
-         */
-        private val DISPATCH_RE =
-            Regex("""Dispatching to Handler \([^)]*\) \{[^}]*\} (\S+) (\d+)""")
-    }
 }
