@@ -1,0 +1,38 @@
+sequenceDiagram
+    participant U as 用户
+    participant CVM as ChatViewModel
+    participant PC as ProfileContext(repo)
+    participant TP as TrainingPlanner(ui)
+    participant DAO as Room DB
+    participant HA as HealthAgent
+    participant CE as ChatEngine
+
+    U->>CVM: 发送消息
+    CVM->>CVM: 配额/配置/断网前置检查(不变)
+    CVM->>PC: build(db)
+    PC->>DAO: aiDataFull? get(ai_data_full)
+    alt 开关=false
+        PC-->>CVM: ""(画像/体格/目标/次目标全不注入)
+    else 开关=true
+        PC->>DAO: settings(goals/profile_*/HEIGHT/AGE/ACTIVITY)
+        PC->>DAO: events(type=body 最近一条体重)
+        PC-->>CVM: 硬约束段+软背景段+体格段+目标组段(含次目标)
+    end
+    CVM->>PC: aiDataFull(db)
+    alt 开关=true
+        CVM->>TP: trainingPlanLineFor(ctx,0/1)
+        TP->>DAO: trainingPlanDao.getWeek(纯读缓存,不触网)
+        TP-->>CVM: 今天/明天训练行(休息日→"休息",无计划→null)
+        CVM->>DAO: planDao.getPlan(todayKey)
+        CVM-->>CVM: 解析 planJson.note(opt 防御式)
+        CVM->>CVM: 拼【当前执行计划】段
+    end
+    CVM->>CVM: background=非空段 join("\n\n")
+    CVM->>HA: run(background=...)
+    HA->>CE: systemPrompt(ctx,date,background,knowledge)(模板字节不变)
+    Note over HA: llm_calls 一行 prompt_ver=v2
+    alt agent 失败
+        CVM->>CE: reply(background=...)
+        Note over CE: llm_calls 一行 prompt_ver=v2
+    end
+    CE-->>U: 回复

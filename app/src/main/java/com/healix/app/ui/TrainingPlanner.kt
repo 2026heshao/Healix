@@ -19,6 +19,7 @@ import com.healix.app.parse.dayStartHourOf
 import com.healix.app.parse.loadsLenient
 import com.healix.app.repo.EventRepository
 import com.healix.app.repo.ORIGIN_USER
+import com.healix.app.repo.ProfileContext
 import com.healix.app.repo.SOURCE_APP
 import com.healix.app.rules.MuscleRecovery
 import kotlinx.coroutines.Dispatchers
@@ -59,10 +60,12 @@ import java.util.UUID
  * prompt 版本号（PRD §8.1 明确要求**独立版本号**）。
  * 与抽取链的 `PROMPT_VER`（=v2）互不影响；此值只随训练 prompt 迭代递增。
  */
-const val PROMPT_VER_TRAINING: String = "v1"
+const val PROMPT_VER_TRAINING: String = "v2"
 
 /**
  * 周训练计划 system prompt。
+ *
+ * v2（2026-10-05）：新增硬规则 2/3（疼痛避让、忌口与运动条件遵守），原规则顺延。
  *
  * ⚠️ 与 `pipeline/contract.py` 的 `PROMPT_TRAINING` **逐字一致**（同 `PROMPT_EXTRACT`
  * 与 `SchemaValidator.kt` 的关系）。Python 侧只做契约/回归校验，Kotlin 侧是实际调用方，
@@ -72,11 +75,13 @@ const val PROMPT_TRAINING: String = """你是 Healix 的训练计划助手。根
 
 硬规则（逐条遵守，冲突时序号小的优先）：
 1. 结合「本周已练肌群」与「恢复度摘要」：同一肌群 48 小时内不重复安排；恢复度低于 50% 的肌群本周内不再安排。
-2. 若今日或昨日有生病记录 → 不安排任何训练，整周改为休息 + 补水 + 睡眠的安排。
-3. 若今日睡眠不足 6 小时 → 当天训练降低强度：每个动作减 1 组，或改为轻量有氧。
-4. 若本周训练次数已达到每周目标 → 多排休息日，不硬凑；绝不允许为了凑够次数而额外加练。
-5. 组次区间按目标给：增肌 每组 6-12 次；力量 每组 1-5 次；保持体能 每组 12-20 次。
-6. 禁止输出 1RM 估算、力量总分、综合评分或任何形式的打分。
+2. 若用户画像给出疼痛/不适部位：不安排刺激该部位的动作，该部位当天以恢复为主，可给不涉及该部位的替代动作；画像未提供疼痛信息时跳过本条。
+3. 若用户画像给出忌口或运动条件（器材/场地/时段）：动作只能使用可用器材与场地，时段约束必须遵守；画像未提供时跳过本条。
+4. 若今日或昨日有生病记录 → 不安排任何训练，整周改为休息 + 补水 + 睡眠的安排。
+5. 若今日睡眠不足 6 小时 → 当天训练降低强度：每个动作减 1 组，或改为轻量有氧。
+6. 若本周训练次数已达到每周目标 → 多排休息日，不硬凑；绝不允许为了凑够次数而额外加练。
+7. 组次区间按目标给：增肌 每组 6-12 次；力量 每组 1-5 次；保持体能 每组 12-20 次。
+8. 禁止输出 1RM 估算、力量总分、综合评分或任何形式的打分。
 
 输出要求：
 - 只输出 JSON，不要任何解释文字，不要 markdown 代码围栏。
@@ -267,6 +272,19 @@ class TrainingPlanner(context: Context) {
             //    与训练计划无关的噪音建议。与上面 illnessCount 的「有/无」同口径处理。
             //    措辞是给模型看的上下文、不是 UI 文案，故不走 strings.xml。
             appendLine("今日睡眠：${if (sleepToday > 0.0) "${trimNumber(sleepToday)} 小时" else "未记录"}")
+            // 目标自述（2026-10-05）：画像类自由文本，受 AI_DATA_FULL 总开关门控
+            //（关闭时整行省略，不打印占位）；GOAL_STATEMENT 非空才出。
+            if (ProfileContext.aiDataFull(db)) {
+                val statement = db.settingsDao().get(SettingsKeys.GOAL_STATEMENT).orEmpty().trim()
+                if (statement.isNotEmpty()) appendLine("目标自述：$statement")
+            }
+            // 画像整段（硬约束/软背景/体格/目标组，2026-10-05）：ProfileContext.build
+            // 内部已受总开关门控，此处无需重复判定；空则整段省略（不给模型空标头）。
+            val profile = ProfileContext.build(db)
+            if (profile.isNotBlank()) {
+                appendLine()
+                appendLine(profile)
+            }
             appendLine("请排出本周（周一至周日）7 天训练安排。")
         }
     }
@@ -537,3 +555,24 @@ fun weekKeyOf(date: LocalDate): String {
 fun dowLabel(dow: Int): String = runCatching {
     DayOfWeek.of(dow).getDisplayName(TextStyle.SHORT, Locale.CHINESE)
 }.getOrNull().orEmpty().ifEmpty { dow.toString() }
+
+/**
+ * 本周训练计划里「今天 + [offsetDays]」那天的行文本（对话链上下文用）。
+ * 有计划 + 训练日 → `标题 · 动作`；有计划 + 休息日 → "休息"；无计划 → null。
+ * 纯读缓存（force=false），绝不触网。与 PlanGenerator.trainingLineFor 的
+ * null→"无" 口径刻意不同：对话链循「空则省略」（休息日本身是有信息量的
+ * 事实，输出"休息"；计划不存在才省略该行）。PlanGenerator 的私有
+ * trainingLineFor 保留不动 —— 两函数并存是刻意的（口径不同）。
+ */
+suspend fun trainingPlanLineFor(context: Context, offsetDays: Long): String? {
+    val plan = runCatching { TrainingPlanner(context).loadOrGenerate(force = false) }.getOrNull()
+        ?: return null
+    val dow = LocalDate.now().plusDays(offsetDays).dayOfWeek.value
+    val day = plan.days.firstOrNull { it.dow == dow } ?: return null
+    // 休息日返回字符串 "休息"（不是 null）：休息也是事实（裁定「空则省略」只针对无计划）
+    if (day.isRest) return "休息"
+    val line = listOf(day.title, day.itemsLine())
+        .filter { it.isNotBlank() }
+        .joinToString(" · ")
+    return line.ifBlank { null }
+}

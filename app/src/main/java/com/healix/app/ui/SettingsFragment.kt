@@ -64,6 +64,18 @@ class SettingsFragment : Fragment() {
             vm.toggleHide(SettingsKeys.HIDE_KCAL)
         }
 
+    /**
+     * 「AI 可见资料范围」开关监听（SettingsKeys.AI_DATA_FULL）：
+     * 复用 [SettingsViewModel.toggleAiDataFull]（IO 协程写键 + reload）。
+     * observe 回填时先摘监听再 setChecked 再挂回，防程序化 setChecked 触发
+     * 本监听造成写回环。⚠️ checked = aiDataFull 本身（**不取反**，
+     * 与 kcal 行「HIDE_KCAL 取反显示」语义相反）。
+     */
+    private val aiDataSwitchListener: CompoundButton.OnCheckedChangeListener =
+        CompoundButton.OnCheckedChangeListener { _, _ ->
+            vm.toggleAiDataFull()
+        }
+
     /** 左滑删除（11.3 / v8 需求 4）：目标行与提醒行共用 1 个实例 → 全局单开。 */
     private lateinit var swipe: SwipeController
 
@@ -139,6 +151,16 @@ class SettingsFragment : Fragment() {
         binding.rowKcalGoal.chevron.visibility = View.VISIBLE
         binding.rowKcalGoal.root.setOnClickListener { editGoalKcal() }
 
+        // ── AI 可见资料范围（SettingsKeys.AI_DATA_FULL 总开关的 UI 入口）──
+        // checked = aiDataFull 本身（不取反）；行点击 = 同义拨动开关（放大触控目标，
+        // 与 kcal 行同款）。
+        binding.rowAiDataSwitch.label.setText(R.string.ai_data_toggle)
+        binding.rowAiDataSwitch.switchWidget.setOnCheckedChangeListener(aiDataSwitchListener)
+        binding.rowAiDataSwitch.root.setOnClickListener {
+            val sw = binding.rowAiDataSwitch.switchWidget
+            sw.isChecked = !sw.isChecked // 触发监听 → toggleAiDataFull，与直拨同一写链
+        }
+
         // ── 提醒（reminders 表）──────────────────────────────────
         // v8 需求 4：不再预置默认提醒，仅保留「添加提醒」入口；行支持左滑删除。
         setupRow(binding.rowReminderAdd, R.string.reminder_add) { editReminder(null) }
@@ -201,6 +223,11 @@ class SettingsFragment : Fragment() {
                     binding.rowKcalSwitch.switchWidget.setOnCheckedChangeListener(null)
                     binding.rowKcalSwitch.switchWidget.isChecked = !v.hideKcal
                     binding.rowKcalSwitch.switchWidget.setOnCheckedChangeListener(kcalSwitchListener)
+                    // AI 可见资料范围：checked = aiDataFull 本身（**不取反**，与 kcal 行语义相反）。
+                    // 先摘监听再回填再挂回：程序化 setChecked 不得触发 toggleAiDataFull（防写回环）。
+                    binding.rowAiDataSwitch.switchWidget.setOnCheckedChangeListener(null)
+                    binding.rowAiDataSwitch.switchWidget.isChecked = v.aiDataFull
+                    binding.rowAiDataSwitch.switchWidget.setOnCheckedChangeListener(aiDataSwitchListener)
                 }
             }
         }

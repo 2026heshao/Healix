@@ -394,7 +394,12 @@ class PlanGenerator(context: Context) {
         val recent = recentSummary()
 
         return buildString {
-            appendLine("目标（用户自述）：" + goalStatement.ifEmpty { "未填写" })
+            // 目标（用户自述）行（2026-10-05）：画像类自由文本，受 AI_DATA_FULL
+            // 总开关门控 —— 关闭时整行省略（不打印"未填写"）。其余行是排程
+            // 操作数（裁定 F），保留 GoalDefaults 兜底，不受本开关影响。
+            if (ProfileContext.aiDataFull(db)) {
+                appendLine("目标（用户自述）：" + goalStatement.ifEmpty { "未填写" })
+            }
             appendLine("主目标：" + goalName(primaryIdx))
             appendLine("每日目标摄入：$targetKcal kcal")
             appendLine("每周训练：$sessions 次 / $minutes 分钟")

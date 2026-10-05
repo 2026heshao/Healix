@@ -17,8 +17,10 @@ import com.healix.app.rules.FoodPool
  * ⚠️ 改动 [ChatEngine.systemPrompt] 内容时必须递增此值（**不改动 `PROMPT_VER`** ——
  *    那是抽取链的版本号，抽取链一字未改）。本常量仅用于 `llm_calls.prompt_ver`
  *    的归因；它**不参与**任何 prompt 字节校验，`systemPrompt` 字节冻结契约不因此变化。
+ *
+ * v2（2026-10-05）：background 通道扩展（体格/目标/次目标/当前计划段），模板字节不动。
  */
-const val PROMPT_VER_CHAT: String = "v1"
+const val PROMPT_VER_CHAT: String = "v2"
 
 /**
  * 对话引擎（单轮，无工具）。

@@ -1,0 +1,70 @@
+classDiagram
+    class ProfileContext {
+        <<object·repo层>>
+        +aiDataFull(db AppDatabase) Boolean
+        +build(db AppDatabase) String
+    }
+    class SettingsKeys {
+        <<object·db层>>
+        +AI_DATA_FULL String = "ai_data_full"
+        +CUSTOM_GOAL_TEXT String
+        +HIDE_KCAL String
+        +HIDE_WEIGHT String
+        +HEIGHT String
+        +AGE String
+        +ACTIVITY String
+        +GOAL_STATEMENT String
+    }
+    class ChatViewModel {
+        -db AppDatabase
+        -buildPlanSection()$ String
+        -todayPlanNote()$ String
+        -executeChat(text String)
+    }
+    class TrainingPlanner {
+        +loadOrGenerate(force Boolean) TrainingPlan?
+        -buildUserContext()$ String
+        +trainingPlanLineFor(context Context, offsetDays Long)$ String
+    }
+    class PlanGenerator {
+        -buildUserContext()$ String
+    }
+    class SettingsViewModel {
+        +values StateFlow~SettingsValues~
+        +toggleAiDataFull()
+        -reload()
+    }
+    class SettingsValues {
+        +aiDataFull Boolean = true
+        +hideKcal Boolean
+        +hideWeight Boolean
+    }
+    class SettingsFragment {
+        -aiDataSwitchListener Listener
+        -observe()
+    }
+    class ChatEngine {
+        <<object>>
+        +PROMPT_VER_CHAT String = "v2"
+        +systemPrompt(ctx, date, background, knowledge) String
+    }
+    class AppDatabase {
+        +settingsDao() SettingsDao
+        +goalDao() GoalDao
+        +eventDao() EventDao
+        +planDao() PlanDao
+        +trainingPlanDao() TrainingPlanDao
+    }
+
+    ProfileContext ..> AppDatabase : 读 settings/goals/events
+    ProfileContext ..> SettingsKeys : AI_DATA_FULL 等
+    ChatViewModel ..> ProfileContext : build/aiDataFull
+    ChatViewModel ..> TrainingPlanner : trainingPlanLineFor(纯读缓存)
+    ChatViewModel ..> AppDatabase : planDao.getPlan
+    ChatViewModel ..> ChatEngine : background 注入(模板冻结)
+    ChatViewModel ..> HealthAgent : background 注入
+    TrainingPlanner ..> ProfileContext : build/aiDataFull(P0-1)
+    PlanGenerator ..> ProfileContext : build/aiDataFull(P0-8/自述行门控)
+    SettingsFragment ..> SettingsViewModel : toggleAiDataFull
+    SettingsViewModel ..> SettingsKeys : AI_DATA_FULL 读写
+    SettingsViewModel ..> AppDatabase : settings 表

@@ -69,6 +69,12 @@ data class SettingsValues(
     /** 隐私：隐藏体重数字（settings 键 HIDE_WEIGHT）。 */
     val hideWeight: Boolean = false,
     /**
+     * AI 可见资料范围总开关（settings 键 [SettingsKeys.AI_DATA_FULL]）。
+     * 键不存在 = 开（默认 true）。checked = aiDataFull 本身（不取反，
+     * 与 hideKcal 的「隐藏取反显示」语义相反）。
+     */
+    val aiDataFull: Boolean = true,
+    /**
      * 最近一条 events(type=body) 记录的体重（F5「当前体重」行）。
      * 0 = 从未记录，UI 显示「未记录」。读的是 events 表，不是 settings。
      */
@@ -307,6 +313,8 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
             debugSummary = "今日 ${quotas.usedToday()} 次 · 失败 ${quotas.failedToday()}",
             hideKcal = all[SettingsKeys.HIDE_KCAL] == "true",
             hideWeight = all[SettingsKeys.HIDE_WEIGHT] == "true",
+            // 判定口径与 ProfileContext.aiDataFull 同源：!= "false"（键不存在 = 开）
+            aiDataFull = all[SettingsKeys.AI_DATA_FULL] != "false",
             latestWeightKg = latestBody?.weightKg ?: 0.0,
             latestWeightDayKey = latestBody?.dayKey.orEmpty(),
             profileAllergens = parseProfileList(all[SettingsKeys.PROFILE_ALLERGENS]),
@@ -518,6 +526,20 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch(Dispatchers.IO) {
             val hidden = settings.get(key) == "true"
             settings.put(SettingEntity(key = key, value = if (hidden) "false" else "true"))
+            reload()
+        }
+    }
+
+    /**
+     * 切换「AI 可见资料范围」总开关（SettingsKeys.AI_DATA_FULL）。
+     * 键不存在视为开 → 首次关闭写入 "false"，再次打开写回 "true"。
+     * 写法镜像 [toggleHide]（IO 协程 put + reload）；刻意不并入 toggleHide ——
+     * 后者的 KDoc 约束「key 只允许 HIDE_*」保持成立，避免语义扩散。
+     */
+    fun toggleAiDataFull() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val full = settings.get(SettingsKeys.AI_DATA_FULL) != "false"
+            settings.put(SettingEntity(key = SettingsKeys.AI_DATA_FULL, value = if (full) "false" else "true"))
             reload()
         }
     }

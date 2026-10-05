@@ -533,6 +533,11 @@
     <string name="group_kcal_intake">热量摄入</string>
     <!-- 开关行标签：语义 = 「记录页是否显示热量盈余行」（HIDE_KCAL 取反，键复用零新增） -->
     <string name="kcal_show_toggle">记录页显示热量盈余</string>
+    <!-- ── AI 可见资料范围（SettingsKeys.AI_DATA_FULL 总开关，2026-10-05）── -->
+    <!-- 设置页「AI 可见资料范围」分组标题（插在「热量摄入」组与「提醒」组之间） -->
+    <string name="group_ai_data">AI 可见资料范围</string>
+    <!-- 开关行标签：checked = aiDataFull 本身（不取反）；控制画像/体格/目标/计划段注入 -->
+    <string name="ai_data_toggle">允许 AI 参考画像、体格、目标与计划</string>
     <!-- 「添加目标」弹层的文本型自定义目标入口（宿主经 arguments 传入 key="custom"） -->
     <string name="add_goal_custom">自定义目标</string>
     <!-- 设置页目标组 / 个人信息页的自定义目标行标签 -->

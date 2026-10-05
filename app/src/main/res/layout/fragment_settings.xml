@@ -352,6 +352,31 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content" />
 
+            <!-- ══ AI 可见资料范围 ★2026-10-05（规范 9.7 ①，与其它组标题同构）══
+                 SettingsKeys.AI_DATA_FULL 的唯一 UI 入口：开关行 checked = aiDataFull
+                 本身（不取反）。控制画像/体格/目标/次目标/计划段是否注入三条 AI 链路。 -->
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="@dimen/divider"
+                android:layout_marginTop="@dimen/block_gap"
+                android:background="@color/line" />
+
+            <TextView
+                style="@style/Text.Caption"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingStart="@dimen/screen_margin"
+                android:paddingEnd="@dimen/screen_margin"
+                android:paddingTop="12dp"
+                android:paddingBottom="8dp"
+                android:text="@string/group_ai_data" />
+
+            <include
+                android:id="@+id/rowAiDataSwitch"
+                layout="@layout/row_setting_switch"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+
             <!-- ══ 提醒 ★v4（规范 9.7 ③）══
                  读写落在 reminders 表。行是**动态渲染**的（可增删 + 左滑删除），
                  所以容器用 LinearLayout，行由代码 inflate item_swipe_row.xml 后加入。

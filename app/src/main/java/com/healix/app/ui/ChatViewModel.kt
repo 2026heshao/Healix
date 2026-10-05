@@ -12,6 +12,7 @@ import com.healix.app.db.ChatMessageEntity
 import com.healix.app.db.EventEntity
 import com.healix.app.db.PresetEntity
 import com.healix.app.net.NetworkStatus
+import com.healix.app.parse.loadsLenient
 import com.healix.app.repo.ProfileContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -26,6 +27,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.LocalDate
+import org.json.JSONObject
 
 sealed interface ChatUiState {
     data object Idle : ChatUiState
@@ -224,9 +226,15 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
             // 结构化画像（F6）：硬约束段（忌口/疼痛/运动条件）+ 软背景段（场景/作息/
             // 手头食物/常备药物）统一由 ProfileContext.build 拼装 —— 与计划生成同源，
-            // 避免两套口径漂移。输出逐字不变（直接进 system prompt，改字=改 AI 行为）。
-            // 不给 ChatEngine.reply 增参 —— 避免与知识库侧的签名改动互相踩。
-            val background = ProfileContext.build(db)
+            // 避免两套口径漂移。不给 ChatEngine.reply 增参 —— 避免与知识库侧的签名改动互相踩。
+            //
+            // 全量背景（2026-10-05）：画像/体格/目标（ProfileContext.build 内部受
+            // AI_DATA_FULL 门控）+ 当前执行计划段（本文件拼装，同一门控）。
+            // 非空段以空行连接；全空 → 空串（systemPrompt 各段空省略，零噪声）。
+            val background = listOf(
+                ProfileContext.build(db),
+                buildPlanSection(),
+            ).filter { it.isNotBlank() }.joinToString("\n\n")
 
             // F2 去重后的历史窗口（agent 与单轮回退共用同一份）
             val history = db.chatMessageDao().recentForContext(todayKey(), 17)
@@ -301,6 +309,46 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                     }
                 }
             }
+    }
+
+    /**
+     * 当前执行计划段（AI_DATA_FULL 门控；三条全空 → 空串）。
+     *
+     * 内容（2026-10-05，P0-5/P0-7）：本周训练计划里「今天 / 明天」那条 +
+     * 今日计划备注。训练行经 [trainingPlanLineFor]（纯读缓存，绝不触网）；
+     * 开关关闭或三条全空 → 空串（systemPrompt 空段省略，零噪声）。
+     * ⚠️ 块体 `return`：挂起函数禁 `= expr` 转发（check_suspend_calls 纪律）。
+     */
+    private suspend fun buildPlanSection(): String {
+        if (!ProfileContext.aiDataFull(db)) return ""
+        val today = trainingPlanLineFor(getApplication(), 0)
+        val tomorrow = trainingPlanLineFor(getApplication(), 1)
+        val note = todayPlanNote()
+        if (today == null && tomorrow == null && note == null) return ""
+        return buildString {
+            appendLine("【当前执行计划（本地生成的计划，事实参考）】")
+            today?.let { appendLine("本周训练计划里\"今天\"那条：$it") }
+            tomorrow?.let { appendLine("本周训练计划里\"明天\"那条：$it") }
+            note?.let { appendLine("今日计划备注：$it") }
+        }.trim()
+    }
+
+    /**
+     * 今日计划备注：`daily_plans.planJson` 的 `note` 字段。防御式解析，
+     * 任何异常 / null → null。日期键必经 [todayKey]（日界线纪律）。
+     *
+     * ⚠️ 用 opt() 而非 optString()：optString 对 JSON null 返回字面字符串
+     *    "null"（PlanGenerator.parseTimelineJson 注释已记此坑）。取原生
+     *    String 才安全。
+     */
+    private suspend fun todayPlanNote(): String? {
+        return runCatching {
+            val row = db.planDao().getPlan(todayKey()) ?: return null
+            val json = row.planJson ?: return null
+            val obj = loadsLenient(json) as? JSONObject ?: return null
+            val n = obj.opt("note")
+            (n as? String)?.trim()?.ifEmpty { null }
+        }.getOrNull()
     }
 
     /**

@@ -148,6 +148,12 @@ object SettingsKeys {
     /** 隐藏体重数字。同上，默认 `false`。 */
     const val HIDE_WEIGHT = "hide_weight"
 
+    /** AI 可见资料范围总开关。"true"/"false"；键不存在 = "true"（默认开）。
+     *  false = 三条 AI 链路只用记录数据（今日数字/历史记录/工具），画像/体格/
+     *  目标组/次目标/计划段全部不注入。hide_kcal/hide_weight 不受影响。
+     *  判定口径全仓唯一：`!= "false"`（读点 ProfileContext.aiDataFull）。 */
+    const val AI_DATA_FULL = "ai_data_full"
+
     // ── 目标组的一次性提示（设计规范系统 9.7 / 921 行） ────────────────
     /**
      * 目标组「依据提示」是否已展示过。`"true"` / `"false"`，默认 `false`（未展示）。
@@ -181,12 +187,12 @@ object SettingsKeys {
     /**
      * 自定义**次目标**（文本型，如「年底体脂降到 18%」）。空 = 未使用。
      *
-     * ⚠️ 刻意**不进任何 AI prompt 读取集合**：`GOAL_STATEMENT` 已被 AI 口径消费
-     *    （PlanGenerator 计划 prompt / TrainingPlanner 训练 prompt），复用它会把
-     *    自定义次目标带进 AI 计划口径 —— 违反清单3 R1 边界。本键与
-     *    `MainViewModel` / `PlanGenerator` / `TrainingPlanner` 的读取集合结构性隔离，
-     *    `ChatEngine.systemPrompt` / `PROMPT_TRAINING` / prompt 常量字节零触碰
-     *    （`PROMPT_VER` 不递增）。
+     * 2026-10-05 起经用户拍板**纳入** AI 读取集合（对话/今日计划/周训练三链同口径，
+     * 受 AI_DATA_FULL 总开关门控）。
+     *
+     * ⚠️ 为什么必须落 settings 表：`goals.target_value` 是 `REAL`（无文本列），
+     *    自由文本目标无处可放。不得改名/改值域；
+     *    空串 = 未填写。
      *
      * 占位判据 = 键值非空；清除 = 删键（文本型无归档态，设置页左滑 + UndoBar 快照恢复）。
      * 上限 80 字（沿用 GOAL_STATEMENT_MAX 先例），空白输入不落库。
