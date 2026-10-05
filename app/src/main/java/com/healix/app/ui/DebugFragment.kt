@@ -1,9 +1,10 @@
 package com.healix.app.ui
 
 import android.os.Bundle
+import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import androidx.appcompat.app.AppCompatActivity
+import androidx.fragment.app.Fragment
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
@@ -11,7 +12,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.healix.app.HealixApp
 import com.healix.app.R
-import com.healix.app.databinding.ActivityDebugBinding
+import com.healix.app.databinding.FragmentDebugBinding
 import com.healix.app.databinding.ItemLlmCallBinding
 import com.healix.app.db.LlmCallEntity
 import kotlinx.coroutines.Dispatchers
@@ -21,30 +22,43 @@ import java.time.Instant
 import java.time.ZoneId
 
 /**
- * 调试页（设计规范系统 4.5）。
+ * 调试页（设计规范系统 4.5）。v8 T03：由 [DebugActivity] 迁为 Fragment。
  *
  * 这是装在手机上后**唯一的排障入口** —— 没有它，App 就是黑盒。
  * 数据源是 llm_calls 表，数值必须与表一致（设计 QA 清单要求）。
+ *
+ * 迁移等价性：`onCreate` → [onViewCreated]；collect 挂
+ * `viewLifecycleOwner`（视图销毁即停，宿主 Activity 常驻不再当作页生命周期）；
+ * `finish()` → `popBackStack()`。
  */
-class DebugActivity : AppCompatActivity() {
+class DebugFragment : Fragment() {
 
-    private lateinit var binding: ActivityDebugBinding
+    private var _binding: FragmentDebugBinding? = null
+    private val binding get() = _binding!!
+
     private lateinit var adapter: LlmCallAdapter
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        binding = ActivityDebugBinding.inflate(layoutInflater)
-        setContentView(binding.root)
+    override fun onCreateView(
+        inflater: LayoutInflater,
+        container: ViewGroup?,
+        savedInstanceState: Bundle?,
+    ): View {
+        _binding = FragmentDebugBinding.inflate(inflater, container, false)
+        return binding.root
+    }
+
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
 
         adapter = LlmCallAdapter()
-        binding.callList.layoutManager = LinearLayoutManager(this)
+        binding.callList.layoutManager = LinearLayoutManager(requireContext())
         binding.callList.adapter = adapter
-        binding.btnBack.setOnClickListener { finish() }
+        binding.btnBack.setOnClickListener { parentFragmentManager.popBackStack() }
 
-        val container = HealixApp.from(this)
+        val container = HealixApp.from(requireContext())
 
-        lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.STARTED) {
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 launch {
                     container.database.llmCallDao().observeRecent(20).collect { list ->
                         adapter.submit(list)
@@ -78,12 +92,6 @@ class DebugActivity : AppCompatActivity() {
         }
     }
 
-    /** v6（11.2）：二级页返回统一 in_back —— 返回页从 -22% 滑入。 */
-    override fun finish() {
-        super.finish()
-        overridePendingTransition(R.anim.in_back, R.anim.out_back)
-    }
-
     private fun startOfToday(): Long =
         java.time.LocalDate.now().atStartOfDay(ZoneId.systemDefault())
             .toInstant().toEpochMilli()
@@ -91,12 +99,17 @@ class DebugActivity : AppCompatActivity() {
     private suspend fun p95(): String {
         val since = startOfToday()
         val list = withContext(Dispatchers.IO) {
-            HealixApp.from(this@DebugActivity).database.llmCallDao()
+            HealixApp.from(requireContext()).database.llmCallDao()
                 .latenciesSince(since).sorted()
         }
         if (list.isEmpty()) return "—"
         val idx = (list.size * 0.95).toInt().coerceAtMost(list.size - 1)
         return "%.1fs".format(list[idx] / 1000.0)
+    }
+
+    override fun onDestroyView() {
+        super.onDestroyView()
+        _binding = null
     }
 }
 

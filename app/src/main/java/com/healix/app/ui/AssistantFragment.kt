@@ -534,7 +534,9 @@ class ChatAdapter : RecyclerView.Adapter<ChatAdapter.VH>() {
             sp.setSpan(
                 object : android.text.style.ClickableSpan() {
                     override fun onClick(widget: View) {
-                        ctx.startActivity(android.content.Intent(ctx, KnowledgeBaseActivity::class.java))
+                        // 知识库也是宿主内的二级页（v8 T03）—— 走同一个容器与转场，
+                        // 不再 startActivity（那会另起窗口，正是"切页卡顿"的来源之一）
+                        NavHost.open(widget.context, KnowledgeBaseFragment(), "knowledge")
                     }
 
                     override fun updateDrawState(ds: android.text.TextPaint) {

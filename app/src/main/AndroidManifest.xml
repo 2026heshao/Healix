@@ -58,26 +58,9 @@
             android:exported="false" />
 
         <!--
-            知识库管理页（设计规范系统 10.3，F12）。
-            v6（11.1）后单入口在「我的」页；解析纯本地，飞行模式下全流程可用。
+            v8 T03：知识库 / 资源清单 / 预设管理 / 调试 已迁为宿主内的二级页 Fragment
+            （NavHost + activity_main 的 pageContainer），四者的 <activity> 声明同帧删除。
         -->
-        <activity
-            android:name=".ui.KnowledgeBaseActivity"
-            android:exported="false" />
-
-        <!-- 资源清单页：手头食物/药物/运动条件的白板输入，AI 自动读取 -->
-        <activity
-            android:name=".ui.ResourceActivity"
-            android:exported="false" />
-
-        <!-- 预设管理页：快捷条预设的新建/编辑/删除（聊天页快捷条的消费端闭环） -->
-        <activity
-            android:name=".ui.PresetManageActivity"
-            android:exported="false" />
-
-        <activity
-            android:name=".ui.DebugActivity"
-            android:exported="false" />
 
         <!--
             状态详情页（设计规范系统 9.4）：从首页状态行进入的二级页。

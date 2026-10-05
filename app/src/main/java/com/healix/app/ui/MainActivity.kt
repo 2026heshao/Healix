@@ -151,18 +151,29 @@ class MainActivity : AppCompatActivity() {
         // 键盘守卫：@id/input 在记录页 View 容器与助理 Fragment 里各有一份，
         // hide() 的 Fragment 视图仍 attach，必须按当前 Tab 解析（TabBar.bindImeGuard 说明）
         TabBar.bindImeGuard(this) {
-            if (currentTab == TabBar.TAB_ASSISTANT) {
-                assistant?.view?.findViewById(R.id.input)
-            } else {
-                binding.input
+            when {
+                // 二级页盖住整个宿主时，不该再去动被盖住的 Tab 输入条
+                NavHost.isOpen(this) -> null
+                currentTab == TabBar.TAB_ASSISTANT -> assistant?.view?.findViewById(R.id.input)
+                else -> binding.input
             }
         }
+
+        // 二级页容器的命中判定（v8 T03）：空容器 clickable=false → 点击穿透到 Tab 页；
+        // 有二级页时 clickable=true → 吞掉落在页面空白处的点击，不误触底下的 Tab。
+        // ⚠️ 注册后必须**立即同步一次**：进程重建时回退栈里可能已有一个二级页，
+        //    而 addOnBackStackChangedListener 只在"变化时"回调，不会补发当前状态。
+        supportFragmentManager.addOnBackStackChangedListener { syncPageContainerHit() }
+        syncPageContainerHit()
+
         showTabImmediate(currentTab)
 
         // 系统返回键（Tab 页返回栈）：非记录 Tab 按返回 = 切回记录 tab（原型 go()
         // 语义：tab 平级、返回不退出）；已是记录 tab 才退出 App。
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
+                // 二级页优先：回退栈非空 → 弹栈（NavHost 负责 out_back 转场）
+                if (NavHost.back(this@MainActivity)) return
                 if (currentTab != TabBar.TAB_RECORD) {
                     showTab(TabBar.TAB_RECORD)
                 } else {
@@ -284,6 +295,11 @@ class MainActivity : AppCompatActivity() {
             .commitNow()
         assistant = f
         return f
+    }
+
+    /** 二级页容器命中态与回退栈同步（见 onCreate 注册处说明）。 */
+    private fun syncPageContainerHit() {
+        binding.pageContainer.isClickable = supportFragmentManager.backStackEntryCount > 0
     }
 
     private fun playInTab(view: View) {

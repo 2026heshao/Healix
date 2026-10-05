@@ -62,7 +62,7 @@ internal class MinePage(
         rowResources.findViewById<TextView>(R.id.label).setText(R.string.resources_title)
         rowResources.findViewById<View>(R.id.chevron).visibility = View.VISIBLE
         rowResources.setOnClickListener {
-            TabBar.openSecondary(activity, Intent(activity, ResourceActivity::class.java))
+            NavHost.open(activity, ResourceFragment(), "resources")
         }
         rowResources.bindPressScale()
 
@@ -70,7 +70,7 @@ internal class MinePage(
         rowPresets.findViewById<TextView>(R.id.label).setText(R.string.preset_manage_title)
         rowPresets.findViewById<View>(R.id.chevron).visibility = View.VISIBLE
         rowPresets.setOnClickListener {
-            TabBar.openSecondary(activity, Intent(activity, PresetManageActivity::class.java))
+            NavHost.open(activity, PresetManageFragment(), "presets")
         }
         rowPresets.bindPressScale()
 
@@ -78,10 +78,7 @@ internal class MinePage(
         rowKnowledge.findViewById<TextView>(R.id.label).setText(R.string.knowledge_title)
         rowKnowledge.findViewById<View>(R.id.chevron).visibility = View.VISIBLE
         rowKnowledge.setOnClickListener {
-            TabBar.openSecondary(
-                activity,
-                Intent(activity, KnowledgeBaseActivity::class.java),
-            )
+            NavHost.open(activity, KnowledgeBaseFragment(), "knowledge")
         }
         rowKnowledge.bindPressScale()
 
@@ -116,7 +113,7 @@ internal class MinePage(
         rowDebug.findViewById<TextView>(R.id.label).setText(R.string.group_debug)
         rowDebug.findViewById<View>(R.id.chevron).visibility = View.VISIBLE
         rowDebug.setOnClickListener {
-            TabBar.openSecondary(activity, Intent(activity, DebugActivity::class.java))
+            NavHost.open(activity, DebugFragment(), "debug")
         }
         rowDebug.bindPressScale()
 

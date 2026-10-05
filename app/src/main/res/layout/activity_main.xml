@@ -394,4 +394,16 @@
         android:layout_height="@dimen/tabbar_height"
         android:layout_gravity="bottom" />
 
+    <!--
+        ── 二级页容器（v8 T03）──
+        二级页（设置/计划/状态详情/个人信息/知识库/资源/预设/调试）以 Fragment
+        形式挂在这里；排在 tabbar 之后 = z 序最高 → 天然盖住底部导航。
+        **空容器不进命中测试**：clickable 由宿主按「回退栈非空」打开，
+        否则一个透明的 match_parent 容器会把 Tab 页的点击全吞掉。
+    -->
+    <FrameLayout
+        android:id="@+id/pageContainer"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
 </FrameLayout>

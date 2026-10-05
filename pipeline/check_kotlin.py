@@ -622,6 +622,9 @@ def check_undefined_self_calls() -> None:
         "create", "start", "stop", "reload", "show", "dismiss", "log",
         "startForeground", "stopSelf", "round", "abs", "max", "min", "mutableMapOf",
         "onRetry", "notify", "cancel", "buildString", "getSystemService",
+        # 适配器回调属性名（构造参数 lambda，非本文件 fun）。与 onRetry 同源：
+        # 一旦同文件出现 onDestroyView / onRetry 等，前缀启发式会误报。
+        "onDelete", "onEdit",
     }
     for kt in sorted(JAVA.rglob("*.kt")):
         text = strip_comments(kt.read_text(encoding="utf-8"))
