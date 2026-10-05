@@ -90,7 +90,12 @@
         android:layout_height="@dimen/divider"
         android:background="@color/line" />
 
-    <!-- 缺口行：还差 X kcal -->
+    <!--
+        缺口行：还差 X kcal（body15/text_1）。
+        ⚠️ **不用 accent**：这一行是**被动状态**，不可点、不带动作 —— 唯一强调色只留给
+        可点动作与需要用户注意的强调（`Text.Body` 已是 text_1，此处不再覆写颜色）。
+        与原型的 `color:var(--text_1)` 一致（UI-v8优化原型.html:398）。
+    -->
     <TextView
         android:id="@+id/gapLabel"
         style="@style/Text.Body"
@@ -100,7 +105,6 @@
         android:paddingEnd="@dimen/screen_margin"
         android:paddingTop="18dp"
         android:paddingBottom="18dp"
-        android:textColor="@color/accent"
         tools:text="还差 1280 kcal" />
 
     <View

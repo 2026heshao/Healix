@@ -1,14 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
     「我的」页（设计规范 11.1，v6 · 3 Tab）：管理类功能的归宿。
-    结构 = 概览（状态详情）/ 数据（知识库 · 导出备份）/ 应用（设置 · 调试 · 通知栏录入）。
-    卡片圆角 8dp（规范原文 16dp 与 §2.3 全局唯一圆角冲突，以 §2.3 为准）。
+    结构 = 概览（状态详情）/ 数据（知识库 · 预设 · 个人信息 · 导出备份）/ 应用（设置 · 调试 · 通知栏录入）。
     知识库唯一入口从设置页迁至此页（11.1 取代 10.1）。
     底部预留 80dp 给全局 tabbar（11.6 密度预算）。
 
     v8：由 `view_mine_page.xml` 抽出为常驻 Tab Fragment（[MineFragment]）的根布局。
     根 id 改 `mineRoot`；**去掉 `android:visibility="gone"`** —— 显隐由 FragmentManager
     的 show/hide 控制，根布局自带 gone 会与 hide() 互相打架。
+
+    v8 §④ 4.1（全 App 巡检必改项）：**去卡片**。
+    原先三组各包一层 `bg_card`（surface 底 + 8dp 圆角 + 1dp 描边）+ 左右 16dp 边距，
+    与设置页 / 个人信息页 / 状态详情页 / 记录页的「无卡片纯列表」不一致（违反 G1）。
+    现在分区只靠「组标题 + 留白 + 1dp 线」：
+    - 页左右边距 = 20dp：由行自身的 `Widget.Healix.SettingRow` 提供
+      （`paddingStart/End = @dimen/screen_margin`），容器**不再自带水平边距**；
+    - 组标题 = caption12 `text_3` 小节头（§④ 4.1）；标题下距首行 8dp、组间 28dp（G5）；
+    - 行间 1dp `line`，左右各 20dp 内缩（与页边距对齐，G5）；
+    - 行高 56dp（`setting_row_height` ≥ 48dp 触控，G5）。
+
+    ⚠️ 保留的这几层无色 LinearLayout 只是**结构化分组**（便于按组增删行），
+       **不带任何底色/边框/圆角** —— 它们不是卡片，不构成 G1 的例外。
 -->
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
@@ -54,14 +66,12 @@
             android:layout_marginStart="@dimen/screen_margin"
             android:layout_marginTop="20dp"
             android:layout_marginBottom="8dp"
-            android:text="@string/mine_group_overview" />
+            android:text="@string/mine_group_overview"
+            android:textColor="@color/text_3" />
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginStart="16dp"
-            android:layout_marginEnd="16dp"
-            android:background="@drawable/bg_card"
             android:orientation="vertical">
 
             <include
@@ -77,16 +87,14 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="@dimen/screen_margin"
-            android:layout_marginTop="16dp"
+            android:layout_marginTop="28dp"
             android:layout_marginBottom="8dp"
-            android:text="@string/mine_group_data" />
+            android:text="@string/mine_group_data"
+            android:textColor="@color/text_3" />
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginStart="16dp"
-            android:layout_marginEnd="16dp"
-            android:background="@drawable/bg_card"
             android:orientation="vertical">
 
             <include
@@ -99,6 +107,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="@dimen/divider"
                 android:layout_marginStart="@dimen/screen_margin"
+                android:layout_marginEnd="@dimen/screen_margin"
                 android:background="@color/line" />
 
             <include
@@ -111,6 +120,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="@dimen/divider"
                 android:layout_marginStart="@dimen/screen_margin"
+                android:layout_marginEnd="@dimen/screen_margin"
                 android:background="@color/line" />
 
             <include
@@ -123,6 +133,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="@dimen/divider"
                 android:layout_marginStart="@dimen/screen_margin"
+                android:layout_marginEnd="@dimen/screen_margin"
                 android:background="@color/line" />
 
             <include
@@ -135,6 +146,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="@dimen/divider"
                 android:layout_marginStart="@dimen/screen_margin"
+                android:layout_marginEnd="@dimen/screen_margin"
                 android:background="@color/line" />
 
             <include
@@ -150,17 +162,15 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="@dimen/screen_margin"
-            android:layout_marginTop="16dp"
+            android:layout_marginTop="28dp"
             android:layout_marginBottom="8dp"
-            android:text="@string/mine_group_app" />
+            android:text="@string/mine_group_app"
+            android:textColor="@color/text_3" />
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginStart="16dp"
-            android:layout_marginEnd="16dp"
             android:layout_marginBottom="28dp"
-            android:background="@drawable/bg_card"
             android:orientation="vertical">
 
             <include
@@ -173,6 +183,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="@dimen/divider"
                 android:layout_marginStart="@dimen/screen_margin"
+                android:layout_marginEnd="@dimen/screen_margin"
                 android:background="@color/line" />
 
             <include
@@ -185,6 +196,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="@dimen/divider"
                 android:layout_marginStart="@dimen/screen_margin"
+                android:layout_marginEnd="@dimen/screen_margin"
                 android:background="@color/line" />
 
             <include
