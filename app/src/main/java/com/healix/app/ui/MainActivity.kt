@@ -82,6 +82,9 @@ class MainActivity : AppCompatActivity() {
         //    而 addOnBackStackChangedListener 只在"变化时"回调，不会补发当前状态。
         supportFragmentManager.addOnBackStackChangedListener { syncPageContainerHit() }
         syncPageContainerHit()
+        // keep-alive 保险：二级页用 add+hide/show 保活（见 NavHost），Activity
+        // 重建后校验容器内只有栈顶页可见（hidden 状态未随回退栈恢复时兜底）。
+        NavHost.ensureRestoredVisibility(this)
 
         showTabImmediate(currentTab)
 

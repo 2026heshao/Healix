@@ -84,6 +84,24 @@ class StatusDetailFragment : Fragment() {
         observe()
     }
 
+    /**
+     * keep-alive 刷新兜底（v8：NavHost 改 add+hide/show 后不再有 replace 重建）。
+     *
+     * 本页是唯一会被其他二级页覆盖的页（状态详情 → 计划页）：计划页「记一笔」
+     * 写 events 后返回，此前的 replace 重建会顺带重读库，keep-alive 后视图保活、
+     * onViewCreated 不会再走 —— 旧快照会让「本周 X/Y 次 / 最近训练」失真。
+     * 故在重新可见（pop 逆向回放 show）时重读一次；首次进入不经过此回调
+     * （初 add 即可见），不会与 init 的 refresh 重复。
+     * FragmentStateManager 保证 show 时派发本回调（与 Tab 页 Record 同范式）。
+     */
+    override fun onHiddenChanged(hidden: Boolean) {
+        super.onHiddenChanged(hidden)
+        // ⚠️ 视图未建（_binding == null）时跳过：onViewCreated 初始化 vm 前若被派发
+        //    （如重建保险 show 触发）会踩 lateinit 崩溃 —— 而那时 vm 的 init 已读库，
+        //    无需重复刷新。
+        if (!hidden && _binding != null) vm.refresh()
+    }
+
     override fun onDestroyView() {
         super.onDestroyView()
         _binding = null

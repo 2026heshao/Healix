@@ -32,8 +32,9 @@ import kotlinx.coroutines.launch
  *    `onCleared()`，`viewModelScope` 取消在途自动重排（避免退后台空跑 20s 请求）。
  *    ⚠️ **不能**用 `by viewModels()`：那是 `fragment-ktx` 的扩展，本模块未引入该依赖
  *    （只有 `lifecycle-viewmodel-ktx`），本地无 JDK 编译、漏了要到 CI 才炸。
- *    二级页 `replace + addToBackStack` 回退时会**重建**本 Fragment，故渲染完全
- *    依赖 [PlanReviewViewModel.plan] 的当前值（无状态重建，不做滚动位置保持）。
+ *    二级页 keep-alive（[NavHost] 用 add + hide/show，非 replace）：本页被上层页
+ *    覆盖时视图保活，pop 时由 FragmentManager 逆向回放自动 show，零重建 ——
+ *    渲染完全依赖 [PlanReviewViewModel.plan] 的当前值（无状态重建，滚动位置天然保留）。
  */
 class PlanReviewFragment : Fragment() {
 
