@@ -123,8 +123,13 @@ class MedicalSummaryFragment : Fragment() {
     /**
      * 组装摘要；任何一步失败返回 `null`（调用方显示"读取失败"并禁用保存）——
      * 宁可明说失败，也不给用户一份缺了半截的材料。
+     *
+     * ⚠️ 必须是 `suspend`：体内 `settingsDao().get(...)` 与 `eventDao().listInRange(...)`
+     *    都是挂起方法。调用点 `withContext(Dispatchers.IO) { build(...) }` 的 block 本身
+     *    是挂起上下文，所以这里标 suspend 即可（本机无 JDK，静态检查器查不出这类
+     *    跨函数挂起调用 —— 提交前靠人工核对，见项目记忆的「已知盲区」）。
      */
-    private fun build(appContext: Context, months: Long): String? = runCatching {
+    private suspend fun build(appContext: Context, months: Long): String? = runCatching {
         val db = HealixApp.from(appContext).database
         val today = dayKeyOf(
             System.currentTimeMillis(),
