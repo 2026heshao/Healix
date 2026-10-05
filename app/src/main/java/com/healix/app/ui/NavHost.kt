@@ -51,6 +51,9 @@ internal object NavHost {
     const val PAGE_KNOWLEDGE = "knowledge"
     const val PAGE_DEBUG = "debug"
 
+    /** 就医准备材料（v8 需求 9 功能 3；入口在「我的」页数据组）。 */
+    const val PAGE_MEDICAL = "medical"
+
     /** 从任意 Context（含 ContextWrapper 链）里找出宿主 FragmentActivity。 */
     fun activityOf(context: Context): FragmentActivity? {
         var ctx: Context? = context

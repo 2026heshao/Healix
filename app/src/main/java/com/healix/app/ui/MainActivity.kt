@@ -133,29 +133,34 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * SAF 回传（v6 迁移，v8 T07 加导入）：导出/导入入口在「我的」页（11.1），
-     * 由 [MineFragment] 发起 —— 发起方用的是宿主的 `startActivityForResult`，
-     * 回传必须在这里转发，否则用户选完文件后 pendingPayload 永远挂着、
-     * 文件不会写入 / 备份不会被读（静默失败）。
+     * SAF 回传（v6 迁移，v8 T07 加导入、T08 加"就医材料"）：写文件/选文件入口在
+     * 「我的」页（11.1），由 [MineFragment] 发起 —— 发起方用的是宿主的
+     * `startActivityForResult`，回传必须在这里转发，否则用户选完文件后待写内容
+     * 永远挂着、文件不会写入 / 备份不会被读（静默失败）。
      *
-     * 两者的处理时机不同，是刻意的：
-     * - **导出**在这里当场写文件，并立刻给 Toast（`ExportWriter` 只持有待写内容，
-     *   写入是同步小操作）；
-     * - **导入**只在这里"交接"——读文件 + 写库是重活，放进 [ImportReader] 自己的
-     *   IO scope，结果经 `ImportReader.report` 回到「我的」页去展示。
+     * 两类回传的处理时机不同，是刻意的：
+     * - **写文件**（导出备份 / 就医材料，[DocumentWriter]）在这里当场写，并立刻给
+     *   Toast —— 内容已由发起方备好，写入是同步小操作。提示语按 [DocumentWriter.Kind]
+     *   分流（两条流程共用同一套管线，但用户看到的文案必须说清刚才是哪件事）。
+     * - **读文件**（导入，[ImportReader]）只在这里"交接"——读文件 + 写库是重活，
+     *   放进它自己的 IO scope，结果经 `ImportReader.report` 回到「我的」页去展示。
      *   `onActivityResult` 跑在主线程上，绝不能在里面对 SQLite 做批量写。
      */
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         @Suppress("DEPRECATION")
         super.onActivityResult(requestCode, resultCode, data)
         val uri = data?.data
-        if (ExportWriter.onActivityResult(this, requestCode, resultCode, uri)) {
+        val docKind = DocumentWriter.onActivityResult(this, requestCode, resultCode, uri)
+        if (docKind != null) {
             val ok = resultCode == RESULT_OK
-            android.widget.Toast.makeText(
-                this,
-                getString(if (ok) R.string.export_success else R.string.export_failed),
-                android.widget.Toast.LENGTH_SHORT,
-            ).show()
+            val msgRes = when (docKind) {
+                DocumentWriter.Kind.EXPORT ->
+                    if (ok) R.string.export_success else R.string.export_failed
+                DocumentWriter.Kind.MEDICAL ->
+                    if (ok) R.string.medical_save_success else R.string.medical_save_failed
+            }
+            android.widget.Toast.makeText(this, getString(msgRes), android.widget.Toast.LENGTH_SHORT)
+                .show()
             return
         }
         ImportReader.onActivityResult(this, requestCode, resultCode, uri)

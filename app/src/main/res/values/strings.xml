@@ -182,6 +182,31 @@
     <string name="recovery_ago_hours">%1$d 小时前</string>
     <string name="plan_recovery_note">%1$s 上次 %2$s · 恢复 %3$d%%</string>
     <string name="plan_recovery_alt">%1$s · 可练 %2$s</string>
+
+    <!-- v8 需求 9 功能 3（就医准备材料）：把一段时间窗内的事实整理成**一页可交给
+         医生**的纯文本。入口在「我的」页数据组，本地生成、**不调 AI**（理由见
+         rules/MedicalSummary 的 KDoc）。纪律：只汇总事实，不输出诊断 / 风险百分比 /
+         因果 / 建议（旧研究 R6）。`~` 表示区间。 -->
+    <string name="medical_title">就医材料</string>
+    <string name="medical_row_value">1 / 3 / 6 个月</string>
+    <string name="medical_window_1">近 1 个月</string>
+    <string name="medical_window_3">近 3 个月</string>
+    <string name="medical_window_6">近 6 个月</string>
+    <string name="medical_save">保存为文本</string>
+    <string name="medical_save_success">已保存</string>
+    <string name="medical_save_failed">保存失败</string>
+    <string name="medical_preview_empty">该时段内没有任何记录</string>
+    <string name="medical_preview_failed">读取记录失败，请稍后重试</string>
+    <string name="medical_doc_title">Healix 就医准备材料</string>
+    <string name="medical_doc_range">时间窗 %1$s ~ %2$s</string>
+    <string name="medical_doc_generated">生成时间 %1$s</string>
+    <string name="medical_row">%1$s %2$s</string>
+    <string name="medical_sec_illness">【不适 / 症状】%1$d 条</string>
+    <string name="medical_sec_weight">【体重】%1$d 次记录，%2$s ~ %3$s kg，平均 %4$s kg，最近 %5$s kg（%6$s）</string>
+    <string name="medical_sec_sleep">【睡眠】%1$d 次记录，平均 %2$s 小时，最少 %3$s 小时，最多 %4$s 小时</string>
+    <string name="medical_sec_meal">【饮食】%1$d 条记录，%2$d 天有记录，合计 %3$d kcal，日均 %4$s kcal</string>
+    <string name="medical_sec_exercise">【运动】%1$d 条记录，合计消耗 %2$d kcal</string>
+    <string name="medical_footnote">以上均为本人在 Healix 中自行记录的事实，按时间窗原样汇总；不含诊断、评分或医学判断。未列出的项目表示该时段内没有相应记录。</string>
     <!-- 计划 Tab 时间轴 · 顶部行（来源行）与失败/配额提示。
          v8 需求 7：手动「更新」已去除，AI 重排改后台自动 —— 在途时只给一行状态提示。 -->
     <string name="plan_auto_updating">正在按你的最新数据重排…</string>

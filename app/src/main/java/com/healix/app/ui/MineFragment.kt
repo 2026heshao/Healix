@@ -131,6 +131,18 @@ class MineFragment : Fragment() {
         }
         binding.rowImport.root.bindPressScale()
 
+        // ── 数据：就医材料（v8 T08 / 需求 9 功能 3）──
+        // 与「导出备份」并列：一个是给未来的自己（可还原的 JSON），一个是给医生
+        // （可阅读的纯文本）。副行写明可选时间窗 —— 点进去才知道有 1/3/6 个月
+        // 会让人以为只有一种。全本地生成，不调 AI、不耗配额、断网可用。
+        binding.rowMedical.label.setText(R.string.medical_title)
+        binding.rowMedical.value.text = getString(R.string.medical_row_value)
+        binding.rowMedical.chevron.visibility = View.VISIBLE
+        binding.rowMedical.root.setOnClickListener {
+            NavHost.open(requireContext(), MedicalSummaryFragment(), NavHost.PAGE_MEDICAL)
+        }
+        binding.rowMedical.root.bindPressScale()
+
         // ── 应用：设置 / 调试 / 通知栏录入 ──
         binding.rowSettings.label.setText(R.string.settings)
         binding.rowSettings.chevron.visibility = View.VISIBLE

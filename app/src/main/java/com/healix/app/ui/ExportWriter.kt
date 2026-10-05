@@ -2,14 +2,11 @@ package com.healix.app.ui
 
 import android.app.Activity
 import android.content.Context
-import android.content.Intent
-import android.net.Uri
 import androidx.activity.result.contract.ActivityResultContracts
 import com.healix.app.HealixApp
 import com.healix.app.db.DB_VERSION
 import org.json.JSONArray
 import org.json.JSONObject
-import java.io.OutputStream
 import java.time.LocalDate
 
 /**
@@ -196,55 +193,26 @@ internal object ExportWriter {
      * 用 SAF 让用户选保存位置。
      *
      * 注：导出入口在「我的」页（v6 11.1 从设置页迁来），宿主是 [MainActivity]；
-     * 回传由 `MainActivity.onActivityResult` 转发给 [onActivityResult]。
-     * 这里用 `startActivityForResult` 而非 `registerForActivityResult`，
-     * 正是为了避开「launcher 必须在宿主创建阶段注册」的时序约束 ——
-     * 入口是「我的」页里一个普通行，没有独立的注册时机。
-     * 本方法只负责发起。
+     * 回传由 `MainActivity.onActivityResult` 转发给 [DocumentWriter]。选择器 + 回传 +
+     * 写文件这套管线在 [DocumentWriter] 里（v8 需求 9：「就医材料」要做的是同一件事，
+     * 管线抄第二份迟早漏改一处），本方法只把"导出"这一路的 MIME / 文件名填进去。
      */
     fun launchCreateDocument(activity: Activity, json: String) {
-        pendingPayload = json
-        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-            addCategory(Intent.CATEGORY_OPENABLE)
-            type = "application/json"
-            putExtra(Intent.EXTRA_TITLE, fileName())
-        }
-        activity.startActivityForResult(intent, REQUEST_CODE)
-    }
-
-    /** 兼容 startActivityForResult 的回调入口（避免引入 registerForActivityResult 的时序约束）。 */
-    fun onActivityResult(context: Context, requestCode: Int, resultCode: Int, data: Uri?): Boolean {
-        if (requestCode != REQUEST_CODE) return false
-        if (resultCode != Activity.RESULT_OK || data == null) {
-            pendingPayload = null
-            return true
-        }
-        val payload = pendingPayload
-        pendingPayload = null
-        if (payload == null) return true
-
-        return try {
-            context.contentResolver.openOutputStream(data)?.use { out: OutputStream ->
-                out.write(payload.toByteArray(Charsets.UTF_8))
-                out.flush()
-            }
-            true
-        } catch (_: Exception) {
-            false
-        }
+        DocumentWriter.launch(
+            activity = activity,
+            requestCode = DocumentWriter.REQUEST_EXPORT,
+            mime = DocumentWriter.MIME_JSON,
+            fileName = fileName(),
+            payload = json,
+        )
     }
 
     fun fileName(): String = "healix-backup-${LocalDate.now()}.json"
-
-    private const val REQUEST_CODE = 4011
-
-    @Volatile
-    private var pendingPayload: String? = null
 
     /** 在 IO 线程同步等待的语法糖。导出是低频操作，阻塞可接受。 */
     private fun <T> runBlockingSafe(block: suspend () -> T): T =
         kotlinx.coroutines.runBlocking { block() }
 
     /** 供 ActivityResultLauncher 版本使用的契约（保留扩展位）。 */
-    val CONTRACT = ActivityResultContracts.CreateDocument("application/json")
+    val CONTRACT = ActivityResultContracts.CreateDocument(DocumentWriter.MIME_JSON)
 }

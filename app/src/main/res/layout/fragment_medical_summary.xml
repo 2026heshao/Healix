@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    就医准备材料（v8 需求 9 功能 3）。
+    结构 = 顶栏 56dp（返回 + 标题）/ 时间窗三选一 / 预览（可滚动）/ 底部主按钮。
+    硬约束：无卡片、无阴影、无渐变；唯一强调色只用于「当前选中的时间窗」。
+    预览文本是纯文本摘要，内容由 MedicalSummary.render() 生成（本地，不调 AI）。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/bg"
+    android:orientation="vertical">
+
+    <RelativeLayout
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:paddingEnd="@dimen/screen_margin">
+
+        <ImageButton
+            android:id="@+id/btnBack"
+            android:layout_width="@dimen/touch_min"
+            android:layout_height="@dimen/touch_min"
+            android:layout_centerVertical="true"
+            android:layout_marginStart="8dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/back"
+            android:padding="14dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_back" />
+
+        <TextView
+            style="@style/Text.Title"
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:layout_marginStart="4dp"
+            android:layout_toEndOf="@id/btnBack"
+            android:gravity="center_vertical"
+            android:text="@string/medical_title" />
+    </RelativeLayout>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/divider"
+        android:background="@color/line" />
+
+    <!-- 时间窗：三个等宽纯文字项（选中项 accent，其余 text_2） -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/touch_min"
+        android:orientation="horizontal"
+        android:paddingStart="@dimen/screen_margin"
+        android:paddingEnd="@dimen/screen_margin">
+
+        <TextView
+            android:id="@+id/winMonth1"
+            style="@style/Text.Body"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:gravity="center"
+            tools:text="近 1 个月" />
+
+        <TextView
+            android:id="@+id/winMonth3"
+            style="@style/Text.Body"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:gravity="center"
+            tools:text="近 3 个月" />
+
+        <TextView
+            android:id="@+id/winMonth6"
+            style="@style/Text.Body"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:gravity="center"
+            tools:text="近 6 个月" />
+    </LinearLayout>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/divider"
+        android:background="@color/line" />
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:scrollbars="none">
+
+        <TextView
+            android:id="@+id/preview"
+            style="@style/Text.Secondary"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:lineSpacingExtra="4dp"
+            android:paddingStart="@dimen/screen_margin"
+            android:paddingTop="16dp"
+            android:paddingEnd="@dimen/screen_margin"
+            android:paddingBottom="16dp"
+            android:textColor="@color/text_1"
+            tools:text="Healix 就医准备材料" />
+    </ScrollView>
+
+    <androidx.appcompat.widget.AppCompatButton
+        android:id="@+id/btnSave"
+        style="@style/Widget.Healix.Button"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:layout_marginStart="@dimen/screen_margin"
+        android:layout_marginTop="8dp"
+        android:layout_marginEnd="@dimen/screen_margin"
+        android:layout_marginBottom="@dimen/screen_margin"
+        android:text="@string/medical_save" />
+
+</LinearLayout>

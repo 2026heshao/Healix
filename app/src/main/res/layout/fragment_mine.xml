@@ -188,6 +188,26 @@
                 android:layout_marginEnd="@dimen/screen_margin"
                 android:text="@string/backup_note"
                 android:textColor="@color/text_3" />
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="@dimen/divider"
+                android:layout_marginTop="12dp"
+                android:layout_marginStart="@dimen/screen_margin"
+                android:layout_marginEnd="@dimen/screen_margin"
+                android:background="@color/line" />
+
+            <!--
+                就医准备材料（v8 需求 9 功能 3）：把一段时间窗内的事实整理成一页
+                可交给医生的纯文本。与「导出备份」并列在数据组 —— 两者都是"把数据
+                带走"，但一个是给未来的自己（可还原），一个是给医生（可阅读）。
+                副行写明可选时间窗，避免用户点进去才知道。
+            -->
+            <include
+                android:id="@+id/rowMedical"
+                layout="@layout/row_setting_value"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
         </LinearLayout>
 
         <!-- ── 应用 ── -->
