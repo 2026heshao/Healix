@@ -1181,6 +1181,49 @@ def check_duplicate_constants() -> None:
             )
 
 
+# 协程 API 的「符号 → 必需 import」表。
+# ⚠️ 只收录**能零误报判定**的形态：正则必须能区分"协程调用"与"同名方法调用"。
+COROUTINE_APIS: dict[str, tuple[str, "re.Pattern[str]"]] = {
+    # `pickPdf.launch(arrayOf(...))` 是 ActivityResultLauncher.launch，不是协程；
+    # 协程调用一律写作 `launch {`（后面直接跟块）—— 这一条足以零误报地区分两者。
+    "launch": ("kotlinx.coroutines.launch", re.compile(r"(?<![\w.])launch\s*\{")),
+    "withContext": ("kotlinx.coroutines.withContext", re.compile(r"(?<![\w.])withContext\s*\(")),
+    "Dispatchers": ("kotlinx.coroutines.Dispatchers", re.compile(r"(?<![\w.])Dispatchers\.")),
+}
+
+
+def check_missing_coroutine_imports() -> None:
+    """用了协程 API 却**没 import** → 编译错误（本机无 JDK，只有 CI 才暴露）。
+
+    2026-10-05：`KnowledgeBaseFragment` 由 Activity 迁为 Fragment 时漏抄
+    `import kotlinx.coroutines.launch`；静态检查器**全绿**，CI 一编译就是
+    6 条 `Unresolved reference 'launch'` + 一串
+    `should be called only from a coroutine or another suspend function`。
+    这是本地防线此前**唯一没覆盖**的一类：跨文件符号解析（编译器一查就出，
+    正则却查不到）。本规则补上这个洞。
+
+    判据刻意收紧到零误报：
+      - 星号导入 `kotlinx.coroutines.*` 视为已覆盖；
+      - 只在文件**确实用了**该符号时才要求 import（不凭空索取）；
+      - `launch` 只认 `launch {`：「ActivityResultLauncher.launch(...)」不匹配。
+    """
+    for kt in sorted(JAVA.rglob("*.kt")):
+        code = strip_comments(kt.read_text(encoding="utf-8"))
+        imports = {
+            ln.strip()[len("import "):].strip()
+            for ln in code.splitlines()
+            if ln.strip().startswith("import ")
+        }
+        if "kotlinx.coroutines.*" in imports:
+            continue
+        for sym, (imp, pat) in COROUTINE_APIS.items():
+            if pat.search(code) and imp not in imports:
+                errors.append(
+                    f"{rel(kt)}: 用了协程 `{sym}` 但没有 `import {imp}` —— "
+                    f"本地无 JDK，这类**跨文件符号解析**错误只在 CI 暴露"
+                )
+
+
 def main() -> int:
     if not DB.exists():
         print(f"找不到 db 目录：{DB}")
@@ -1203,6 +1246,7 @@ def main() -> int:
     check_prompt_parity()
     check_object_scope()
     check_duplicate_constants()
+    check_missing_coroutine_imports()
 
     print("=" * 64)
     print("Healix Kotlin/Room 静态检查")
