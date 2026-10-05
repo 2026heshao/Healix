@@ -38,6 +38,19 @@ internal object NavHost {
     /** 回退栈标签前缀：二级页统一携带，调试时一眼分辨来源。 */
     private const val TAG_PREFIX = "page:"
 
+    // ── 二级页标签（唯一事实来源）──────────────────────────────────────────
+    // 调用点**不得**各写一份字面量：重复字面量正是"改一处漏一处"的温床
+    // （check_kotlin 的重复定义提示就盯着这类）。标签同时作为 FragmentManager
+    // 的 back stack name，dumpsys / 调试时能直接看出停在哪一页。
+    const val PAGE_STATUS_DETAIL = "status_detail"
+    const val PAGE_SETTINGS = "settings"
+    const val PAGE_PLAN_REVIEW = "plan_review"
+    const val PAGE_PERSONAL_INFO = "personal_info"
+    const val PAGE_RESOURCES = "resources"
+    const val PAGE_PRESETS = "presets"
+    const val PAGE_KNOWLEDGE = "knowledge"
+    const val PAGE_DEBUG = "debug"
+
     /** 从任意 Context（含 ContextWrapper 链）里找出宿主 FragmentActivity。 */
     fun activityOf(context: Context): FragmentActivity? {
         var ctx: Context? = context
@@ -56,15 +69,20 @@ internal object NavHost {
      * 打开二级页：进 `pageContainer`。
      *
      * 动画参数是 `(enter, exit, popEnter, popExit)`：
-     * - 入场 = in_fwd（22%→0）；`replace` 掉的旧页不做动画（同容器内本就只有一页）；
-     * - 弹栈 = popExit 走 out_back（0→22%），即二级页向右滑出、露出底下的 Tab 页。
+     * - 入场 = in_fwd（22%→0）；被替换的旧页走 out_fwd（0→-22%），
+     *   于是「二级页 → 二级页」（如状态详情 → 计划页）也是标准的前进转场；
+     *   **从 Tab 页首开二级页时容器本为空，exit 无对象、自然不播** —— 一组参数覆盖两种情形。
+     * - 弹栈 = popEnter 走 in_back（-22%→0，下层页从左归位）、popExit 走 out_back
+     *   （0→22%，被弹出的页向右滑出）—— 与「前进/后退」的横向队列直觉一致。
+     *
+     * 动画只有 `translate`、无 alpha 交叉（同窗口内不会露出旧窗口，恒不透明仍成立）。
      *
      * 找不到宿主 Activity（理论上不会）时静默忽略 —— 不抛异常拖垮入口点击。
      */
     fun open(context: Context, fragment: Fragment, tag: String) {
         val host = activityOf(context) ?: return
         host.supportFragmentManager.beginTransaction()
-            .setCustomAnimations(R.anim.in_fwd, 0, R.anim.in_back, R.anim.out_back)
+            .setCustomAnimations(R.anim.in_fwd, R.anim.out_fwd, R.anim.in_back, R.anim.out_back)
             .replace(R.id.pageContainer, fragment, TAG_PREFIX + tag)
             .addToBackStack(TAG_PREFIX + tag)
             .commit()

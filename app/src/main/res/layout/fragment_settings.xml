@@ -5,7 +5,6 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/bg"
-    android:fitsSystemWindows="true"
     android:orientation="vertical">
 
     <RelativeLayout
@@ -208,7 +207,7 @@
                 目标组「依据提示」（规范 9.7）：13sp text_3，仅首次打开该组时显示一次。
                 形式裁决 = 放**组标题下方一行**，而非规范字面的「每项值下方」：
                 体重/训练/睡眠/饮水的默认值同出一个来源（《中国居民膳食指南(2022)》），
-                逐项重复 5 遍只是噪声。可见性由 SettingsActivity.setupGoalSourceHint() 控制。
+                逐项重复 5 遍只是噪声。可见性由 SettingsFragment.setupGoalSourceHint() 控制。
             -->
             <TextView
                 android:id="@+id/goalSourceHint"

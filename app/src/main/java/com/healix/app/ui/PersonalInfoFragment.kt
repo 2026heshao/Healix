@@ -3,17 +3,19 @@ package com.healix.app.ui
 import android.content.DialogInterface
 import android.os.Bundle
 import android.text.InputType
+import android.view.LayoutInflater
 import android.view.View
+import android.view.ViewGroup
 import androidx.appcompat.app.AlertDialog
-import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.widget.doAfterTextChanged
+import androidx.fragment.app.Fragment
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.healix.app.HealixApp
 import com.healix.app.R
-import com.healix.app.databinding.ActivityPersonalInfoBinding
+import com.healix.app.databinding.FragmentPersonalInfoBinding
 import com.healix.app.db.SettingsKeys
 import kotlinx.coroutines.launch
 
@@ -31,23 +33,33 @@ import kotlinx.coroutines.launch
  *
  * ⚠️ 不含任何新的数值兜底常量：目标卡路里默认沿用 [SettingsViewModel.reload]；
  * 活动系数取值 [ACTIVITY_VALUES] 由设置页迁来（**不复制两份**）。
+ *
+ * v8 T03：由 `PersonalInfoActivity` 迁为宿主 [MainActivity] 内的二级页 Fragment。
  */
-class PersonalInfoActivity : AppCompatActivity() {
+class PersonalInfoFragment : Fragment() {
 
-    private lateinit var binding: ActivityPersonalInfoBinding
+    private var _binding: FragmentPersonalInfoBinding? = null
+    private val binding get() = _binding!!
+
     private lateinit var vm: SettingsViewModel
 
     /** 背景项：最近一次已落库的内容，用于避免重复写入。 */
     private var lastSavedBackground: String = ""
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        binding = ActivityPersonalInfoBinding.inflate(layoutInflater)
-        setContentView(binding.root)
+    override fun onCreateView(
+        inflater: LayoutInflater,
+        container: ViewGroup?,
+        savedInstanceState: Bundle?,
+    ): View {
+        _binding = FragmentPersonalInfoBinding.inflate(inflater, container, false)
+        return binding.root
+    }
 
-        vm = SettingsViewModel(HealixApp.from(this))
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
+        vm = SettingsViewModel(HealixApp.from(requireContext()))
 
-        binding.btnBack.setOnClickListener { finish() }
+        binding.btnBack.setOnClickListener { NavHost.back(requireContext()) }
 
         // ── 基本信息 ──────────────────────────────────────────────
         setupRow(binding.rowCurrentWeight, R.string.setting_current_weight) { editCurrentWeight() }
@@ -78,6 +90,11 @@ class PersonalInfoActivity : AppCompatActivity() {
         observe()
     }
 
+    override fun onDestroyView() {
+        super.onDestroyView()
+        _binding = null
+    }
+
     /** 给 include 出来的行设标签与点击。箭头只在可点行显示。 */
     private fun setupRow(
         row: com.healix.app.databinding.RowSettingValueBinding,
@@ -91,7 +108,11 @@ class PersonalInfoActivity : AppCompatActivity() {
 
     // ── 字段编辑（复用 FieldSheet 底色容器，§5.1）────────────────────
 
-    /** 弹 [FieldSheet] 采集字段：取消不回调，确认回传各字段文本（顺序与 specs 一致）。 */
+    /**
+     * 弹 [FieldSheet] 采集字段：取消不回调，确认回传各字段文本（顺序与 specs 一致）。
+     *
+     * ⚠️ Fragment 化后容器用 **childFragmentManager**（弹窗随二级页一起销毁）。
+     */
     private fun showField(
         titleRes: Int,
         specs: List<FieldSheet.FieldSpec>,
@@ -99,7 +120,7 @@ class PersonalInfoActivity : AppCompatActivity() {
     ) {
         val sheet = FieldSheet.newInstance(titleRes, specs)
         sheet.onResult = onOk
-        sheet.show(supportFragmentManager, FieldSheet.TAG)
+        sheet.show(childFragmentManager, FieldSheet.TAG)
     }
 
     /** 身高（正整数，空输入清除）。 */
@@ -239,7 +260,7 @@ class PersonalInfoActivity : AppCompatActivity() {
     /** 活动系数单选（取值 [ACTIVITY_VALUES]）。 */
     private fun chooseActivity() {
         val labels = resources.getStringArray(R.array.activity_levels)
-        AlertDialog.Builder(this)
+        AlertDialog.Builder(requireContext())
             .setTitle(R.string.setting_activity)
             .setItems(labels) { _, which -> vm.put(SettingsKeys.ACTIVITY, ACTIVITY_VALUES[which]) }
             .setNegativeButton(R.string.cancel, null as DialogInterface.OnClickListener?)
@@ -253,7 +274,7 @@ class PersonalInfoActivity : AppCompatActivity() {
             getString(R.string.setting_profile_scene_fixed),
             *options.map { it as CharSequence }.toTypedArray(),
         )
-        AlertDialog.Builder(this)
+        AlertDialog.Builder(requireContext())
             .setTitle(R.string.setting_profile_scene)
             .setItems(items) { _, which ->
                 vm.put(SettingsKeys.PROFILE_SCENE, if (which == 0) "" else options[which - 1])
@@ -273,7 +294,7 @@ class PersonalInfoActivity : AppCompatActivity() {
 
     /**
      * 补充说明（F6 保留的自由文本）：常驻输入框（非弹窗 —— 长文本用弹窗体验差）。
-     * 保存时机：**失焦**（onFocusChange）+ **返回键退出前**（onPause 兜底）。
+     * 保存时机：**失焦**（onFocusChange）+ **返回 / 切后台前**（onPause 兜底）。
      * 上限 [BACKGROUND_MAX] 字：**输入时**即硬截断（不能只在保存时截 —— 静默丢数据）。
      */
     private fun setupBackground() {
@@ -307,21 +328,16 @@ class PersonalInfoActivity : AppCompatActivity() {
     }
 
     override fun onPause() {
-        // 兜底：用户直接按返回 / 切后台时不走失焦回调，这里补一次
+        // 兜底：用户直接按返回 / 切后台时不走失焦回调，这里补一次。
+        // ⚠️ 视图可能已拆解（onDestroyView 之后宿主仍会走 onPause）→ 先判 _binding。
         super.onPause()
-        if (::binding.isInitialized) saveBackground()
-    }
-
-    /** v6 11.2：二级页返回走 in_back 转场（覆盖返回键与手势返回）。 */
-    override fun finish() {
-        super.finish()
-        overridePendingTransition(R.anim.in_back, R.anim.out_back)
+        if (_binding != null) saveBackground()
     }
 
     // ── 渲染 ──────────────────────────────────────────────────────
 
     private fun observe() {
-        lifecycleScope.launch {
+        viewLifecycleOwner.lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 vm.values.collect { v ->
                     binding.rowHeight.value.text =
@@ -337,12 +353,12 @@ class PersonalInfoActivity : AppCompatActivity() {
                             agoLabel(v.latestWeightDayKey),
                         )
                         binding.rowCurrentWeight.value.setTextColor(
-                            ContextCompat.getColor(this@PersonalInfoActivity, R.color.text_2)
+                            ContextCompat.getColor(requireContext(), R.color.text_2)
                         )
                     } else {
                         binding.rowCurrentWeight.value.text = getString(R.string.setting_weight_none)
                         binding.rowCurrentWeight.value.setTextColor(
-                            ContextCompat.getColor(this@PersonalInfoActivity, R.color.text_3)
+                            ContextCompat.getColor(requireContext(), R.color.text_3)
                         )
                     }
 
@@ -415,7 +431,8 @@ class PersonalInfoActivity : AppCompatActivity() {
     companion object {
         /**
          * 活动系数（总方案第五节 BMR 公式）。
-         * ⚠️ 从 `SettingsActivity` 迁来（P1 迁移）—— **不得两份并存**。
+         * ⚠️ 从设置页（原型类名 `SettingsActivity`，v8 已迁为 [SettingsFragment]）
+         * 迁来（P1 迁移）—— **不得两份并存**。
          */
         val ACTIVITY_VALUES = listOf("1.2", "1.375", "1.55", "1.725")
 

@@ -1,24 +1,25 @@
 package com.healix.app.ui
 
-import android.content.Intent
 import android.graphics.Typeface
 import android.os.Bundle
 import android.text.Spannable
 import android.text.SpannableString
 import android.text.style.ForegroundColorSpan
 import android.util.TypedValue
+import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.TextView
-import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.os.bundleOf
+import androidx.fragment.app.Fragment
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.healix.app.HealixApp
 import com.healix.app.R
-import com.healix.app.databinding.ActivityStatusDetailBinding
+import com.healix.app.databinding.FragmentStatusDetailBinding
 import com.healix.app.databinding.ItemEventBinding
 import com.healix.app.databinding.ItemIllnessTimelineBinding
 import com.healix.app.databinding.RowSettingValueBinding
@@ -32,8 +33,12 @@ import kotlin.math.abs
 /**
  * 状态详情页（设计规范 §9.4）。
  *
- * 入口：首页状态行（摘要态默认「运动」段，信号态默认「身体」段，由 Intent extra 决定）。
- * 返回：页头 ← 回首页。
+ * 入口：首页状态行（摘要态默认「运动」段，信号态默认「身体」段，由 Fragment
+ * arguments 决定）；「我的」页概览组也进这里（默认「运动」）。返回：页头 ← 回上一页。
+ *
+ * v8 T03：由 `StatusDetailActivity` 迁为宿主 [MainActivity] 内的二级页 Fragment。
+ * 默认段由 `Intent` extra 改为 **Fragment arguments**（[ARG_DEFAULT_TAB]）——
+ * 仍是「进入时一次性决定」，不参与后续状态恢复语义。
  *
  * ⚠️ **本页只读 `body_signals`，不负责写入扫描** —— 规则求值与落库由首页负责，
  * 这里绝不重复实现，否则「同一规则两处判定」必然漂移。
@@ -42,39 +47,46 @@ import kotlin.math.abs
  * 体重段追加的就医引导里**不得出现「多吃 / 加餐 / 上调摄入」字样** ——
  * 那正是本条要避免的误导。引导样式与普通正文一致，不做成"警告条"。
  */
-class StatusDetailActivity : AppCompatActivity() {
+class StatusDetailFragment : Fragment() {
 
-    private lateinit var binding: ActivityStatusDetailBinding
+    private var _binding: FragmentStatusDetailBinding? = null
+    private val binding get() = _binding!!
+
     private lateinit var vm: StatusDetailViewModel
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        binding = ActivityStatusDetailBinding.inflate(layoutInflater)
-        setContentView(binding.root)
+    override fun onCreateView(
+        inflater: LayoutInflater,
+        container: ViewGroup?,
+        savedInstanceState: Bundle?,
+    ): View {
+        _binding = FragmentStatusDetailBinding.inflate(inflater, container, false)
+        return binding.root
+    }
 
-        vm = StatusDetailViewModel(HealixApp.from(this))
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
+        vm = StatusDetailViewModel(HealixApp.from(requireContext()))
 
-        binding.btnBack.setOnClickListener { finish() }
+        binding.btnBack.setOnClickListener { NavHost.back(requireContext()) }
         binding.tabExercise.setOnClickListener { selectTab(TAB_EXERCISE) }
         binding.tabSleep.setOnClickListener { selectTab(TAB_SLEEP) }
         binding.tabWeight.setOnClickListener { selectTab(TAB_WEIGHT) }
         binding.tabBody.setOnClickListener { selectTab(TAB_BODY) }
 
-        // 「查看本周训练计划 ›」→ 计划页（训练 Tab 由并行任务加入，本页不传任何 extra）
+        // 「查看本周训练计划 ›」→ 计划页（二级页 → 二级页，仍走 NavHost 容器）
         binding.exerciseViewPlan.setOnClickListener {
-            startActivity(Intent(this, PlanReviewActivity::class.java))
+            NavHost.open(requireContext(), PlanReviewFragment(), NavHost.PAGE_PLAN_REVIEW)
         }
         // 「去记录」→ 回首页去记一笔
-        binding.weightGoRecord.setOnClickListener { finish() }
+        binding.weightGoRecord.setOnClickListener { NavHost.back(requireContext()) }
 
-        selectTab(normalizeTab(intent.getStringExtra(EXTRA_DEFAULT_TAB)))
+        selectTab(normalizeTab(arguments?.getString(ARG_DEFAULT_TAB)))
         observe()
     }
 
-    /** v6（11.2）：二级页返回统一 in_back —— 返回页从 -22% 滑入。 */
-    override fun finish() {
-        super.finish()
-        overridePendingTransition(R.anim.in_back, R.anim.out_back)
+    override fun onDestroyView() {
+        super.onDestroyView()
+        _binding = null
     }
 
     // ── Tab ──────────────────────────────────────────────────────────
@@ -87,8 +99,9 @@ class StatusDetailActivity : AppCompatActivity() {
     }
 
     private fun selectTab(tab: String) {
-        val text1 = ContextCompat.getColor(this, R.color.text_1)
-        val text2 = ContextCompat.getColor(this, R.color.text_2)
+        val ctx = requireContext()
+        val text1 = ContextCompat.getColor(ctx, R.color.text_1)
+        val text2 = ContextCompat.getColor(ctx, R.color.text_2)
 
         // 选中：text_1 + 下方 2dp accent 线；未选中：text_2 + 无底线
         binding.tabExercise.setTextColor(if (tab == TAB_EXERCISE) text1 else text2)
@@ -113,7 +126,7 @@ class StatusDetailActivity : AppCompatActivity() {
     // ── 观察 ─────────────────────────────────────────────────────────
 
     private fun observe() {
-        lifecycleScope.launch {
+        viewLifecycleOwner.lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 vm.state.collect { ui ->
                     renderExercise(ui.exercise)
@@ -146,11 +159,11 @@ class StatusDetailActivity : AppCompatActivity() {
                 layoutInflater, binding.exerciseRecentContainer, false,
             )
             // 「最近训练」清单：圆点固定用 exercise 色，只读（不接编辑路径）
-            row.dot.background.setTint(EventText.typeColor(this, TYPE_EXERCISE))
-            row.typeLabel.text = EventText.typeName(this, TYPE_EXERCISE)
+            row.dot.background.setTint(EventText.typeColor(requireContext(), TYPE_EXERCISE))
+            row.typeLabel.text = EventText.typeName(requireContext(), TYPE_EXERCISE)
             row.timeLabel.text = HealixDate.timeLabel(event.ts)
             row.bodyText.text = event.rawText
-            val summary = EventText.summary(this, event)
+            val summary = EventText.summary(requireContext(), event)
             row.summaryText.text = summary
             row.summaryText.visibility = if (summary.isNullOrEmpty()) View.GONE else View.VISIBLE
             row.pendingText.visibility = View.GONE
@@ -314,7 +327,7 @@ class StatusDetailActivity : AppCompatActivity() {
         val spannable = SpannableString(full)
         val start = full.length - label.length
         spannable.setSpan(
-            ForegroundColorSpan(ContextCompat.getColor(this, R.color.text_2)),
+            ForegroundColorSpan(ContextCompat.getColor(requireContext(), R.color.text_2)),
             start,
             full.length,
             Spannable.SPAN_EXCLUSIVE_EXCLUSIVE,
@@ -399,9 +412,9 @@ class StatusDetailActivity : AppCompatActivity() {
 
     /** 程序化构造一条 15sp text_1 正文（与 `Text.Body` 同规格：行高 24sp）。 */
     private fun signalText(text: String, topMarginDp: Int): TextView {
-        val tv = TextView(this)
+        val tv = TextView(requireContext())
         tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
-        tv.setTextColor(ContextCompat.getColor(this, R.color.text_1))
+        tv.setTextColor(ContextCompat.getColor(requireContext(), R.color.text_1))
         tv.typeface = Typeface.DEFAULT
         tv.setLineSpacing(spToPx(6f), 1f)
         tv.text = text
@@ -442,8 +455,11 @@ class StatusDetailActivity : AppCompatActivity() {
             .toInt()
 
     companion object {
-        /** 入口段：`exercise | sleep | weight | body`。从信号态进来传 `body`。 */
-        const val EXTRA_DEFAULT_TAB = "default_tab"
+        /**
+         * 入口段（Fragment arguments）：`exercise | sleep | weight | body`。
+         * 从首页状态行信号态进来传 `body`；「我的」页概览组不传 → 落 `exercise`。
+         */
+        const val ARG_DEFAULT_TAB = "default_tab"
 
         const val TAB_EXERCISE = "exercise"
         const val TAB_SLEEP = "sleep"
@@ -464,5 +480,11 @@ class StatusDetailActivity : AppCompatActivity() {
         private const val TREND_EPSILON = 0.05
 
         private const val DASH = "—"
+
+        /** 构造带默认段的实例（首页状态行用；「我的」页不传时的兜底由 normalizeTab 给）。 */
+        fun newInstance(defaultTab: String?): StatusDetailFragment =
+            StatusDetailFragment().apply {
+                if (defaultTab != null) arguments = bundleOf(ARG_DEFAULT_TAB to defaultTab)
+            }
     }
 }

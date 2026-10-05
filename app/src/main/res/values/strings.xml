@@ -180,7 +180,7 @@
     <string name="setting_age">年龄</string>
     <string name="setting_activity">活动系数</string>
     <string name="setting_day_start">日界线</string>
-    <!-- 日界线等整数输入的越界拒绝提示（SettingsActivity.editInt 的 range 校验） -->
+    <!-- 日界线等整数输入的越界拒绝提示（SettingsFragment.editInt 的 range 校验） -->
     <string name="setting_value_out_of_range">请输入 %1$d 到 %2$d 之间的整数</string>
     <string name="setting_target_kcal">每日目标摄入</string>
     <string name="setting_background">我的情况</string>

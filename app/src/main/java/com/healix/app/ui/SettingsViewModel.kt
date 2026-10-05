@@ -234,7 +234,7 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
                     name = name,
                     intervalDays = days,
                     lastDoneAt = null,
-                    nextDueAt = now + days.toLong() * DAY_MS,
+                    nextDueAt = now + days.toLong() * HealixDate.DAY_MS,
                     createdAt = now,
                 )
             )
@@ -247,25 +247,25 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
         val latestBody = loadLatestBodyWeight()
 
         _values.value = SettingsValues(
-            provider = all[SettingsActivity.KEY_PROVIDER].orEmpty(),
-            baseUrl = all[SettingsActivity.KEY_BASE_URL].orEmpty(),
-            model = all[SettingsActivity.KEY_MODEL].orEmpty(),
+            provider = all[SettingsKeys.PROVIDER].orEmpty(),
+            baseUrl = all[SettingsKeys.BASE_URL].orEmpty(),
+            model = all[SettingsKeys.MODEL].orEmpty(),
             hasApiKey = container.secretStore?.hasApiKey() == true,
             usedExtractToday = quotas.usedExtractToday(),
             usedChatToday = quotas.usedChatToday(),
-            retry = all[SettingsActivity.KEY_RETRY]?.toIntOrNull() ?: 5,
-            retryDelay = all[SettingsActivity.KEY_RETRY_DELAY]?.toDoubleOrNull() ?: 1.5,
-            height = all[SettingsActivity.KEY_HEIGHT]?.toIntOrNull() ?: 0,
-            weight = all[SettingsActivity.KEY_WEIGHT]?.toDoubleOrNull() ?: 0.0,
-            age = all[SettingsActivity.KEY_AGE]?.toIntOrNull() ?: 0,
-            activity = all[SettingsActivity.KEY_ACTIVITY] ?: "1.2",
-            targetKcal = all[SettingsActivity.KEY_TARGET_KCAL]?.toIntOrNull() ?: 2500,
-            dayStart = dayStartHourOf(all[SettingsActivity.KEY_DAY_START]),
-            background = all[SettingsActivity.KEY_BACKGROUND].orEmpty(),
+            retry = all[SettingsKeys.RETRY]?.toIntOrNull() ?: 5,
+            retryDelay = all[SettingsKeys.RETRY_DELAY]?.toDoubleOrNull() ?: 1.5,
+            height = all[SettingsKeys.HEIGHT]?.toIntOrNull() ?: 0,
+            weight = all[SettingsKeys.WEIGHT]?.toDoubleOrNull() ?: 0.0,
+            age = all[SettingsKeys.AGE]?.toIntOrNull() ?: 0,
+            activity = all[SettingsKeys.ACTIVITY] ?: "1.2",
+            targetKcal = all[SettingsKeys.TARGET_KCAL]?.toIntOrNull() ?: 2500,
+            dayStart = dayStartHourOf(all[SettingsKeys.DAY_START]),
+            background = all[SettingsKeys.BACKGROUND].orEmpty(),
             goalStatement = all[SettingsKeys.GOAL_STATEMENT].orEmpty(),
             debugSummary = "今日 ${quotas.usedToday()} 次 · 失败 ${quotas.failedToday()}",
-            hideKcal = all[SettingsActivity.KEY_HIDE_KCAL] == "true",
-            hideWeight = all[SettingsActivity.KEY_HIDE_WEIGHT] == "true",
+            hideKcal = all[SettingsKeys.HIDE_KCAL] == "true",
+            hideWeight = all[SettingsKeys.HIDE_WEIGHT] == "true",
             latestWeightKg = latestBody?.weightKg ?: 0.0,
             latestWeightDayKey = latestBody?.dayKey.orEmpty(),
             profileAllergens = parseProfileList(all[SettingsKeys.PROFILE_ALLERGENS]),
@@ -276,8 +276,8 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
         )
 
         // 接入状态：三要素齐备即视为已接入（纯本地判断，不发请求）
-        val baseUrl = all[SettingsActivity.KEY_BASE_URL].orEmpty().trim()
-        val model = all[SettingsActivity.KEY_MODEL].orEmpty().trim()
+        val baseUrl = all[SettingsKeys.BASE_URL].orEmpty().trim()
+        val model = all[SettingsKeys.MODEL].orEmpty().trim()
         val hasKey = container.secretStore?.hasApiKey() == true
         _applied.value = baseUrl.isNotEmpty() && model.isNotEmpty() && hasKey &&
             !baseUrl.startsWith("[待核实") && !model.startsWith("[待核实")
@@ -423,7 +423,7 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
                     name = name,
                     intervalDays = intervalDays,
                     lastDoneAt = lastDoneAt,
-                    nextDueAt = base + intervalDays.toLong() * DAY_MS,
+                    nextDueAt = base + intervalDays.toLong() * HealixDate.DAY_MS,
                     enabled = 1,
                     createdAt = existing?.createdAt ?: now,
                 )
@@ -435,7 +435,7 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
     fun markReminderDone(reminder: ReminderEntity) {
         viewModelScope.launch(Dispatchers.IO) {
             val now = System.currentTimeMillis()
-            db.reminderDao().markDone(reminder.id, now, now + reminder.intervalDays.toLong() * DAY_MS)
+            db.reminderDao().markDone(reminder.id, now, now + reminder.intervalDays.toLong() * HealixDate.DAY_MS)
         }
     }
 
@@ -461,12 +461,12 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
         val (key, preset) = entry
 
         viewModelScope.launch(Dispatchers.IO) {
-            settings.put(SettingEntity(SettingsActivity.KEY_PROVIDER, key))
+            settings.put(SettingEntity(SettingsKeys.PROVIDER, key))
 
             // 自定义不覆盖，保留用户手填的值
             if (key != ProviderPresets.DEFAULT_KEY) {
-                settings.put(SettingEntity(SettingsActivity.KEY_BASE_URL, preset.baseUrl))
-                settings.put(SettingEntity(SettingsActivity.KEY_MODEL, preset.model))
+                settings.put(SettingEntity(SettingsKeys.BASE_URL, preset.baseUrl))
+                settings.put(SettingEntity(SettingsKeys.MODEL, preset.model))
             }
 
             reload()
@@ -683,8 +683,8 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     companion object {
-        /** 一天的毫秒数，用于提醒周期顺延。 */
-        private const val DAY_MS = 24L * 60 * 60 * 1000
+        // ⚠️ 「一天的毫秒数」已收敛到唯一来源 [HealixDate.DAY_MS]（同包 object）——
+        //    本类原先自带一份私有副本，与 UI 层那份并存 = 改一处漏一处。
 
         /** 主目标行（`metric = PRIMARY`）的 `type`。 */
         private const val TYPE_GOAL_MODE = "goal_mode"

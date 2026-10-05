@@ -36,7 +36,7 @@ class QuotaGuard(private val context: Context) {
          * 配额口径改造（2026-10-05）：上限不再可配置，护栏用**固定常量**。
          * 原因：这两项是成本护栏不是用户偏好 —— 暴露成设置项后反而引入
          * 「改大就没事」的错觉，且设置页已改为展示实际调用量（见
-         * SettingsActivity 调用限制组）。settings 表里的历史键
+         * SettingsFragment 调用限制组）。settings 表里的历史键
          * （SettingsKeys.EXTRACT_QUOTA / CHAT_QUOTA）留档不再读取。
          */
 

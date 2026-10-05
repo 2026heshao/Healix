@@ -2,17 +2,19 @@ package com.healix.app.ui
 
 import android.os.Bundle
 import android.view.Gravity
+import android.view.LayoutInflater
 import android.view.View
+import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.TextView
-import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.fragment.app.Fragment
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.healix.app.HealixApp
 import com.healix.app.R
-import com.healix.app.databinding.ActivityPlanReviewBinding
+import com.healix.app.databinding.FragmentPlanReviewBinding
 import kotlinx.coroutines.launch
 
 /**
@@ -20,20 +22,31 @@ import kotlinx.coroutines.launch
  *
  * 定位调整（UI 设计方案第八节）：**以计划为主，复盘降为辅**。
  * v4 新增「训练」Tab：周训练计划 + 「记一笔」直写 + 5 秒撤销。
+ *
+ * v8 T03：由 `PlanReviewActivity` 迁为宿主 [MainActivity] 内的二级页 Fragment
+ * （[NavHost] 路由）—— 不再另起 Activity 窗口，进出零窗口转场。
  */
-class PlanReviewActivity : AppCompatActivity() {
+class PlanReviewFragment : Fragment() {
 
-    private lateinit var binding: ActivityPlanReviewBinding
+    private var _binding: FragmentPlanReviewBinding? = null
+    private val binding get() = _binding!!
+
     private lateinit var vm: PlanReviewViewModel
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        binding = ActivityPlanReviewBinding.inflate(layoutInflater)
-        setContentView(binding.root)
+    override fun onCreateView(
+        inflater: LayoutInflater,
+        container: ViewGroup?,
+        savedInstanceState: Bundle?,
+    ): View {
+        _binding = FragmentPlanReviewBinding.inflate(inflater, container, false)
+        return binding.root
+    }
 
-        vm = PlanReviewViewModel(HealixApp.from(this))
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
+        vm = PlanReviewViewModel(HealixApp.from(requireContext()))
 
-        binding.btnBack.setOnClickListener { finish() }
+        binding.btnBack.setOnClickListener { NavHost.back(requireContext()) }
         binding.btnRefresh.setOnClickListener { vm.refresh() }
         binding.tabPlan.setOnClickListener { selectTab(PlanTab.PLAN) }
         binding.tabTraining.setOnClickListener { selectTab(PlanTab.TRAINING) }
@@ -46,10 +59,9 @@ class PlanReviewActivity : AppCompatActivity() {
         observe()
     }
 
-    /** v6（11.2）：二级页返回统一 in_back —— 返回页从 -22% 滑入。 */
-    override fun finish() {
-        super.finish()
-        overridePendingTransition(R.anim.in_back, R.anim.out_back)
+    override fun onDestroyView() {
+        super.onDestroyView()
+        _binding = null
     }
 
     private fun selectTab(tab: PlanTab) {
@@ -85,7 +97,7 @@ class PlanReviewActivity : AppCompatActivity() {
     }
 
     private fun observe() {
-        lifecycleScope.launch {
+        viewLifecycleOwner.lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
 
                 launch {
@@ -350,7 +362,7 @@ class PlanReviewActivity : AppCompatActivity() {
     // 工具
     // ------------------------------------------------------------------
 
-    private fun color(resId: Int): Int = ContextCompat.getColor(this, resId)
+    private fun color(resId: Int): Int = ContextCompat.getColor(requireContext(), resId)
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
@@ -364,4 +376,7 @@ class PlanReviewActivity : AppCompatActivity() {
 
     private fun trimNumber(v: Double): String =
         if (v == v.toLong().toDouble()) v.toLong().toString() else v.toString()
+
+    // ⚠️ 星期短名用包级 `dowLabel()`（TrainingPlanner.kt 顶层，CLDR 本地化）——
+    //    本类**不得**再定义同名成员，否则成员优先会遮蔽它、且是一份硬编码中文的私本。
 }

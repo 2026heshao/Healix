@@ -33,10 +33,15 @@ import kotlinx.coroutines.launch
  *
  * 核心原则：进入 300ms 后自动弹键盘并聚焦输入区 —— 这是"打开即记"的摩擦下限。
  *
- * v8：单 Activity + 3 Tab 导航骨架。「助理」由独立 ChatActivity 迁为常驻
- * Fragment（[AssistantFragment]，add 一次 + show/hide）——Tab 互切零窗口转场、
- * 零 Activity 重建（需求 2「点 Tab 即响应」的根治）；「记录 / 我的」仍为
- * 同 Activity 内 View 容器 + in_tab 动画（可靠重播）；二级页统一 in_fwd/in_back。
+ * v8：**单 Activity 架构**。三个 Tab 全部常驻本 Activity：
+ * 「助理」是常驻 Fragment（[AssistantFragment]，add 一次 + show/hide）——Tab 互切
+ * 零窗口转场、零 Activity 重建（需求 2「点 Tab 即响应」的根治）；「记录 / 我的」
+ * 为同 Activity 内 View 容器 + in_tab 动画（可靠重播）。
+ *
+ * **八个二级页**（状态详情/设置/计划/个人信息/知识库/资源/预设/调试）v8 T03 起
+ * 全部是 `pageContainer` 上的 Fragment，经 [NavHost] 路由进出（需求 1「二级页
+ * 前进/后退卡顿」的根治：不再另起窗口、不再有窗口转场，返回走 FragmentManager
+ * 回退栈）。除本 Activity 外**已无其他 Activity**。
  */
 class MainActivity : AppCompatActivity() {
 
@@ -112,22 +117,22 @@ class MainActivity : AppCompatActivity() {
 
         binding.btnSend.setOnClickListener { submit() }
         binding.btnSettings.setOnClickListener {
-            TabBar.openSecondary(this, Intent(this, SettingsActivity::class.java))
+            NavHost.open(this, SettingsFragment(), NavHost.PAGE_SETTINGS)
         }
         binding.planBar.setOnClickListener {
-            TabBar.openSecondary(this, Intent(this, PlanReviewActivity::class.java))
+            NavHost.open(this, PlanReviewFragment(), NavHost.PAGE_PLAN_REVIEW)
         }
         binding.nudgeBar.setOnClickListener { focusInput() }
 
         // 状态行：整行进入状态详情页（规范 §9.2）。有信号时默认落在「身体」段，
         // 否则落在「运动」段 —— 入口决定默认段，用户不用再猜。
         binding.statusRow.setOnClickListener {
-            val tab = if (binding.statusRow.tag == TAB_BODY) TAB_BODY else TAB_EXERCISE
-            TabBar.openSecondary(
-                this,
-                Intent(this, StatusDetailActivity::class.java)
-                    .putExtra(StatusDetailActivity.EXTRA_DEFAULT_TAB, tab),
-            )
+            val tab = if (binding.statusRow.tag == StatusDetailFragment.TAB_BODY) {
+                StatusDetailFragment.TAB_BODY
+            } else {
+                StatusDetailFragment.TAB_EXERCISE
+            }
+            NavHost.open(this, StatusDetailFragment.newInstance(tab), NavHost.PAGE_STATUS_DETAIL)
             // 进了状态页就算看过了 → 已读后必须切回摘要态（规范 §9.2）
             vm.acknowledgeSignals()
         }
@@ -135,7 +140,7 @@ class MainActivity : AppCompatActivity() {
         // 状态提示条点击：按当前语义分流（离线 → 重试；未配置 → 去设置）
         binding.offlineBar.setOnClickListener {
             if (lastUiState == MainUiState.NotConfigured) {
-                TabBar.openSecondary(this, Intent(this, SettingsActivity::class.java))
+                NavHost.open(this, SettingsFragment(), NavHost.PAGE_SETTINGS)
             } else {
                 vm.retryFailedPending()
             }
@@ -476,7 +481,7 @@ class MainActivity : AppCompatActivity() {
                         minePage.bindStatus(this@MainActivity, status)
                         when (status) {
                             is HomeStatus.Signal -> {
-                                binding.statusRow.tag = TAB_BODY
+                                binding.statusRow.tag = StatusDetailFragment.TAB_BODY
                                 binding.statusText.text = status.text
                                 binding.statusText.setTextColor(
                                     ContextCompat.getColor(this@MainActivity, R.color.accent),
@@ -484,7 +489,7 @@ class MainActivity : AppCompatActivity() {
                                 tintChevron(R.color.accent)
                             }
                             is HomeStatus.Summary -> {
-                                binding.statusRow.tag = TAB_EXERCISE
+                                binding.statusRow.tag = StatusDetailFragment.TAB_EXERCISE
                                 binding.statusText.text = status.text
                                 binding.statusText.setTextColor(
                                     ContextCompat.getColor(this@MainActivity, R.color.text_2),
@@ -492,7 +497,7 @@ class MainActivity : AppCompatActivity() {
                                 tintChevron(R.color.text_3)
                             }
                             HomeStatus.Empty -> {
-                                binding.statusRow.tag = TAB_EXERCISE
+                                binding.statusRow.tag = StatusDetailFragment.TAB_EXERCISE
                                 binding.statusText.setText(R.string.status_none)
                                 binding.statusText.setTextColor(
                                     ContextCompat.getColor(this@MainActivity, R.color.text_3),
@@ -586,12 +591,9 @@ class MainActivity : AppCompatActivity() {
          */
         const val EXTRA_FOCUS_INPUT = "healix.extra.FOCUS_INPUT"
 
-        /**
-         * 状态行进入状态详情页时携带的默认段（规范 §9.4）：
-         * 信号态进来默认「身体」段（用户要看的就是那条信号），摘要态默认「运动」段。
-         */
-        private const val TAB_EXERCISE = "exercise"
-        private const val TAB_BODY = "body"
+        // 「状态行进入状态详情页时默认落在哪一段」的取值来源是
+        // [StatusDetailFragment.TAB_EXERCISE] / [StatusDetailFragment.TAB_BODY]
+        // （入口契约归它所有）—— 本类不再自带同名私有副本。
 
         /** Tab 平级切换时长（规范 11.2，对应原型 --dur_normal）。 */
         private const val TAB_ANIM_MS = 240L
@@ -751,8 +753,15 @@ class EventAdapter(
     }
 }
 
-/** 日期 / 时间格式化。集中一处，避免各 Activity 各写一遍。 */
+/** 日期 / 时间格式化与日长常量。集中一处，避免各页各写一遍。 */
 internal object HealixDate {
+
+    /**
+     * 一天的毫秒数。**唯一来源** —— 提醒顺延（[SettingsViewModel]）、临期判定
+     * （[SettingsFragment]）、跨日回看（[TrainingPlanner]）都必须用它；
+     * 不得再出现 `86_400_000L` 一类第二、第三份字面量（改一处漏一处）。
+     */
+    const val DAY_MS = 24L * 60 * 60 * 1000
 
     private val WEEKDAYS = arrayOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
 

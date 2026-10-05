@@ -243,7 +243,7 @@ class TrainingPlanner(context: Context) {
         val today = LocalDate.now()
         val monday = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
         val todayKey = dayKeyOf(now, dayStart)
-        val yesterdayKey = dayKeyOf(now - 86_400_000L, dayStart)
+        val yesterdayKey = dayKeyOf(now - HealixDate.DAY_MS, dayStart)
 
         val weekRows = db.eventDao()
             .listByTypeInRange("exercise", monday.toString(), today.toString())

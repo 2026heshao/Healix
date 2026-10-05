@@ -50,10 +50,7 @@ internal class MinePage(
         rowStatusDetail.findViewById<TextView>(R.id.value).text = ""
         rowStatusDetail.findViewById<View>(R.id.chevron).visibility = View.VISIBLE
         rowStatusDetail.setOnClickListener {
-            TabBar.openSecondary(
-                activity,
-                Intent(activity, StatusDetailActivity::class.java),
-            )
+            NavHost.open(activity, StatusDetailFragment.newInstance(null), NavHost.PAGE_STATUS_DETAIL)
             onOpenStatus()
         }
         rowStatusDetail.bindPressScale()
@@ -62,7 +59,7 @@ internal class MinePage(
         rowResources.findViewById<TextView>(R.id.label).setText(R.string.resources_title)
         rowResources.findViewById<View>(R.id.chevron).visibility = View.VISIBLE
         rowResources.setOnClickListener {
-            NavHost.open(activity, ResourceFragment(), "resources")
+            NavHost.open(activity, ResourceFragment(), NavHost.PAGE_RESOURCES)
         }
         rowResources.bindPressScale()
 
@@ -70,7 +67,7 @@ internal class MinePage(
         rowPresets.findViewById<TextView>(R.id.label).setText(R.string.preset_manage_title)
         rowPresets.findViewById<View>(R.id.chevron).visibility = View.VISIBLE
         rowPresets.setOnClickListener {
-            NavHost.open(activity, PresetManageFragment(), "presets")
+            NavHost.open(activity, PresetManageFragment(), NavHost.PAGE_PRESETS)
         }
         rowPresets.bindPressScale()
 
@@ -78,7 +75,7 @@ internal class MinePage(
         rowKnowledge.findViewById<TextView>(R.id.label).setText(R.string.knowledge_title)
         rowKnowledge.findViewById<View>(R.id.chevron).visibility = View.VISIBLE
         rowKnowledge.setOnClickListener {
-            NavHost.open(activity, KnowledgeBaseFragment(), "knowledge")
+            NavHost.open(activity, KnowledgeBaseFragment(), NavHost.PAGE_KNOWLEDGE)
         }
         rowKnowledge.bindPressScale()
 
@@ -88,10 +85,7 @@ internal class MinePage(
         rowPersonalInfo.findViewById<TextView>(R.id.label).setText(R.string.personal_info_title)
         rowPersonalInfo.findViewById<View>(R.id.chevron).visibility = View.VISIBLE
         rowPersonalInfo.setOnClickListener {
-            TabBar.openSecondary(
-                activity,
-                Intent(activity, PersonalInfoActivity::class.java),
-            )
+            NavHost.open(activity, PersonalInfoFragment(), NavHost.PAGE_PERSONAL_INFO)
         }
         rowPersonalInfo.bindPressScale()
 
@@ -106,14 +100,14 @@ internal class MinePage(
         rowSettings.findViewById<TextView>(R.id.label).setText(R.string.settings)
         rowSettings.findViewById<View>(R.id.chevron).visibility = View.VISIBLE
         rowSettings.setOnClickListener {
-            TabBar.openSecondary(activity, Intent(activity, SettingsActivity::class.java))
+            NavHost.open(activity, SettingsFragment(), NavHost.PAGE_SETTINGS)
         }
         rowSettings.bindPressScale()
 
         rowDebug.findViewById<TextView>(R.id.label).setText(R.string.group_debug)
         rowDebug.findViewById<View>(R.id.chevron).visibility = View.VISIBLE
         rowDebug.setOnClickListener {
-            NavHost.open(activity, DebugFragment(), "debug")
+            NavHost.open(activity, DebugFragment(), NavHost.PAGE_DEBUG)
         }
         rowDebug.bindPressScale()
 

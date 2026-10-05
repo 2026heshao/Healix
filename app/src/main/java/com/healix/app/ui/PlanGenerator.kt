@@ -137,7 +137,7 @@ class PlanGenerator(context: Context) {
 
         /**
          * 解析上限：模型输出永不可信，防啰嗦 / prompt 被注入时返回成百条拖垮
-         * 主线程 inflate（渲染见 PlanReviewActivity.renderTimeline，逐项 inflate）。
+         * 主线程 inflate（渲染见 PlanReviewFragment.renderTimeline，逐项 inflate）。
          * ⚠️ 命名为 MAX_PLAN_ITEMS 而非 MAX_EVENTS，避免与 SchemaValidator 的
          *    抽取链同名常量撞车触发 check_duplicate_constants。
          */
@@ -187,7 +187,7 @@ class PlanGenerator(context: Context) {
      * [buildTimeline] 会给出**估算**的数量与热量（如 400/650/450/400/200 kcal
      * 与"熟米饭 200g + 鸡胸或牛肉 150g"这类常见分量），目的是让用户"照着吃"
      * 有用；但它**不是精确数据**——kcal 是按常见分量拍的估算值。
-     * 用户点「记一笔」前，来源行已标注为估算（见 [PlanReviewActivity.renderPlanHeader]
+     * 用户点「记一笔」前，来源行已标注为估算（见 [PlanReviewFragment.renderPlanHeader]
      * 的 `plan_source_estimated`）。食物建议优先取手动清单，物品条件取资源清单。
      *
      * ⚠️ internal：签名暴露 internal 类型 [TodaySummary]，不能是 public

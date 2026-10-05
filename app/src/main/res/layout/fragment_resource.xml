@@ -2,7 +2,7 @@
 <!--
     资源清单页（白板式手动声明）：三类自由文本区（食物/药物/运动条件），
     想到什么写什么，AI 自动读取（对话注入 + 计划行动条）。
-    结构照 activity_settings：56dp 头部 + 滚动区；输入区复用
+    结构照 fragment_settings：56dp 头部 + 滚动区；输入区复用
     Widget.Healix.BlockInput 与背景项同一形态（失焦/onPause 落库）。
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"

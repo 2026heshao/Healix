@@ -123,9 +123,12 @@ internal object ExportWriter {
     /**
      * 用 SAF 让用户选保存位置。
      *
-     * 注：`ActivityResultContracts.CreateDocument` 需要一个已注册的 launcher，
-     * 而 launcher 必须在 Activity 创建阶段注册 —— 因此这里由 SettingsActivity
-     * 持有 launcher 并调用 [writeTo]。本方法只负责发起。
+     * 注：导出入口在「我的」页（v6 11.1 从设置页迁来），宿主是 [MainActivity]；
+     * 回传由 `MainActivity.onActivityResult` 转发给 [onActivityResult]。
+     * 这里用 `startActivityForResult` 而非 `registerForActivityResult`，
+     * 正是为了避开「launcher 必须在宿主创建阶段注册」的时序约束 ——
+     * 入口是「我的」页里一个普通行，没有独立的注册时机。
+     * 本方法只负责发起。
      */
     fun launchCreateDocument(activity: Activity, json: String) {
         pendingPayload = json

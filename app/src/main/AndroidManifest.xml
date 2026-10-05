@@ -44,31 +44,13 @@
 
         <!-- v8：助理页迁为 MainActivity 常驻 AssistantFragment，ChatActivity 已删除 -->
 
-        <activity
-            android:name=".ui.PlanReviewActivity"
-            android:exported="false" />
-
-        <activity
-            android:name=".ui.SettingsActivity"
-            android:exported="false" />
-
-        <!-- 个人信息页（P1）：设置页「个人 / 我的情况」两组迁至此，入口在「我的」页数据组 -->
-        <activity
-            android:name=".ui.PersonalInfoActivity"
-            android:exported="false" />
-
         <!--
-            v8 T03：知识库 / 资源清单 / 预设管理 / 调试 已迁为宿主内的二级页 Fragment
-            （NavHost + activity_main 的 pageContainer），四者的 <activity> 声明同帧删除。
+            v8 T03：**全部二级页已迁为宿主 MainActivity 内的 Fragment**（NavHost +
+            activity_main 的 pageContainer）—— 计划 / 设置 / 个人信息 / 状态详情 /
+            知识库 / 资源清单 / 预设管理 / 调试，八者的 <activity> 声明均已同帧删除。
+            v8 后除 MainActivity 外**不存在其他 Activity**（助理页亦为常驻 Fragment）；
+            进出二级页不再有窗口转场，返回走 FragmentManager 回退栈。
         -->
-
-        <!--
-            状态详情页（设计规范系统 9.4）：从首页状态行进入的二级页。
-            承载 运动 / 睡眠 / 体重 / 身体 四段，含趋势折线、信号列表、提醒清单。
-        -->
-        <activity
-            android:name=".ui.StatusDetailActivity"
-            android:exported="false" />
 
         <!--
             常驻通知录入服务。

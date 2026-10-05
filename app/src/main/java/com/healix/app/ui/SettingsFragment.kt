@@ -1,21 +1,22 @@
 package com.healix.app.ui
 
 import android.content.DialogInterface
-import android.content.Intent
 import android.os.Bundle
 import android.text.InputType
+import android.view.LayoutInflater
 import android.view.View
+import android.view.ViewGroup
 import android.widget.EditText
 import android.widget.LinearLayout
 import androidx.appcompat.app.AlertDialog
-import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.fragment.app.Fragment
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.healix.app.HealixApp
 import com.healix.app.R
-import com.healix.app.databinding.ActivitySettingsBinding
+import com.healix.app.databinding.FragmentSettingsBinding
 import com.healix.app.databinding.RowSettingValueBinding
 import com.healix.app.db.GoalMetrics
 import com.healix.app.db.ReminderEntity
@@ -32,20 +33,33 @@ import kotlinx.coroutines.launch
  * - API Key 默认掩码显示，点开才可编辑（禁止明文常驻屏幕）
  * - 「测试连通性」结果就地显示不弹 Toast（结果需要能被反复查看）
  * - apiKey 存 EncryptedSharedPreferences，**settings 表里没有它**
+ *
+ * v8 T03：由 `SettingsActivity` 迁为宿主 [MainActivity] 内的二级页 Fragment。
+ * 键名常量 [KEY_BASE_URL] 等仍在此转发 [SettingsKeys]（唯一事实来源）——
+ * 只服务本页自身调用点；[SettingsViewModel] 已改为**直接**引用 [SettingsKeys]，
+ * 不再反向依赖 UI 层（原先 ViewModel → Activity 的依赖是分层倒挂）。
  */
-class SettingsActivity : AppCompatActivity() {
+class SettingsFragment : Fragment() {
 
-    private lateinit var binding: ActivitySettingsBinding
+    private var _binding: FragmentSettingsBinding? = null
+    private val binding get() = _binding!!
+
     private lateinit var vm: SettingsViewModel
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        binding = ActivitySettingsBinding.inflate(layoutInflater)
-        setContentView(binding.root)
+    override fun onCreateView(
+        inflater: LayoutInflater,
+        container: ViewGroup?,
+        savedInstanceState: Bundle?,
+    ): View {
+        _binding = FragmentSettingsBinding.inflate(inflater, container, false)
+        return binding.root
+    }
 
-        vm = SettingsViewModel(HealixApp.from(this))
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
+        vm = SettingsViewModel(HealixApp.from(requireContext()))
 
-        binding.btnBack.setOnClickListener { finish() }
+        binding.btnBack.setOnClickListener { NavHost.back(requireContext()) }
 
         // ── 模型服务 ──────────────────────────────────────────────
         setupRow(binding.rowProvider, R.string.provider) { chooseProvider() }
@@ -91,9 +105,14 @@ class SettingsActivity : AppCompatActivity() {
         observe()
     }
 
+    override fun onDestroyView() {
+        super.onDestroyView()
+        _binding = null
+    }
+
     /** 给 include 出来的行设标签与点击。箭头只在可点行显示。 */
     private fun setupRow(
-        row: com.healix.app.databinding.RowSettingValueBinding,
+        row: RowSettingValueBinding,
         labelRes: Int,
         onClick: () -> Unit,
     ) {
@@ -102,14 +121,8 @@ class SettingsActivity : AppCompatActivity() {
         row.root.setOnClickListener { onClick() }
     }
 
-    /** v6 11.2：二级页返回走 in_back 转场（覆盖返回键与手势返回）。 */
-    override fun finish() {
-        super.finish()
-        overridePendingTransition(R.anim.in_back, R.anim.out_back)
-    }
-
     private fun observe() {
-        lifecycleScope.launch {
+        viewLifecycleOwner.lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 vm.values.collect { v ->
                     binding.rowProvider.value.text = providerLabel(v.provider)
@@ -130,7 +143,7 @@ class SettingsActivity : AppCompatActivity() {
                 }
             }
         }
-        lifecycleScope.launch {
+        viewLifecycleOwner.lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 vm.testResult.collect { r ->
                     if (r == null) {
@@ -140,8 +153,8 @@ class SettingsActivity : AppCompatActivity() {
                         binding.testResult.text = r.text
                         // 成功用 positive，失败用 negative —— 只出现在文字上
                         binding.testResult.setTextColor(
-                            androidx.core.content.ContextCompat.getColor(
-                                this@SettingsActivity,
+                            ContextCompat.getColor(
+                                requireContext(),
                                 if (r.ok) R.color.positive else R.color.negative,
                             )
                         )
@@ -150,15 +163,15 @@ class SettingsActivity : AppCompatActivity() {
             }
         }
         // 接入结果：与测试结果共用同一个展示位（避免两条状态文本打架）
-        lifecycleScope.launch {
+        viewLifecycleOwner.lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 vm.applyResult.collect { r ->
                     if (r == null) return@collect
                     binding.testResult.visibility = View.VISIBLE
                     binding.testResult.text = r.text
                     binding.testResult.setTextColor(
-                        androidx.core.content.ContextCompat.getColor(
-                            this@SettingsActivity,
+                        ContextCompat.getColor(
+                            requireContext(),
                             if (r.ok) R.color.positive else R.color.negative,
                         )
                     )
@@ -168,7 +181,7 @@ class SettingsActivity : AppCompatActivity() {
         // 接入状态条：常驻显示「已接入 / 未接入」，不靠弹窗
         // 同时订阅 values（取服务商/模型名）与 applied（取接入与否），
         // 保证两者永远同帧一致 —— 分开读 .value 会出现"名字已更新但状态没更新"的撕裂。
-        lifecycleScope.launch {
+        viewLifecycleOwner.lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 kotlinx.coroutines.flow.combine(vm.values, vm.applied) { v, on -> v to on }
                     .collect { (v, on) ->
@@ -185,13 +198,13 @@ class SettingsActivity : AppCompatActivity() {
             }
         }
         // 目标：goals 表一次订阅，逐行格式化（规范 9.7 ①）
-        lifecycleScope.launch {
+        viewLifecycleOwner.lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 vm.goals.collect { list -> renderGoals(list) }
             }
         }
         // 提醒：reminders 表动态渲染（可增删，规范 9.7 ③）
-        lifecycleScope.launch {
+        viewLifecycleOwner.lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 vm.reminders.collect { list -> renderReminders(list) }
             }
@@ -210,7 +223,7 @@ class SettingsActivity : AppCompatActivity() {
      * 先把提示设为可见、再落标记，保证用户至少真的看到过一眼。
      */
     private fun setupGoalSourceHint() {
-        lifecycleScope.launch {
+        viewLifecycleOwner.lifecycleScope.launch {
             if (vm.raw(SettingsKeys.GOAL_SOURCE_SEEN) == "true") return@launch
             binding.goalSourceHint.setText(R.string.setting_goal_source_dietary)
             binding.goalSourceHint.visibility = View.VISIBLE
@@ -253,7 +266,7 @@ class SettingsActivity : AppCompatActivity() {
             getString(R.string.goal_loss),
             getString(R.string.goal_keep),
         )
-        AlertDialog.Builder(this)
+        AlertDialog.Builder(requireContext())
             .setTitle(R.string.setting_primary_goal)
             .setItems(labels) { _, which -> vm.setPrimaryGoal(which) }
             .setNegativeButton(R.string.cancel, null as DialogInterface.OnClickListener?)
@@ -319,8 +332,10 @@ class SettingsActivity : AppCompatActivity() {
             row.chevron.visibility = View.VISIBLE
             row.value.text = getString(R.string.status_reminder_next, dateLabel(reminder.nextDueAt))
             // 到期或临期（≤7 天）：右侧日期用 accent（规范 9.7 ③）
-            val due = reminder.nextDueAt - now <= 7L * DAY_MS
-            row.value.setTextColor(ContextCompat.getColor(this, if (due) R.color.accent else R.color.text_2))
+            val due = reminder.nextDueAt - now <= 7L * HealixDate.DAY_MS
+            row.value.setTextColor(
+                ContextCompat.getColor(requireContext(), if (due) R.color.accent else R.color.text_2),
+            )
             row.root.setOnClickListener { reminderActions(reminder) }
             container.addView(row.root)
         }
@@ -335,7 +350,7 @@ class SettingsActivity : AppCompatActivity() {
             getString(R.string.edit),
             getString(R.string.delete),
         )
-        AlertDialog.Builder(this)
+        AlertDialog.Builder(requireContext())
             .setTitle(reminder.name)
             .setMessage(getString(R.string.status_reminder_next, dateLabel(reminder.nextDueAt)))
             .setItems(items) { _, which ->
@@ -383,6 +398,9 @@ class SettingsActivity : AppCompatActivity() {
      * B1：字段规格**统一用** [FieldSheet.FieldSpec]**（直接嵌套类，4 参含 maxLength，
      * 默认 0）**，删除了本文件原有的私有同名近重复类型与那次 `map` 转换；直接透传。
      * [onOk] 收到的字段顺序与 specs 一致。
+     *
+     * ⚠️ Fragment 化后容器用 **childFragmentManager** —— 弹窗属于本二级页，
+     * 必须在二级页 pop 时一起销毁（挂宿主 supportFragmentManager 会活过页面的生命周期）。
      */
     private fun showFieldDialog(
         titleRes: Int,
@@ -391,7 +409,7 @@ class SettingsActivity : AppCompatActivity() {
     ) {
         val sheet = FieldSheet.newInstance(titleRes, specs)
         sheet.onResult = onOk
-        sheet.show(supportFragmentManager, FieldSheet.TAG)
+        sheet.show(childFragmentManager, FieldSheet.TAG)
     }
 
     /** 毫秒时间戳 → `yyyy-MM-dd`（本地时区）。 */
@@ -422,14 +440,12 @@ class SettingsActivity : AppCompatActivity() {
         binding.btnApply.isEnabled = false
         binding.btnTest.isEnabled = false
         binding.testResult.visibility = View.VISIBLE
-        binding.testResult.setTextColor(
-            androidx.core.content.ContextCompat.getColor(this, R.color.text_2)
-        )
+        binding.testResult.setTextColor(ContextCompat.getColor(requireContext(), R.color.text_2))
         binding.testResult.text = getString(R.string.apply_applying)
 
         vm.applyProvider {
-            binding.btnApply.isEnabled = true
-            binding.btnTest.isEnabled = true
+            _binding?.btnApply?.isEnabled = true
+            _binding?.btnTest?.isEnabled = true
         }
     }
 
@@ -438,13 +454,11 @@ class SettingsActivity : AppCompatActivity() {
     private fun runConnectivityTest() {
         binding.btnTest.isEnabled = false
         binding.testResult.visibility = View.VISIBLE
-        binding.testResult.setTextColor(
-            androidx.core.content.ContextCompat.getColor(this, R.color.text_2)
-        )
+        binding.testResult.setTextColor(ContextCompat.getColor(requireContext(), R.color.text_2))
         binding.testResult.text = getString(R.string.setting_testing)
 
         vm.testConnectivity {
-            binding.btnTest.isEnabled = true
+            _binding?.btnTest?.isEnabled = true
         }
     }
 
@@ -455,9 +469,9 @@ class SettingsActivity : AppCompatActivity() {
     //    先 await 拿到值，再构造对话框。下面三个函数统一按这个模式写。
 
     private fun editText(key: String, labelRes: Int) {
-        lifecycleScope.launch {
+        viewLifecycleOwner.lifecycleScope.launch {
             val current = vm.raw(key).orEmpty()
-            val input = EditText(this@SettingsActivity).apply {
+            val input = EditText(requireContext()).apply {
                 setText(current)
                 inputType = InputType.TYPE_CLASS_TEXT
                 setSelection(text.length)
@@ -475,9 +489,9 @@ class SettingsActivity : AppCompatActivity() {
      * 与读取端唯一夹取入口 `dayStartHourOf` 形成对称契约。
      */
     private fun editInt(key: String, labelRes: Int, range: IntRange? = null) {
-        lifecycleScope.launch {
+        viewLifecycleOwner.lifecycleScope.launch {
             val current = vm.raw(key).orEmpty()
-            val input = EditText(this@SettingsActivity).apply {
+            val input = EditText(requireContext()).apply {
                 setText(current)
                 inputType = InputType.TYPE_CLASS_NUMBER
                 setSelection(text.length)
@@ -498,7 +512,7 @@ class SettingsActivity : AppCompatActivity() {
 
     /** 数值输入越界时的拒绝提示（配合 editInt 的 range 校验）。 */
     private fun showRangeRejected(labelRes: Int, range: IntRange) {
-        AlertDialog.Builder(this)
+        AlertDialog.Builder(requireContext())
             .setTitle(labelRes)
             .setMessage(getString(R.string.setting_value_out_of_range, range.first, range.last))
             .setPositiveButton(R.string.confirm, null as DialogInterface.OnClickListener?)
@@ -506,9 +520,9 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun editDecimal(key: String, labelRes: Int) {
-        lifecycleScope.launch {
+        viewLifecycleOwner.lifecycleScope.launch {
             val current = vm.raw(key).orEmpty()
-            val input = EditText(this@SettingsActivity).apply {
+            val input = EditText(requireContext()).apply {
                 setText(current)
                 inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
                 setSelection(text.length)
@@ -519,7 +533,7 @@ class SettingsActivity : AppCompatActivity() {
 
     /** API Key 编辑：输入框掩码，不回显已存的 key（无法回显 —— 且刻意不提供读取原值的能力）。 */
     private fun editApiKey() {
-        val input = EditText(this).apply {
+        val input = EditText(requireContext()).apply {
             hint = "粘贴你的 API Key"
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
         }
@@ -530,22 +544,22 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun showDialog(labelRes: Int, input: EditText, onOk: () -> Unit) {
-        val container = LinearLayout(this).apply {
+        val container = LinearLayout(requireContext()).apply {
             orientation = LinearLayout.VERTICAL
             val pad = (20 * resources.displayMetrics.density).toInt()
             setPadding(pad, pad / 2, pad, 0)
             addView(input)
         }
-        AlertDialog.Builder(this)
+        AlertDialog.Builder(requireContext())
             .setTitle(labelRes)
             .setView(container)
             // ⚠️ AlertDialog.Builder 没有「只传文案」的单参 setPositiveButton。
             //    必须显式给 OnClickListener；不关心点击时传 null 会被 Kotlin
             //    判为「无法推断用哪个重载」，要写成带类型的 lambda。
-            .setPositiveButton(R.string.confirm) { _: android.content.DialogInterface, _: Int ->
+            .setPositiveButton(R.string.confirm) { _: DialogInterface, _: Int ->
                 onOk()
             }
-            .setNegativeButton(R.string.cancel, null as android.content.DialogInterface.OnClickListener?)
+            .setNegativeButton(R.string.cancel, null as DialogInterface.OnClickListener?)
             .show()
     }
 
@@ -555,10 +569,10 @@ class SettingsActivity : AppCompatActivity() {
         //    「None of the following candidates is applicable」，
         //    并连锁导致后续 setNegativeButton 也解析失败（返回类型未定）。
         val presets = vm.providerNames().toTypedArray()
-        AlertDialog.Builder(this)
+        AlertDialog.Builder(requireContext())
             .setTitle(R.string.provider)
             .setItems(presets) { _, which -> vm.selectProvider(which) }
-            .setNegativeButton(R.string.cancel, null as android.content.DialogInterface.OnClickListener?)
+            .setNegativeButton(R.string.cancel, null as DialogInterface.OnClickListener?)
             .show()
     }
 
@@ -578,7 +592,7 @@ class SettingsActivity : AppCompatActivity() {
 
         // ⚠️ 键名一律从 SettingsKeys 取 —— 那里是唯一事实来源。
         //    2026-10-03 修过一次键名分裂 bug（见 SettingsKeys 头注释），
-        //    此处保留 `KEY_*` 前缀是为了不改动几十个调用点，
+        //    此处保留 `KEY_*` 前缀是为了不改动调用点，
         //    但值的来源必须收敛到 SettingsKeys。
         const val KEY_BASE_URL = SettingsKeys.BASE_URL
         const val KEY_MODEL = SettingsKeys.MODEL
@@ -598,9 +612,6 @@ class SettingsActivity : AppCompatActivity() {
         // 隐私开关（SettingsKeys 是唯一事实来源；这里只做转发引用）
         const val KEY_HIDE_KCAL = SettingsKeys.HIDE_KCAL
         const val KEY_HIDE_WEIGHT = SettingsKeys.HIDE_WEIGHT
-
-        /** 一天的毫秒数，用于提醒临期（≤7 天）判定。 */
-        private const val DAY_MS = 24L * 60 * 60 * 1000
 
         private const val NUMBER_INT = InputType.TYPE_CLASS_NUMBER
         private const val NUMBER_DECIMAL =

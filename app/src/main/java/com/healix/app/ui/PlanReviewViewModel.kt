@@ -303,7 +303,7 @@ class PlanReviewViewModel(app: Application) : AndroidViewModel(app) {
      */
     fun generateTraining() {
         // 在途守卫：**同步**置位 + 同步判。generateTraining() 只由主线程的按钮点击调用
-        // （PlanReviewActivity 的 btnGenerate / btnTrainingRetry），两次点击在主线程上
+        // （PlanReviewFragment 的 btnGenerate / btnTrainingRetry），两次点击在主线程上
         // 天然串行，故无竞态。绝不能把置位留在协程里（Dispatchers.IO）—— UI 要等一次
         // 调度才置灰按钮，落在同一帧内的第二次点击会再发起一次训练 AI 调用（修复 1 之后
         // 两次都会计入配额桶，比改动前更严重）。与 updatePlan() 完全同构。

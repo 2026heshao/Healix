@@ -1,7 +1,6 @@
 package com.healix.app.ui
 
 import android.app.Activity
-import android.content.Intent
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
@@ -28,10 +27,9 @@ import com.healix.app.R
  * 内容切换由抬起后的 `onTab` 回调完成 —— 与微信底部 Tab 的手感一致。
  *
  * - 二级页（状态详情/设置/计划/个人信息/知识库/资源/预设/调试）：
- *   v8 T03 起改为宿主 [MainActivity] 内 `pageContainer` 上的 Fragment，
- *   经 [NavHost.open] 进入（零窗口转场）；`tabbar` 被二级页整体覆盖后自然"隐藏"。
- *   ⚠️ 迁移进行中：知识库/资源/预设/调试 已迁完，其余 4 页仍走 [openSecondary]（Activity），
- *   由后续批次补齐后本方法即删除。
+ *   v8 T03 起**八页全部**改为宿主 [MainActivity] 内 `pageContainer` 上的 Fragment，
+ *   统一经 [NavHost.open] 进入（零窗口转场）；`tabbar` 被二级页整体覆盖后自然"隐藏"。
+ *   本对象**不再承担"开新页"职责**（原 `openSecondary` 已随最后一批迁移删除）。
  *
  * include 布局：view_tabbar.xml（64dp，绝对定位盖底，不占 flex 流）。
  */
@@ -122,15 +120,6 @@ internal object TabBar {
             }
             insets // 不消费，根布局 fitsSystemWindows 照常工作
         }
-    }
-
-    /**
-     * 二级页进入（**过渡期保留**）：仍为 Activity 的 4 个页面用；
-     * 已 Fragment 化的页面一律走 [NavHost.open]。
-     */
-    fun openSecondary(activity: Activity, intent: Intent) {
-        activity.startActivity(intent)
-        activity.overridePendingTransition(R.anim.in_fwd, R.anim.out_fwd)
     }
 
     private fun highlight(tab: TextView, on: Boolean) {

@@ -107,7 +107,7 @@ class FieldSheet : BottomSheetDialogFragment() {
      * `maxLength = 0` 表示不限制（默认，向后兼容既有调用点）。
      *
      * ⚠️ 必须作为 [FieldSheet] 的**直接嵌套类**，不能放进 companion object：
-     * 外部（PersonalInfoActivity / PresetManageActivity / SettingsActivity）一律以
+     * 外部（PersonalInfoFragment / PresetManageFragment / SettingsFragment）一律以
      * `FieldSheet.FieldSpec` 限定引用，而 companion object 内部声明的嵌套类
      * **无法经外层类名访问** —— CI run#35 的 29 条 `Unresolved reference 'FieldSpec'`
      * 及级联 `Symbol not found for FieldSheet.FieldSpec` 即由此而来。
