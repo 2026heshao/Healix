@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    块状多行输入的 1dp 焦点顶线（P1-5，用在 Widget.Healix.BlockInput）。
+    与常驻输入条同一「顶线」视觉语言。负向 inset 把 shape 的下 / 左 / 右描边
+    推出可视区，只留一条顶边；颜色由 @color/focus_line selector 驱动。
+    注意方向：保留顶边要推走的是下 / 左 / 右，所以这里 bottom/left/right 三边取负。
+    为什么是 -2dp 而不是 -1dp：1dp 的 stroke 会在描边外侧多留约 1dp margin，
+    -1dp 推不干净会残留极细描边（焦点态 accent 下会变成一圈近乎完整的描边框），
+    -2dp 才能让那三条边完全出界。
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@android:color/transparent" />
+        </shape>
+    </item>
+    <item android:bottom="-2dp" android:left="-2dp" android:right="-2dp">
+        <shape android:shape="rectangle">
+            <stroke android:width="@dimen/divider" android:color="@color/focus_line" />
+            <solid android:color="@android:color/transparent" />
+        </shape>
+    </item>
+</layer-list>

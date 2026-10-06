@@ -538,8 +538,9 @@
     <LinearLayout
         android:id="@+id/inputBar"
         android:layout_width="match_parent"
-        android:layout_height="@dimen/input_height"
+        android:layout_height="wrap_content"
         android:layout_marginBottom="@dimen/tab_raise"
+        android:minHeight="@dimen/input_height"
         android:background="@drawable/bg_input_bar"
         android:gravity="center_vertical"
         android:orientation="horizontal"
@@ -550,7 +551,7 @@
             android:id="@+id/input"
             style="@style/Widget.Healix.QuickInput"
             android:layout_width="0dp"
-            android:layout_height="match_parent"
+            android:layout_height="wrap_content"
             android:layout_weight="1"
             android:hint="@string/hint_quick_input"
             android:importantForAutofill="no"
@@ -585,7 +586,8 @@
             android:contentDescription="@string/send"
             android:padding="12dp"
             android:scaleType="fitCenter"
-            android:src="@drawable/ic_send" />
+            android:src="@drawable/ic_send"
+            android:tint="@color/btn_send_tint" />
     </LinearLayout>
 
 </LinearLayout>

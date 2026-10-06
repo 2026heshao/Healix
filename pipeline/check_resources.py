@@ -105,6 +105,14 @@ def check_references() -> None:
     }
     declared["drawable"] = {p.stem for p in (RES / "drawable").glob("*.xml")}
     declared["layout"] = {p.stem for p in (RES / "layout").glob("*.xml")}
+    # ⚠️ res/color/*.xml 是 color state list（根元素是 <selector>），文件名即资源名，
+    #    但它们不在 values/ 里 —— 上面的 collect_declared 只扫 values*/*.xml，扫不到。
+    #    于是布局里写 android:tint="@color/btn_send_tint" 之类会**被误报**
+    #    「引用不存在的 @color/…」。这里按文件名 stem 并入 declared["color"]。
+    #    （res/color 下的 <selector> 也可以带 name 属性，但我们统一用文件名即资源名，
+    #      所以按 stem 收集最稳妥。）
+    for color_xml in (RES / "color").glob("*.xml"):
+        declared["color"].add(color_xml.stem)
     declared["color_ref"] = declared["color"]
 
     # --- 布局引用 ---

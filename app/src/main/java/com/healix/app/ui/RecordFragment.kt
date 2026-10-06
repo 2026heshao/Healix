@@ -1,6 +1,9 @@
 package com.healix.app.ui
 
 import android.os.Bundle
+import android.text.Editable
+import android.text.TextWatcher
+import android.view.HapticFeedbackConstants
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
@@ -25,6 +28,7 @@ import com.healix.app.notify.AppEvent
 import com.healix.app.notify.AppEventBus
 import com.healix.app.notify.EventText
 import com.healix.app.rules.RecentChips
+import com.healix.app.ui.widget.InputBarHeightAnimator
 import com.healix.app.ui.widget.SparklineView
 import com.healix.app.widget.HealixWidgetProvider
 import kotlinx.coroutines.launch
@@ -181,6 +185,22 @@ class RecordFragment : Fragment() {
             false // 不消费
         }
 
+        // ── P0-1 发送键双态：空文本 → text_3，非空 → accent（selector 驱动，零动画代码）──
+        //     isSelected 变化会 refreshDrawableState → 重解析 @color/btn_send_tint。
+        binding.input.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+            override fun afterTextChanged(s: Editable?) {
+                binding.btnSend.isSelected = !s.isNullOrEmpty()
+            }
+        })
+
+        // ── P0-2 输入条高度自适应：随行数 200ms 平滑增高；增高时列表跟到底部（有一行才滚）──
+        InputBarHeightAnimator.bind(binding.input, binding.inputBar) {
+            val last = adapter.itemCount - 1
+            if (last >= 0) binding.list.smoothScrollToPosition(last)
+        }
+
         observe()
 
         // 进入 300ms 后自动弹键盘（规范硬要求：打开即弹键盘、光标在输入框）。
@@ -272,8 +292,18 @@ class RecordFragment : Fragment() {
 
     private fun submit() {
         val text = binding.input.text?.toString()?.trim().orEmpty()
-        if (text.isEmpty()) return
+        // 空文本：不静默 return，改为聚焦（发送键灰态 = 可点但暂不可用，点击行为可预期）
+        if (text.isEmpty()) {
+            focusInput()
+            return
+        }
+        // 一次轻触觉（P2-9 两处之一：发送点击）
+        binding.btnSend.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+        // 先清空再发送：vm.submit 是 persist-first，不存在丢文本路径，故不做失败回填
+        // （回填会造成重复 pending 行）。清空后**只** requestFocus —— 键盘已在，
+        // 重复 showSoftInput 会闪，焦点保持即可连续录入。
         binding.input.setText("")
+        binding.input.requestFocus()
         vm.submit(text)
     }
 

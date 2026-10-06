@@ -2,6 +2,17 @@
 <!--
     形状与尺寸令牌（docs/Healix设计规范系统.md 2.3）。
     硬约束：圆角全局只有 8dp 一个值；进度线高 2dp 圆角 1dp。
+
+    动效 token（P2-11，只登记不新增 dimen）：
+      motion_fast  = 100ms  发送键变色、按压态
+      motion_focus = 150ms  焦点线过渡
+      motion_grow  = 200ms  输入条高度自适应
+      曲线统一 = cubic-bezier(0.2, 0, 0, 1)（Material 标准曲线）
+    ⚠️ 唯一数值出处（本文件只是登记，不参与编译）：
+      motion_grow 的运行时值在 Kotlin 侧 ——
+      app/src/main/java/com/healix/app/ui/widget/InputBarHeightAnimator.kt 的
+      DURATION_MS = 200L 与 interpolator = PathInterpolator(0.2f, 0f, 0f, 1f)。
+      motion_fast / motion_focus 由 color selector 的 state 过渡承载，无独立代码常量。
 -->
 <resources>
     <dimen name="screen_margin">20dp</dimen>

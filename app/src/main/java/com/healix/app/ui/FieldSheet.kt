@@ -5,6 +5,8 @@ import android.text.InputType
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import com.healix.app.databinding.RowSheetFieldBinding
@@ -67,7 +69,9 @@ class FieldSheet : BottomSheetDialogFragment() {
     private fun buildFields() {
         binding.fieldContainer.removeAllViews()
         inputs.clear()
-        for (spec in parsedSpecs()) {
+        val specs = parsedSpecs()
+        val lastIndex = specs.lastIndex
+        specs.forEachIndexed { index, spec ->
             val b = RowSheetFieldBinding.inflate(layoutInflater, binding.fieldContainer, false)
             b.fieldLabel.setText(spec.labelRes)
             b.fieldValue.setText(spec.initial)
@@ -75,6 +79,26 @@ class FieldSheet : BottomSheetDialogFragment() {
             // maxLength > 0 时**输入期**即硬截断（不能只在保存时截 —— 会静默丢数据）
             if (spec.maxLength > 0) {
                 b.fieldValue.filters = arrayOf(android.text.InputFilter.LengthFilter(spec.maxLength))
+            }
+            // P1-6：键盘动作键 —— 非末字段「下一项」，末字段「完成」。
+            // 判据用 specs 的索引（不在循环里边算边长）。字段是单行、由底部「确认」
+            // 统一提交，所以「完成」只负责收键盘 + 失焦，不代替「确认」落库。
+            if (index == lastIndex) {
+                b.fieldValue.imeOptions = EditorInfo.IME_ACTION_DONE
+                b.fieldValue.setOnEditorActionListener { v, actionId, _ ->
+                    if (actionId == EditorInfo.IME_ACTION_DONE) {
+                        val imm = v.context.getSystemService(
+                            android.content.Context.INPUT_METHOD_SERVICE,
+                        ) as InputMethodManager
+                        imm.hideSoftInputFromWindow(v.windowToken, 0)
+                        v.clearFocus()
+                        true
+                    } else {
+                        false
+                    }
+                }
+            } else {
+                b.fieldValue.imeOptions = EditorInfo.IME_ACTION_NEXT
             }
             b.fieldValue.setSelection(b.fieldValue.text.length)
             binding.fieldContainer.addView(b.root)

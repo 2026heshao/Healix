@@ -67,13 +67,21 @@ internal class ResourceFragment : Fragment() {
             }
         }
 
-        // 失焦保存（三个框同一处理器）
-        val saver = View.OnFocusChangeListener { v, hasFocus ->
-            if (!hasFocus) save(v as EditText)
+        // 失焦保存 + 获焦滚动进可视区（P1-7）：两个职责由**同一个**监听器承载，
+        // 不用单槽赋值再挂一次（那会把既有的失焦保存覆盖掉）。
+        val contentScroll = binding.contentScroll
+        val handler = View.OnFocusChangeListener { v, hasFocus ->
+            if (hasFocus) {
+                // 把焦点行滚进可视区。v.top 相对直接父容器（ScrollView 的唯一子
+                // LinearLayout，无额外 padding），故可直接当滚动目标 y。
+                contentScroll.smoothScrollTo(0, v.top)
+            } else {
+                save(v as EditText)
+            }
         }
-        binding.editFoods.onFocusChangeListener = saver
-        binding.editMeds.onFocusChangeListener = saver
-        binding.editSport.onFocusChangeListener = saver
+        binding.editFoods.onFocusChangeListener = handler
+        binding.editMeds.onFocusChangeListener = handler
+        binding.editSport.onFocusChangeListener = handler
     }
 
     /** 回显 + 登记基线（登记放在 setText 时，避免首次回显触发"内容变了"误写）。 */

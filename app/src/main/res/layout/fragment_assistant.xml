@@ -5,7 +5,7 @@
     气泡背景见 drawable/bg_bubble_user.xml 与 bg_bubble_assistant.xml。
     仅用既有中性色，无阴影 —— 设计规范 v3 未被破坏。
 
-    ⚠️ 与旧 activity_chat.xml 的差异：
+    ⚠️ 与 v8 之前的旧对话页布局的差异：
       - **不再包含 tabbar** —— 全局 3 Tab 的 tabbar 现在唯一地挂在宿主
         MainActivity 布局里（TabBar.kt），Fragment 只承载内容；
       - 根容器不再需要 fitsSystemWindows —— 宿主已处理，重复设置会让
@@ -181,8 +181,9 @@
     <LinearLayout
         android:id="@+id/inputBar"
         android:layout_width="match_parent"
-        android:layout_height="@dimen/input_height"
+        android:layout_height="wrap_content"
         android:layout_marginBottom="@dimen/tab_raise"
+        android:minHeight="@dimen/input_height"
         android:background="@drawable/bg_input_bar"
         android:gravity="center_vertical"
         android:orientation="horizontal"
@@ -193,7 +194,7 @@
             android:id="@+id/input"
             style="@style/Widget.Healix.QuickInput"
             android:layout_width="0dp"
-            android:layout_height="match_parent"
+            android:layout_height="wrap_content"
             android:layout_weight="1"
             android:hint="@string/hint_chat_input"
             android:importantForAutofill="no"
@@ -227,7 +228,8 @@
             android:contentDescription="@string/send"
             android:padding="12dp"
             android:scaleType="fitCenter"
-            android:src="@drawable/ic_send" />
+            android:src="@drawable/ic_send"
+            android:tint="@color/btn_send_tint" />
     </LinearLayout>
 
 </LinearLayout>

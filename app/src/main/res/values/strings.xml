@@ -20,6 +20,7 @@
     <string name="state_failed">识别失败</string>
     <string name="state_offline">无网络，已先记下，联网后自动补全</string>
     <string name="state_simplified">已切简化模式</string>
+    <string name="state_send_rejected">这条没发出去，原文已留在输入框</string>
 
     <!-- 计划 / 复盘 -->
     <string name="tab_plan">计划</string>
@@ -100,6 +101,8 @@
     <string name="base_url">接口地址</string>
     <string name="model_name">模型名</string>
     <string name="api_key">API Key</string>
+    <string name="setting_show">显示</string>
+    <string name="setting_hide">隐藏</string>
     <string name="apply_provider">接入并启用</string>
     <string name="test_conn">测试连通性</string>
     <string name="conn_ok">连通 · %1$s</string>

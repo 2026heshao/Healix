@@ -3,6 +3,8 @@ package com.healix.app.ui
 import android.content.DialogInterface
 import android.os.Bundle
 import android.text.InputType
+import android.util.TypedValue
+import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
@@ -10,6 +12,7 @@ import android.view.ViewGroup
 import android.widget.CompoundButton
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
@@ -1055,18 +1058,54 @@ class SettingsFragment : Fragment() {
             hint = "粘贴你的 API Key"
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
         }
-        showDialog(R.string.api_key, input) {
+        // P1-8：明文 / 掩码切换（文字按钮：13sp accent、48dp 热区、无边框 ripple）
+        val toggle = TextView(requireContext()).apply {
+            text = getString(R.string.setting_show)
+            textSize = 13f
+            setTextColor(ContextCompat.getColor(requireContext(), R.color.accent))
+            gravity = Gravity.CENTER
+            minHeight = resources.getDimensionPixelSize(R.dimen.touch_min)
+            isClickable = true
+            isFocusable = true
+            // ?attr/selectableItemBackgroundBorderless 在代码里要先解析成 drawable 资源 id
+            val outValue = TypedValue()
+            requireContext().theme.resolveAttribute(
+                android.R.attr.selectableItemBackgroundBorderless, outValue, true,
+            )
+            background = ContextCompat.getDrawable(requireContext(), outValue.resourceId)
+            setOnClickListener {
+                // 明文 ⇄ 密文。切换后光标挪到尾部：改 inputType 会重置光标与字体，
+                // 且会触发 IME 重建，不补这一手光标会跳回行首。
+                val toPlain = input.inputType and InputType.TYPE_TEXT_VARIATION_PASSWORD != 0
+                input.inputType = if (toPlain) {
+                    InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+                } else {
+                    InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+                }
+                input.setSelection(input.text.length)
+                text = getString(if (toPlain) R.string.setting_hide else R.string.setting_show)
+            }
+        }
+        showDialog(R.string.api_key, input, trailing = toggle) {
             val text = input.text.toString().trim()
             if (text.isNotEmpty()) vm.saveApiKey(text)
         }
     }
 
-    private fun showDialog(labelRes: Int, input: EditText, onOk: () -> Unit) {
+    private fun showDialog(
+        labelRes: Int,
+        input: EditText,
+        trailing: View? = null,
+        onOk: () -> Unit,
+    ) {
         val container = LinearLayout(requireContext()).apply {
             orientation = LinearLayout.VERTICAL
             val pad = (20 * resources.displayMetrics.density).toInt()
             setPadding(pad, pad / 2, pad, 0)
             addView(input)
+            // 可选尾随控件（API Key 的「显示 / 隐藏」）。setView 只能收一个 View，
+            // 所以必须塞进同一个 container，不能另开第二个 setView。
+            if (trailing != null) addView(trailing)
         }
         AlertDialog.Builder(requireContext())
             .setTitle(labelRes)

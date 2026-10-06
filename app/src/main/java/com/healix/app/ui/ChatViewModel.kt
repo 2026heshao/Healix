@@ -160,7 +160,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         lastKnownToday = today
     }
 
-    fun send(text: String) {
+    fun send(text: String): Boolean {
         // P0-B 跨零点自愈：零点后首次动作即把"旧今天"顺延到今天，
         // 保证下面的守卫绝不会误拦用户当下的发送。
         val today = todayKey()
@@ -168,8 +168,11 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             if (_selectedDate.value == lastKnownToday) _selectedDate.value = today
             lastKnownToday = today
         }
-        // 历史会话只读（微扩展 B）：发送永远只发生在"今天"视图
-        if (_selectedDate.value != today) return
+        // 历史会话只读（微扩展 B）：发送永远只发生在"今天"视图。
+        // ⚠️ 这是唯一一条"在 persist 之前就 return"的守卫，也是唯一会丢文本的路径 ——
+        //    返回 false，让调用方保留输入原文、不清空（本项目 persist-first，
+        //    走到下面的 persist 之后原文一定入库，回填反而会造成重复发送）。
+        if (_selectedDate.value != today) return false
         lastUserText = text
         _retryAvailable.value = false
         _uiState.value = ChatUiState.Thinking
@@ -179,6 +182,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             persist("user", text)
             executeChat(text)
         }
+        return true
     }
 
     /**

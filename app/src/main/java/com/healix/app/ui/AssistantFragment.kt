@@ -1,9 +1,14 @@
 package com.healix.app.ui
 
 import android.os.Bundle
+import android.text.Editable
+import android.text.TextWatcher
+import android.view.HapticFeedbackConstants
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.view.inputmethod.InputMethodManager
+import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModelProvider
@@ -15,6 +20,7 @@ import com.healix.app.HealixApp
 import com.healix.app.R
 import com.healix.app.databinding.FragmentAssistantBinding
 import com.healix.app.db.ChatMessageEntity
+import com.healix.app.ui.widget.InputBarHeightAnimator
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 
@@ -96,6 +102,22 @@ class AssistantFragment : Fragment() {
         // 微扩展 D：模型调用失败时，提示条变成重试入口
         binding.simplifiedBar.setOnClickListener { vm.retryLast() }
 
+        // ── P0-1 发送键双态：空文本 → text_3，非空 → accent（与记录页同一 selector）──
+        binding.input.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+            override fun afterTextChanged(s: Editable?) {
+                binding.btnSend.isSelected = !s.isNullOrEmpty()
+            }
+        })
+
+        // ── P0-2 输入条高度自适应：增高时消息列表跟到底部（有消息才滚）──
+        InputBarHeightAnimator.bind(binding.input, binding.inputBar) {
+            val adapter = binding.messageList.adapter
+            val last = (adapter?.itemCount ?: 0) - 1
+            if (last >= 0) binding.messageList.smoothScrollToPosition(last)
+        }
+
         observe()
     }
 
@@ -153,10 +175,40 @@ class AssistantFragment : Fragment() {
 
     private fun send(text: String? = null) {
         val content = (text ?: binding.input.text?.toString()?.trim().orEmpty()).trim()
-        if (content.isEmpty()) return
-        binding.input.setText("")
-        binding.quickGroup.visibility = View.GONE
-        vm.send(content)
+        // 空文本：仅聚焦（发送键灰态 = 可点但暂不可用）
+        if (content.isEmpty()) {
+            focusInput()
+            return
+        }
+        // 先判断接受与否，再决定是否清空 —— 本项目 persist-first：
+        // 走到 persist 的路径返回 true，原文一定入库（回填会造成重复行）；
+        // 被守卫拦下的返回 false，原文必须留在输入框。
+        val accepted = vm.send(content)
+        if (accepted) {
+            // P2-9 发送点击轻触觉
+            binding.btnSend.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+            binding.input.setText("")
+            // 清空后**只** requestFocus：键盘已在，重复 showSoftInput 会闪，焦点保持即可连输
+            binding.input.requestFocus()
+            binding.quickGroup.visibility = View.GONE
+        } else {
+            // 被守卫拦下（历史会话只读）：不发送、原文留在输入框，只聚焦 + 一行 negative 提示
+            focusInput()
+            binding.btnSend.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+            binding.stateLabel.visibility = View.VISIBLE
+            binding.stateLabel.setTextColor(ContextCompat.getColor(requireContext(), R.color.negative))
+            binding.stateLabel.text = getString(R.string.state_send_rejected)
+            binding.stateLabel.announceForAccessibility(getString(R.string.state_send_rejected))
+        }
+    }
+
+    /** 聚焦输入框并弹键盘。与 [RecordFragment.focusInput] 同构。 */
+    fun focusInput() {
+        if (_binding == null) return
+        binding.input.requestFocus()
+        val imm = requireContext().getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
+            as InputMethodManager
+        imm.showSoftInput(binding.input, InputMethodManager.SHOW_IMPLICIT)
     }
 
     private fun observe() {
@@ -252,11 +304,18 @@ class AssistantFragment : Fragment() {
                             ChatUiState.Thinking -> {
                                 binding.spinner.visibility = View.VISIBLE
                                 binding.stateLabel.visibility = View.VISIBLE
+                                // 复位颜色：上一次「没发出去」的 negative 不能带到正常状态行上
+                                binding.stateLabel.setTextColor(
+                                    ContextCompat.getColor(requireContext(), R.color.text_2),
+                                )
                                 binding.stateLabel.text = getString(R.string.state_thinking)
                             }
                             is ChatUiState.Queued -> {
                                 binding.spinner.visibility = View.VISIBLE
                                 binding.stateLabel.visibility = View.VISIBLE
+                                binding.stateLabel.setTextColor(
+                                    ContextCompat.getColor(requireContext(), R.color.text_2),
+                                )
                                 // 限流必须显示预估秒数（规范 3.10）
                                 binding.stateLabel.text =
                                     getString(R.string.state_queued, state.seconds)
