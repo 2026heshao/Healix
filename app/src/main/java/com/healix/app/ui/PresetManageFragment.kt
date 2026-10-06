@@ -33,7 +33,7 @@ import kotlinx.coroutines.launch
  * 列表走 Room Flow 响应式，写库后即时刷新，不需要手动 notify。
  *
  * 迁移等价性：`supportFragmentManager` → `childFragmentManager`（弹窗挂在本页下，
- * 随本页一起出栈）；`finish()` → `popBackStack()`。
+ * 随本页一起出栈）；`finish()` → `NavHost.back()`。
  */
 internal class PresetManageFragment : Fragment() {
 
@@ -57,7 +57,7 @@ internal class PresetManageFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
-        binding.btnBack.setOnClickListener { parentFragmentManager.popBackStack() }
+        binding.btnBack.setOnClickListener { NavHost.back(requireContext()) }
         binding.btnAdd.setOnClickListener { showEditor(null) }
 
         binding.presetList.layoutManager = LinearLayoutManager(requireContext())

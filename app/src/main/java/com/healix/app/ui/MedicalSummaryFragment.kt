@@ -156,6 +156,19 @@ class MedicalSummaryFragment : Fragment() {
     /** 文件名是**位置信息**不是界面文案，故留在代码里（与 `ExportWriter.fileName` 同口径）。 */
     private fun fileName(): String = "healix-medical-${LocalDate.now()}.txt"
 
+    /**
+     * 重新可见时重算摘要。
+     *
+     * 为什么需要：keep-alive 结构改造后，被复用的页**不会重走 [androidx.fragment.app.Fragment.onViewCreated]**
+     * （见 [NavHost]）—— 而「保存为文本」依赖 [rendered] 快照。若用户离开本页、在记录页新增了
+     * 事件，再回来时旧快照会缺那几笔记录（就医材料必须与库一致，见类注释硬边界 2）。
+     * `view == null` 守卫：视图未建时不得触碰 `binding`。
+     */
+    override fun onHiddenChanged(hidden: Boolean) {
+        super.onHiddenChanged(hidden)
+        if (!hidden && view != null) reload()
+    }
+
     override fun onDestroyView() {
         super.onDestroyView()
         _binding = null

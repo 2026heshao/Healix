@@ -23,7 +23,7 @@ import kotlinx.coroutines.launch
  * - 读回显挂 `viewLifecycleOwner.lifecycleScope`（视图销毁即取消，绝不错写已销毁的视图）；
  * - 写库挂 **fragment** 的 `lifecycleScope`（写语义必须活过视图拆解，
  *   否则"失焦/离开瞬间的最后一笔"会被取消丢掉）；
- * - `finish()` → `popBackStack()`。
+ * - `finish()` → `NavHost.back()`。
  *
  * 与设置页画像行的分工：画像（忌口/疼痛/场景/作息）是**约束与习惯**，
  * 这里是**手头有什么** —— 三类自由文本，想到什么写什么（"白画布直接输入"），
@@ -52,7 +52,7 @@ internal class ResourceFragment : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        binding.btnBack.setOnClickListener { parentFragmentManager.popBackStack() }
+        binding.btnBack.setOnClickListener { NavHost.back(requireContext()) }
 
         // 回显：三个字段一次读完（IO 线程），逐框填入并登记"已落库"基线
         val db = HealixApp.from(requireContext()).database

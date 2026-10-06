@@ -30,7 +30,7 @@ import java.time.ZoneId
  *
  * 迁移等价性：`onCreate` → [onViewCreated]；collect 挂
  * `viewLifecycleOwner`（视图销毁即停，宿主 Activity 常驻不再当作页生命周期）；
- * `finish()` → `popBackStack()`。
+ * `finish()` → `NavHost.back()`（keep-alive 结构改造后不再直连 FragmentManager 回退栈）。
  */
 class DebugFragment : Fragment() {
 
@@ -54,7 +54,7 @@ class DebugFragment : Fragment() {
         adapter = LlmCallAdapter()
         binding.callList.layoutManager = LinearLayoutManager(requireContext())
         binding.callList.adapter = adapter
-        binding.btnBack.setOnClickListener { parentFragmentManager.popBackStack() }
+        binding.btnBack.setOnClickListener { NavHost.back(requireContext()) }
 
         val container = HealixApp.from(requireContext())
 

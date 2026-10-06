@@ -62,7 +62,7 @@ class KnowledgeBaseFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
-        binding.btnBack.setOnClickListener { parentFragmentManager.popBackStack() }
+        binding.btnBack.setOnClickListener { NavHost.back(requireContext()) }
         binding.btnAdd.setOnClickListener { pickPdf.launch(arrayOf("application/pdf")) }
         binding.btnPick.setOnClickListener { pickPdf.launch(arrayOf("application/pdf")) }
 

@@ -23,7 +23,8 @@ import com.healix.app.databinding.ActivityMainBinding
  *   零 Activity 重建**，这是需求 2「点 Tab 即响应」的根治。三页同为 Fragment，
  *   导航范式唯一（此前「助理」是 Fragment、「记录 / 我的」是 View 容器 = 半迁移）。
  * - **八个二级页**（状态详情/设置/计划/个人信息/知识库/资源/预设/调试）是
- *   `pageContainer` 上的 Fragment，经 [NavHost] 路由（`replace` + 回退栈），
+ *   `pageContainer` 上的 Fragment，经 [NavHost] 路由（`add` + `hide/show` 保活，
+ *   页面栈由 [NavHost] 自持、**不再用 FragmentManager 回退栈**），
  *   这是需求 1「二级页前进/后退卡顿」的根治。
  *
  * 本类只做"宿主"该做的事：承载容器 / 后台返回栈 / 外部入口（EXTRA_TAB、
@@ -76,14 +77,20 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // 二级页容器的命中判定（v8 T03）：空容器 clickable=false → 点击穿透到 Tab 页；
-        // 有二级页时 clickable=true → 吞掉落在页面空白处的点击，不误触底下的 Tab。
-        // ⚠️ 注册后必须**立即同步一次**：进程重建时回退栈里可能已有一个二级页，
-        //    而 addOnBackStackChangedListener 只在"变化时"回调，不会补发当前状态。
-        supportFragmentManager.addOnBackStackChangedListener { syncPageContainerHit() }
+        // 二级页栈还原（keep-alive 结构改造）：[NavHost] 是进程级 object，页面栈存在它的
+        // 内存里，Activity 重建必须在这里把栈喂回去 —— 否则返回键会失效（见 NavHost KDoc）。
+        // savedInstanceState == null（全新启动）即清空，显式复位、不沿用上一次会话的栈。
+        NavHost.restoreState(savedInstanceState)
+
+        // 二级页容器的命中判定（v8 T03）：没有可见二级页 clickable=false → 点击穿透到
+        // Tab 页；有二级页时 clickable=true → 吞掉落在页面空白处的点击，不误触底下的 Tab。
+        // 结构改造后已无 FragmentManager 回退栈，事件源换成 NavHost 自己的栈变化钩子
+        // （addOnBackStackChangedListener 再也不会有回调）。注册后必须**立即同步一次**：
+        // 钩子只在"变化时"回调，不会补发当前状态（进程重建时页已在、栈是刚还原的）。
+        NavHost.onPageStackChanged = { syncPageContainerHit() }
         syncPageContainerHit()
-        // keep-alive 保险：二级页用 add+hide/show 保活（见 NavHost），Activity
-        // 重建后校验容器内只有栈顶页可见（hidden 状态未随回退栈恢复时兜底）。
+        // keep-alive 保险：Activity 重建后校验容器内只有栈顶页可见
+        // （hidden 状态未随重建恢复时兜底，见 NavHost.ensureRestoredVisibility）。
         NavHost.ensureRestoredVisibility(this)
 
         showTabImmediate(currentTab)
@@ -102,6 +109,15 @@ class MainActivity : AppCompatActivity() {
         })
 
         maybeShowLastCrash()
+    }
+
+    /**
+     * 二级页栈持久化（keep-alive 结构改造）：[NavHost] 的页面栈是**进程内**状态，
+     * Activity 重建必须经 Bundle 往返一次，否则返回键失效（详见 [NavHost.saveState]）。
+     */
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        NavHost.saveState(outState)
     }
 
     /**
@@ -256,9 +272,11 @@ class MainActivity : AppCompatActivity() {
         }.commitNowAllowingStateLoss()
     }
 
-    /** 二级页容器命中态与回退栈同步（见 onCreate 注册处说明）。 */
+    /** 二级页容器命中态与页面栈同步（见 onCreate 注册处说明）。
+     *  判据用 [NavHost.isOpen]（是否有**可见**页）而非「容器非空」：keep-alive 下退出的页
+     *  仍留在容器里但已不可见，此时必须让点击穿透回 Tab 页。 */
     private fun syncPageContainerHit() {
-        binding.pageContainer.isClickable = supportFragmentManager.backStackEntryCount > 0
+        binding.pageContainer.isClickable = NavHost.isOpen(this)
     }
 
     override fun onResume() {
