@@ -15,11 +15,13 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import androidx.recyclerview.widget.ConcatAdapter
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.healix.app.R
 import com.healix.app.databinding.FragmentRecordBinding
 import com.healix.app.databinding.ItemEventBinding
+import com.healix.app.databinding.ItemRecordHeaderBinding
 import com.healix.app.db.EventEntity
 import com.healix.app.db.GoalSlots
 import com.healix.app.db.PresetEntity
@@ -55,6 +57,14 @@ class RecordFragment : Fragment() {
     private lateinit var adapter: EventAdapter
     private lateinit var swipe: SwipeController
 
+    // ── v0.3 B2（需求 2：合并滚动区）──
+    // binding.list = ConcatAdapter(header, events, empty)。header 的视图引用经
+    // [headerBinding]（由 RecordHeaderAdapter 首次绑定时回传）访问；`binding.xxx`
+    // 从此只剩固定区（顶栏 / offlineBar / undoBar / inputBar）。
+    private lateinit var headerAdapter: RecordHeaderAdapter
+    private lateinit var emptyAdapter: RecordEmptyAdapter
+    private var headerBinding: ItemRecordHeaderBinding? = null
+
     /**
      * Activity 作用域 VM：与 [MineFragment] 共享（「我的」页状态副行读同一 `homeStatus`）。
      */
@@ -64,6 +74,12 @@ class RecordFragment : Fragment() {
 
     /** 最近一次 UI 状态：offlineBar 同一位置承载"离线 / 未配置"两种语义，须知道现在是哪种。 */
     private var lastUiState: MainUiState = MainUiState.Idle
+
+    /** 状态行快照（B2 后进 header）：null = 尚无 Flow 到达，补渲染时跳过（不伪造初始态）。 */
+    private var lastHomeStatus: HomeStatus? = null
+
+    /** 今日记录数快照（监督提示条用）；-1 = 尚无 Flow 到达，补渲染时跳过。 */
+    private var lastTodayCount: Int = -1
 
     // ── v8 问题 4：目标区快照 ─────────────────────────────────────────
     // 五路 Flow（主目标 / 目标值表 / 训练 / 睡眠 / 体重 / 隐私）到达顺序不确定，
@@ -115,7 +131,20 @@ class RecordFragment : Fragment() {
         )
 
         binding.list.layoutManager = LinearLayoutManager(requireContext())
-        binding.list.adapter = adapter
+        // B2：header 恒 1 条，binding 首次绑定时回传 → 存引用 + 挂 header 内点击 +
+        // 补渲染（flows 可能先于 header 绑定到达：RecyclerView 首次 layout 在
+        // onViewCreated 返回之后）。补渲染全部幂等、纯本地、0 AI。
+        headerAdapter = RecordHeaderAdapter(onHeaderBound = { b ->
+            headerBinding = b
+            bindHeaderInteractions(b)
+            renderGoalArea()
+            renderPresetStrip()
+            renderStatusRow(lastHomeStatus)
+            renderNudgeBar()
+            renderPlanBar()
+        })
+        emptyAdapter = RecordEmptyAdapter()
+        binding.list.adapter = ConcatAdapter(headerAdapter, adapter, emptyAdapter)
         binding.list.setHasFixedSize(false)
 
         binding.dateLabel.text = HealixDate.labelOf(vm.todayDayKeyFlow.value)
@@ -124,27 +153,9 @@ class RecordFragment : Fragment() {
         binding.btnSettings.setOnClickListener {
             NavHost.open(requireContext(), SettingsFragment(), NavHost.PAGE_SETTINGS)
         }
-        binding.planBar.setOnClickListener {
-            NavHost.open(requireContext(), PlanReviewFragment(), NavHost.PAGE_PLAN_REVIEW)
-        }
-        binding.nudgeBar.setOnClickListener { focusInput() }
-
-        // 状态行：整行进入状态详情页（规范 §9.2）。有信号时默认落在「身体」段，
-        // 否则落在「运动」段 —— 入口决定默认段，用户不用再猜。
-        binding.statusRow.setOnClickListener {
-            val tab = if (binding.statusRow.tag == StatusDetailFragment.TAB_BODY) {
-                StatusDetailFragment.TAB_BODY
-            } else {
-                StatusDetailFragment.TAB_EXERCISE
-            }
-            NavHost.open(
-                requireContext(),
-                StatusDetailFragment.newInstance(tab),
-                NavHost.PAGE_STATUS_DETAIL,
-            )
-            // 进了状态页就算看过了 → 已读后必须切回摘要态（规范 §9.2）
-            vm.acknowledgeSignals()
-        }
+        // B2：planBar / nudgeBar / statusRow / goal* 等已随滚动 header 移入
+        // item_record_header.xml，点击监听统一在 [bindHeaderInteractions] 挂
+        // （header 绑定发生在 onViewCreated 之后，此处拿不到那些视图）。
 
         // 状态提示条点击：按当前语义分流（离线 → 重试；未配置 → 去设置）
         binding.offlineBar.setOnClickListener {
@@ -155,20 +166,9 @@ class RecordFragment : Fragment() {
             }
         }
 
-        // ── 需求 5 / v8 问题 4：主目标行 + 三卡 + 今日盈余 ──
-        // 主目标行：「去调整 ›」→ GoalSetupSheet **编辑态**（预填当前主目标与目标体重），
-        // 就地保存返回、主目标行即时刷新；**不跨页跳设置栏**（规范 §①）。
-        // 主目标未设时改为「去设置 ›」→ 设置页「目标」栏（规范 §① 状态覆盖）。
-        binding.goalPrimaryRow.setOnClickListener { onPrimaryGoalRowClick() }
-        binding.goalAdjust.setOnClickListener { onPrimaryGoalRowClick() }
-        // 三卡 → 同一个半屏详情弹层（[GoalDetailSheet]），点哪张卡就以哪个 metric 为初始选中项。
-        binding.subTrainRow.setOnClickListener { openGoalDetail(GoalDetailSheet.TAB_TRAIN) }
-        binding.subSleepRow.setOnClickListener { openGoalDetail(GoalDetailSheet.TAB_SLEEP) }
-        binding.subWeightRow.setOnClickListener { openGoalDetail(GoalDetailSheet.TAB_WEIGHT) }
-        // 今日盈余单行 → 详情弹层的「盈余」视角（不切换 metric）。
-        binding.gapRow.setOnClickListener { openGoalDetail(GoalDetailSheet.TAB_GAP) }
-
         // 左滑"点其它区域自动回弹"：列表内按下非滑开行 → 收起（全局单开，11.3）
+        // B2 后 header 也在这条监听覆盖范围内（findChildViewUnder 命中 header 行），
+        // 按住目标区等 header 内容同样能收起已滑开的行 —— 挂载点零改动。
         binding.list.addOnItemTouchListener(object : RecyclerView.SimpleOnItemTouchListener() {
             override fun onInterceptTouchEvent(rv: RecyclerView, e: MotionEvent): Boolean {
                 if (e.actionMasked == MotionEvent.ACTION_DOWN) {
@@ -196,9 +196,11 @@ class RecordFragment : Fragment() {
         })
 
         // ── P0-2 输入条高度自适应：随行数 200ms 平滑增高；增高时列表跟到底部（有一行才滚）──
+        // B2：smoothScrollToPosition 用的是 ConcatAdapter **根坐标**，
+        // EventAdapter 子坐标须 + HEADER_ITEM_COUNT（header 恒 1 条）。
         InputBarHeightAnimator.bind(binding.input, binding.inputBar) {
             val last = adapter.itemCount - 1
-            if (last >= 0) binding.list.smoothScrollToPosition(last)
+            if (last >= 0) binding.list.smoothScrollToPosition(last + HEADER_ITEM_COUNT)
         }
 
         observe()
@@ -215,6 +217,8 @@ class RecordFragment : Fragment() {
 
     override fun onDestroyView() {
         super.onDestroyView()
+        // header 随列表销毁；引用一并清空，防渲染函数在销毁后经旧引用写视图
+        headerBinding = null
         _binding = null
     }
 
@@ -245,6 +249,41 @@ class RecordFragment : Fragment() {
     fun requestFocusInput() {
         if (_binding == null) return
         binding.input.postDelayed({ focusInput() }, 200)
+    }
+
+    /**
+     * header 内视图的点击监听（B2：这些视图随滚动区进了 item_record_header.xml，
+     * 只能在 RecordHeaderAdapter 首次绑定时挂）。语义与抽离前逐一相同：
+     * - 主目标行 / 「去调整 ›」→ [onPrimaryGoalRowClick]；
+     * - 三卡 / 盈余行 → [openGoalDetail]（点哪张卡定位哪个 metric）；
+     * - 状态行 → 状态详情页（有信号默认落「身体」段，否则「运动」段）；
+     * - 计划提示条 → 计划页；监督提示条 → 聚焦输入框。
+     */
+    private fun bindHeaderInteractions(b: ItemRecordHeaderBinding) {
+        b.goalPrimaryRow.setOnClickListener { onPrimaryGoalRowClick() }
+        b.goalAdjust.setOnClickListener { onPrimaryGoalRowClick() }
+        b.subTrainRow.setOnClickListener { openGoalDetail(GoalDetailSheet.TAB_TRAIN) }
+        b.subSleepRow.setOnClickListener { openGoalDetail(GoalDetailSheet.TAB_SLEEP) }
+        b.subWeightRow.setOnClickListener { openGoalDetail(GoalDetailSheet.TAB_WEIGHT) }
+        b.gapRow.setOnClickListener { openGoalDetail(GoalDetailSheet.TAB_GAP) }
+        b.statusRow.setOnClickListener {
+            val tab = if (b.statusRow.tag == StatusDetailFragment.TAB_BODY) {
+                StatusDetailFragment.TAB_BODY
+            } else {
+                StatusDetailFragment.TAB_EXERCISE
+            }
+            NavHost.open(
+                requireContext(),
+                StatusDetailFragment.newInstance(tab),
+                NavHost.PAGE_STATUS_DETAIL,
+            )
+            // 进了状态页就算看过了 → 已读后必须切回摘要态（规范 §9.2）
+            vm.acknowledgeSignals()
+        }
+        b.planBar.setOnClickListener {
+            NavHost.open(requireContext(), PlanReviewFragment(), NavHost.PAGE_PLAN_REVIEW)
+        }
+        b.nudgeBar.setOnClickListener { focusInput() }
     }
 
     /**
@@ -330,7 +369,43 @@ class RecordFragment : Fragment() {
      * 状态行右侧 chevron 取色：摘要态 `text_3`、信号态 `accent`（规范 §9.2）。
      */
     private fun tintChevron(colorRes: Int) {
-        binding.statusChevron.drawable?.setTint(ContextCompat.getColor(requireContext(), colorRes))
+        headerBinding?.statusChevron?.drawable
+            ?.setTint(ContextCompat.getColor(requireContext(), colorRes))
+    }
+
+    /**
+     * 状态行两态互斥渲染（规范 §9.2，B2 后写入 header）。
+     * [status] 为 null = Flow 尚未到达（补渲染时跳过，不伪造初始态）。
+     */
+    private fun renderStatusRow(status: HomeStatus?) {
+        val h = headerBinding ?: return
+        when (status) {
+            is HomeStatus.Signal -> {
+                h.statusRow.tag = StatusDetailFragment.TAB_BODY
+                h.statusText.text = status.text
+                h.statusText.setTextColor(
+                    ContextCompat.getColor(requireContext(), R.color.accent),
+                )
+                tintChevron(R.color.accent)
+            }
+            is HomeStatus.Summary -> {
+                h.statusRow.tag = StatusDetailFragment.TAB_EXERCISE
+                h.statusText.text = status.text
+                h.statusText.setTextColor(
+                    ContextCompat.getColor(requireContext(), R.color.text_2),
+                )
+                tintChevron(R.color.text_3)
+            }
+            HomeStatus.Empty -> {
+                h.statusRow.tag = StatusDetailFragment.TAB_EXERCISE
+                h.statusText.setText(R.string.status_none)
+                h.statusText.setTextColor(
+                    ContextCompat.getColor(requireContext(), R.color.text_3),
+                )
+                tintChevron(R.color.text_3)
+            }
+            null -> Unit
+        }
     }
 
     private fun observe() {
@@ -355,8 +430,8 @@ class RecordFragment : Fragment() {
                 launch {
                     vm.events.collect { list ->
                         adapter.submit(list)
-                        binding.emptyState.visibility =
-                            if (list.isEmpty()) View.VISIBLE else View.GONE
+                        // B2：空态由 footer 段驱动（原 emptyState 覆盖层已删，BP-1）
+                        emptyAdapter.setEmpty(list.isEmpty())
                     }
                 }
 
@@ -366,13 +441,7 @@ class RecordFragment : Fragment() {
                         // 压成目标区的「今日盈余」单行；大数字与明细下沉到 GoalDetailSheet 的盈余视角。
                         lastSummary = s
                         renderGapRow()
-
-                        // 计划提示条：缺口为 0 时改为「今日已达标」
-                        binding.planBar.text = if (s.gap > 0) {
-                            getString(R.string.plan_gap, s.gap) + "　" + getString(R.string.view_advice)
-                        } else {
-                            getString(R.string.plan_reached)
-                        }
+                        renderPlanBar()
                     }
                 }
 
@@ -420,32 +489,8 @@ class RecordFragment : Fragment() {
                 // 状态行：两态互斥渲染（规范 §9.2）；「我的」页副行由 MineFragment 自行订阅同源 flow
                 launch {
                     vm.homeStatus.collect { status ->
-                        when (status) {
-                            is HomeStatus.Signal -> {
-                                binding.statusRow.tag = StatusDetailFragment.TAB_BODY
-                                binding.statusText.text = status.text
-                                binding.statusText.setTextColor(
-                                    ContextCompat.getColor(requireContext(), R.color.accent),
-                                )
-                                tintChevron(R.color.accent)
-                            }
-                            is HomeStatus.Summary -> {
-                                binding.statusRow.tag = StatusDetailFragment.TAB_EXERCISE
-                                binding.statusText.text = status.text
-                                binding.statusText.setTextColor(
-                                    ContextCompat.getColor(requireContext(), R.color.text_2),
-                                )
-                                tintChevron(R.color.text_3)
-                            }
-                            HomeStatus.Empty -> {
-                                binding.statusRow.tag = StatusDetailFragment.TAB_EXERCISE
-                                binding.statusText.setText(R.string.status_none)
-                                binding.statusText.setTextColor(
-                                    ContextCompat.getColor(requireContext(), R.color.text_3),
-                                )
-                                tintChevron(R.color.text_3)
-                            }
-                        }
+                        lastHomeStatus = status
+                        renderStatusRow(status)
                     }
                 }
 
@@ -476,17 +521,17 @@ class RecordFragment : Fragment() {
                 launch {
                     vm.hideKcal.collect { hidden ->
                         lastHideKcal = hidden
-                        binding.planBar.visibility = if (hidden) View.GONE else View.VISIBLE
                         adapter.hideKcal = hidden
                         renderGoalArea()
+                        renderPlanBar()
                     }
                 }
 
                 launch {
                     vm.todayCount.collect { count ->
                         // 监督提示条：今日无记录时出现（被动监督，不依赖后台定时器）
-                        binding.nudgeBar.visibility =
-                            if (count == 0) View.VISIBLE else View.GONE
+                        lastTodayCount = count
+                        renderNudgeBar()
                     }
                 }
 
@@ -527,6 +572,8 @@ class RecordFragment : Fragment() {
      */
     private fun renderGoalArea() {
         if (_binding == null) return
+        // B2：目标区进了 header —— 未绑定前直接跳过（onHeaderBound 会补渲染一次）
+        val h = headerBinding ?: return
 
         val g = lastGoal
         val primarySet = g?.set == true
@@ -538,11 +585,11 @@ class RecordFragment : Fragment() {
         renderCards()
         renderGapRow()
 
-        binding.goalCardRow.visibility = if (hasSecondary) View.VISIBLE else View.GONE
+        h.goalCardRow.visibility = if (hasSecondary) View.VISIBLE else View.GONE
         // 分隔线跟随相邻内容：有内容才画线，避免收起后留下孤立的 1dp 线
-        binding.goalDividerA.visibility = if (hasSecondary || showGap) View.VISIBLE else View.GONE
-        binding.goalDividerB.visibility = if (hasSecondary && showGap) View.VISIBLE else View.GONE
-        binding.gapRow.visibility = if (showGap) View.VISIBLE else View.GONE
+        h.goalDividerA.visibility = if (hasSecondary || showGap) View.VISIBLE else View.GONE
+        h.goalDividerB.visibility = if (hasSecondary && showGap) View.VISIBLE else View.GONE
+        h.gapRow.visibility = if (showGap) View.VISIBLE else View.GONE
     }
 
     /**
@@ -550,19 +597,20 @@ class RecordFragment : Fragment() {
      * 未设 → `未设置主目标`(text_2) + 「去设置 ›」(text_2)，副行隐藏。
      */
     private fun renderPrimaryRow(g: HomeGoal?, primarySet: Boolean) {
+        val h = headerBinding ?: return
         if (primarySet && g != null) {
             val mode = primaryModeLabel(g)
-            binding.goalPrimaryText.setTextColor(
+            h.goalPrimaryText.setTextColor(
                 ContextCompat.getColor(requireContext(), R.color.text_1),
             )
-            binding.goalPrimaryText.text = if (g.weightTargetKg > 0.0) {
+            h.goalPrimaryText.text = if (g.weightTargetKg > 0.0) {
                 getString(R.string.goal_primary_target, mode, trimNumber(g.weightTargetKg))
             } else {
                 getString(R.string.goal_primary_line, mode)
             }
 
             // 副行：有现值才报值；目标体重存在时才算"还差"
-            binding.goalPrimarySub.text = when {
+            h.goalPrimarySub.text = when {
                 g.latestWeightKg <= 0.0 -> ""
                 g.weightTargetKg <= 0.0 ->
                     getString(R.string.goal_primary_current_only, trimNumber(g.latestWeightKg))
@@ -572,21 +620,21 @@ class RecordFragment : Fragment() {
                     trimNumber(kotlin.math.abs(g.weightTargetKg - g.latestWeightKg)),
                 )
             }
-            binding.goalPrimarySub.visibility =
-                if (binding.goalPrimarySub.text.isEmpty()) View.GONE else View.VISIBLE
+            h.goalPrimarySub.visibility =
+                if (h.goalPrimarySub.text.isEmpty()) View.GONE else View.VISIBLE
 
-            binding.goalAdjust.setText(R.string.goal_adjust)
-            binding.goalAdjust.setTextColor(
+            h.goalAdjust.setText(R.string.goal_adjust)
+            h.goalAdjust.setTextColor(
                 ContextCompat.getColor(requireContext(), R.color.accent),
             )
         } else {
-            binding.goalPrimaryText.setTextColor(
+            h.goalPrimaryText.setTextColor(
                 ContextCompat.getColor(requireContext(), R.color.text_2),
             )
-            binding.goalPrimaryText.setText(R.string.goal_primary_none)
-            binding.goalPrimarySub.visibility = View.GONE
-            binding.goalAdjust.setText(R.string.goal_go_settings)
-            binding.goalAdjust.setTextColor(
+            h.goalPrimaryText.setText(R.string.goal_primary_none)
+            h.goalPrimarySub.visibility = View.GONE
+            h.goalAdjust.setText(R.string.goal_go_settings)
+            h.goalAdjust.setTextColor(
                 ContextCompat.getColor(requireContext(), R.color.text_2),
             )
         }
@@ -594,24 +642,25 @@ class RecordFragment : Fragment() {
 
     /** 三卡值 + 迷你趋势线（20dp，accent 单色，不铺面）。 */
     private fun renderCards() {
-        binding.subTrainValue.text =
+        val h = headerBinding ?: return
+        h.subTrainValue.text =
             getString(R.string.sub_goal_train_card, lastTrain.done, lastTrain.goal)
-        renderSpark(binding.subTrainSpark, lastTrainSeries)
+        renderSpark(h.subTrainSpark, lastTrainSeries)
 
-        binding.subSleepValue.text = lastSleepSeries.lastOrNull()?.let {
+        h.subSleepValue.text = lastSleepSeries.lastOrNull()?.let {
             getString(R.string.unit_hour_short, trimNumber(it))
         } ?: EMPTY_VALUE
-        renderSpark(binding.subSleepSpark, lastSleepSeries)
+        renderSpark(h.subSleepSpark, lastSleepSeries)
 
         if (lastHideWeight) {
-            binding.subWeightValue.text = getString(R.string.goal_card_masked)
+            h.subWeightValue.text = getString(R.string.goal_card_masked)
         } else {
-            binding.subWeightValue.text = lastWeightSeries.lastOrNull()?.let {
+            h.subWeightValue.text = lastWeightSeries.lastOrNull()?.let {
                 getString(R.string.unit_kg, trimNumber(it))
             } ?: EMPTY_VALUE
         }
         // 隐私：打码时**不绘制**折线，但 20dp 槽位保留（布局高度固定 → 卡片不塌陷）
-        renderSpark(binding.subWeightSpark, lastWeightSeries, masked = lastHideWeight)
+        renderSpark(h.subWeightSpark, lastWeightSeries, masked = lastHideWeight)
     }
 
     /**
@@ -634,19 +683,40 @@ class RecordFragment : Fragment() {
 
     /** 今日盈余单行：数值 + 6px 圆点按正负着色（positive/negative **只用于圆点，不铺面**）。 */
     private fun renderGapRow() {
-        if (_binding == null) return
+        val h = headerBinding ?: return
         val s = lastSummary
-        binding.gapValue.text = if (s.gap >= 0) {
+        h.gapValue.text = if (s.gap >= 0) {
             getString(R.string.gap_format, s.gap)
         } else {
             getString(R.string.gap_negative_format, s.gap)
         }
-        binding.gapDot.background?.setTint(
+        h.gapDot.background?.setTint(
             ContextCompat.getColor(
                 requireContext(),
                 if (s.gap >= 0) R.color.positive else R.color.negative,
             ),
         )
+    }
+
+    /**
+     * 计划提示条（B2 后写入 header）：缺口为 0 时改为「今日已达标」；
+     * 隐藏热量数字时整条不显示（PRD §14.3，随 hideKcal collector 触发）。
+     */
+    private fun renderPlanBar() {
+        val h = headerBinding ?: return
+        h.planBar.text = if (lastSummary.gap > 0) {
+            getString(R.string.plan_gap, lastSummary.gap) + "　" + getString(R.string.view_advice)
+        } else {
+            getString(R.string.plan_reached)
+        }
+        h.planBar.visibility = if (lastHideKcal) View.GONE else View.VISIBLE
+    }
+
+    /** 监督提示条（B2 后写入 header）：今日无记录时出现；-1 = Flow 尚未到达，跳过。 */
+    private fun renderNudgeBar() {
+        val h = headerBinding ?: return
+        if (lastTodayCount < 0) return
+        h.nudgeBar.visibility = if (lastTodayCount == 0) View.VISIBLE else View.GONE
     }
 
     /** 主目标模式 → 展示文案（增重/减重/保持/自定义文本；自定义回落保持文案）。 */
@@ -699,38 +769,39 @@ class RecordFragment : Fragment() {
      * [RecentChips.label] 决定（受 HIDE_WEIGHT 约束，与三卡同口径）。
      */
     private fun renderPresetStrip() {
-        binding.presetRow.removeAllViews()
+        val h = headerBinding ?: return
+        h.presetRow.removeAllViews()
         val presets = lastPresets
         val recents = lastRecents
         val visible = presets.isNotEmpty() || recents.isNotEmpty()
-        binding.presetScroll.visibility = if (visible) View.VISIBLE else View.GONE
-        binding.presetDivider.visibility = if (visible) View.VISIBLE else View.GONE
+        h.presetScroll.visibility = if (visible) View.VISIBLE else View.GONE
+        h.presetDivider.visibility = if (visible) View.VISIBLE else View.GONE
         if (!visible) return
 
         for (preset in presets) {
-            val tv = layoutInflater.inflate(R.layout.item_preset, binding.presetRow, false)
+            val tv = layoutInflater.inflate(R.layout.item_preset, h.presetRow, false)
                 as android.widget.TextView
             tv.text = preset.name
             tv.setOnClickListener { vm.logPreset(preset) }
             tv.bindPressScale()
-            binding.presetRow.addView(tv)
+            h.presetRow.addView(tv)
         }
 
         if (recents.isNotEmpty()) {
             if (presets.isNotEmpty()) {
-                binding.presetRow.addView(
+                h.presetRow.addView(
                     layoutInflater.inflate(
-                        R.layout.item_preset_separator, binding.presetRow, false,
+                        R.layout.item_preset_separator, h.presetRow, false,
                     ),
                 )
             }
             for (event in recents) {
-                val tv = layoutInflater.inflate(R.layout.item_preset, binding.presetRow, false)
+                val tv = layoutInflater.inflate(R.layout.item_preset, h.presetRow, false)
                     as android.widget.TextView
                 tv.text = RecentChips.label(requireContext(), event, lastHideWeight)
                 tv.setOnClickListener { vm.logRecent(event) }
                 tv.bindPressScale()
-                binding.presetRow.addView(tv)
+                h.presetRow.addView(tv)
             }
         }
     }
@@ -738,6 +809,9 @@ class RecordFragment : Fragment() {
     private companion object {
         /** 无数据时的值占位（全角破折号，与状态详情页同一口径）。 */
         const val EMPTY_VALUE = "—"
+
+        /** ConcatAdapter 根坐标偏移：header 段恒 1 条（迁移点② smoothScrollToPosition 用）。 */
+        const val HEADER_ITEM_COUNT = 1
     }
 }
 

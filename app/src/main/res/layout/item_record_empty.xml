@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    「记录」页空态 footer（v0.3 B2 / BP-1 裁定）。
+    由 fragment_record.xml 原覆盖层（FrameLayout 内居中 emptyState）原样抽出 ——
+    文案与观感单一事实来源（@string/empty_hint + @string/empty_example）。
+    B2 后 header（目标卡片）并入列表，覆盖层会同时盖住 header；而"无记录"恰是
+    最常见状态、目标卡片此时最该可见 → 改为 ConcatAdapter 的 footer 段
+    （仅事件为空时显示，由 RecordEmptyAdapter.setEmpty 驱动）。
+    ⚠️ 偏离上游 §2「推荐保留覆盖层」—— 以 team-lead BP-1 裁定为准。
+    落点（BP-1b-1，非阻塞）：footer 在 header 之下，纵向 padding 适度下移，
+    不再整块垂直居中 —— 真机确认观感后可再调。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:gravity="center_horizontal"
+    android:orientation="vertical"
+    android:paddingTop="56dp"
+    android:paddingBottom="56dp">
+
+    <TextView
+        style="@style/Text.Secondary"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/empty_hint" />
+
+    <TextView
+        style="@style/Text.Caption"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:text="@string/empty_example" />
+</LinearLayout>
