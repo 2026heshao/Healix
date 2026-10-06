@@ -297,7 +297,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     /**
      * 主目标展示。`goals.metric='primary'` 的一行承载"主目标是哪个模式"
-     * （`target_value` ∈ {0=增重 / 1=减重 / 2=保持}）；自由文本目标在 settings。
+     * （`target_value` ∈ {0=增重 / 1=减重 / 2=保持 / 3=自定义，文本见 statement}）；
+     * 自由文本目标在 settings。
      *
      * v8 问题 4 追加两个数：目标体重（`weight_kg` 目标行）与最近一次体重记录
      * （复用 [weightSeries] 的末值），供压缩后的主目标行渲染
@@ -811,18 +812,27 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      * `modeIndex == null` = 用户点了「跳过」：**只写标记**（不反复骚扰），不设主目标 ——
      * 首页「主目标」行仍始终提供「去调整」入口，用户随时能补。
      *
+     * `modeIndex == GOAL_MODE_CUSTOM (3)` = 自定义主目标：[customText] 落
+     * `settings.GOAL_STATEMENT`（与「我的目标」自述同键，AI prompt / 首页展示同源读取）。
+     *
      * ⚠️ 主目标是 `goals` 里 `metric='primary'` 的一行，而 `setPrimary` / `setTarget`
      * 都是 **UPDATE**：表里没有该行时静默 no-op。v8 问题 2b 删掉默认种子后，全新安装的
      * goals 可能是空表 → 这里必须**先 ensure 行存在**，
      * 否则用户走完引导却什么都没设上（"点了保存没反应"的静默 bug）。
      */
-    fun completeGoalSetup(modeIndex: Int?, weightKg: Double?) {
+    fun completeGoalSetup(modeIndex: Int?, weightKg: Double?, customText: String? = null) {
         viewModelScope.launch(Dispatchers.IO) {
             val now = System.currentTimeMillis()
             if (modeIndex != null) {
                 ensureGoalRow(GoalMetrics.PRIMARY, GoalTypes.GOAL_MODE, modeIndex.toDouble(), true, now)
                 db.goalDao().setPrimary(GoalMetrics.PRIMARY, now)
                 db.goalDao().setTarget(GoalMetrics.PRIMARY, modeIndex.toDouble(), now)
+            }
+            if (modeIndex == SettingsViewModel.GOAL_MODE_CUSTOM) {
+                val text = customText?.trim().orEmpty()
+                if (text.isNotEmpty()) {
+                    db.settingsDao().put(SettingEntity(SettingsKeys.GOAL_STATEMENT, text))
+                }
             }
             if (weightKg != null && weightKg > 0) {
                 ensureGoalRow(GoalMetrics.WEIGHT_KG, GoalTypes.WEIGHT, weightKg, false, now)

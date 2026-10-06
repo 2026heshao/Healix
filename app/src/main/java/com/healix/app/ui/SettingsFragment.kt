@@ -619,12 +619,12 @@ class SettingsFragment : Fragment() {
      */
     private fun openGoalSetup() {
         if (childFragmentManager.isStateSaved) return
-        // ⚠️ CI #55 修复：lambda 签名必须与已提交的 [GoalSetupSheet.onDone]（双参
-        //    `(Int?, Double?)`）严格一致 —— 工作区里三参（含 customText）的
-        //    GoalSetupSheet/MainViewModel 改动尚未入库，此处随它入库时再同步三参。
+        // lambda 元数必须与 [GoalSetupSheet.onDone] 严格一致（三参
+        // `(Int?, Double?, String?)`）—— 第三参是「自定义主目标」文本（选挡 3 时非空），
+        // 随同交 [MainViewModel.completeGoalSetup] 落 `settings.GOAL_STATEMENT`。
         GoalSetupSheet.newInstance().apply {
-            onDone = { modeIndex, weightKg ->
-                mainVm.completeGoalSetup(modeIndex, weightKg)
+            onDone = { modeIndex, weightKg, customText ->
+                mainVm.completeGoalSetup(modeIndex, weightKg, customText)
             }
         }.show(childFragmentManager, GoalSetupSheet.TAG)
     }

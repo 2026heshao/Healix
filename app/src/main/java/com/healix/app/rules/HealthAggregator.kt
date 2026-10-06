@@ -121,6 +121,8 @@ object HealthAggregator {
         val latestWeight = weights14.lastOrNull() ?: 0.0
         val heightCm = db.settingsDao().get(SettingsKeys.HEIGHT)?.toDoubleOrNull() ?: 0.0
 
+        // 主目标编码 0/1/2 + 3=自定义（SettingsViewModel.GOAL_MODE_CUSTOM）。
+        // 自定义/保持都不等于减重 → isWeightLossGoal=false，减重类预警自然关闭，无需分支。
         val primaryGoalIndex = db.goalDao()
             .getByMetric(GoalMetrics.PRIMARY)
             ?.targetValue

@@ -138,6 +138,9 @@ class TrainingPlanner(context: Context) {
         /** 主目标索引：0=增重，1=减重，其它=保持。与 HealthAggregator 口径一致。 */
         private const val GOAL_GAIN = 0
         private const val GOAL_LOSS = 1
+
+        /** 自定义主目标（与 SettingsViewModel.GOAL_MODE_CUSTOM 同值；本类不依赖 UI 层故另存常量）。 */
+        private const val GOAL_CUSTOM = 3
     }
 
     // ------------------------------------------------------------------
@@ -400,6 +403,7 @@ class TrainingPlanner(context: Context) {
             listOf(1, 5),    // 背 / 核心
             listOf(2),       // 腿
         )
+        // 自定义主目标（GOAL_CUSTOM）没有量化方向 → 走保持档（else）
         val reps = when (goalIndex()) {
             GOAL_GAIN -> "8-12"
             GOAL_LOSS -> "12-15"
@@ -420,7 +424,8 @@ class TrainingPlanner(context: Context) {
                 )
             }
         }
-        val focus = goalLabel() + " · " + appContext.getString(R.string.unit_times, sessions)
+        // 周计划标题：自定义文本可能较长 → 截断（AI prompt 里另有全量自述）
+        val focus = goalLabel().take(12) + " · " + appContext.getString(R.string.unit_times, sessions)
         return TrainingPlan(
             focus = focus,
             days = days,
@@ -510,14 +515,24 @@ class TrainingPlanner(context: Context) {
     // 目标 / 周键 / 工具
     // ------------------------------------------------------------------
 
-    /** 主目标展示名（增重 / 减重 / 保持）。 */
-    suspend fun goalLabel(): String = appContext.getString(
-        when (goalIndex()) {
-            GOAL_GAIN -> R.string.goal_gain
-            GOAL_LOSS -> R.string.goal_loss
-            else -> R.string.goal_keep
-        },
-    )
+    /**
+     * 主目标展示名（增重 / 减重 / 保持 / 自定义文本）。
+     * 自定义态（`GOAL_MODE_CUSTOM`）读 `settings.GOAL_STATEMENT`（与「我的目标」自述同键），
+     * 空文本回落「保持」文案。
+     */
+    suspend fun goalLabel(): String {
+        if (goalIndex() == GOAL_CUSTOM) {
+            val text = db.settingsDao().get(SettingsKeys.GOAL_STATEMENT).orEmpty().trim()
+            if (text.isNotEmpty()) return text
+        }
+        return appContext.getString(
+            when (goalIndex()) {
+                GOAL_GAIN -> R.string.goal_gain
+                GOAL_LOSS -> R.string.goal_loss
+                else -> R.string.goal_keep
+            },
+        )
+    }
 
     /** 每周训练次数目标（默认 3）。 */
     suspend fun sessionsGoal(): Int =

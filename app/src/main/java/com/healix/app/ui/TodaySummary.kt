@@ -63,8 +63,10 @@ internal data class TodaySummary(
     val hideKcal: Boolean = false,
     /** 隐私：隐藏体重数字 */
     val hideWeight: Boolean = false,
-    /** 主目标编码：0 增重 / 1 减重 / 2 保持（与设置页约定一致） */
+    /** 主目标编码：0 增重 / 1 减重 / 2 保持 / 3 自定义（与设置页约定一致） */
     val primaryGoalIndex: Int = 0,
+    /** 自定义主目标文本（primaryGoalIndex == 3 时用；settings.GOAL_STATEMENT 同源） */
+    val primaryGoalCustom: String = "",
 ) {
     /** 缺口 = 目标 − 已摄入 + 已消耗 */
     val gap: Int get() = target - kcalIn + kcalOut
@@ -74,6 +76,7 @@ internal data class TodaySummary(
         get() = when (primaryGoalIndex) {
             1 -> "减重"
             2 -> "保持"
+            3 -> primaryGoalCustom.ifBlank { "自定义" }
             else -> "增重"
         }
 
@@ -211,6 +214,10 @@ internal data class TodaySummary(
                 primaryGoalIndex = db.goalDao()
                     .getByMetric(GoalMetrics.PRIMARY)
                     ?.targetValue?.toInt() ?: 0,
+                primaryGoalCustom = db.settingsDao()
+                    .get(SettingsKeys.GOAL_STATEMENT)
+                    .orEmpty()
+                    .trim(),
             )
         }
 

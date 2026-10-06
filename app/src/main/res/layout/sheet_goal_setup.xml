@@ -3,7 +3,7 @@
     需求 5：首次进入目标引导（GoalSetupSheet）的版式。
     复用 FieldSheet 的容器规格（§3.5：bg_sheet + GrabberLayout + 把手 + row_sheet_field），
     **不用系统 AlertDialog** —— 规避需求 3 的按钮坑，且贴合「无底色容器」规范。
-    结构 = 把手 + 标题 + 说明 + 三选一（增重/减重/保持）+ 目标体重（可跳过）+ 底部按钮。
+    结构 = 把手 + 标题 + 说明 + 四选一（增重/减重/保持/自定义）+ 目标体重或自定义文本 + 底部按钮。
 -->
 <com.healix.app.ui.GrabberLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
@@ -43,7 +43,8 @@
             android:layout_marginTop="6dp"
             android:text="@string/goal_setup_desc" />
 
-        <!-- 三选一：选中项由代码把文字色改成 accent（无彩色面，符合规范 §2.3） -->
+        <!-- 四选一：选中项由代码把文字色改成 accent（无彩色面，符合规范 §2.3）。
+             第 4 项「自定义」选中时隐藏 weightField、显示 customField（自由文本主目标）。 -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -79,15 +80,34 @@
                 android:background="?attr/selectableItemBackground"
                 android:gravity="center"
                 android:text="@string/goal_keep" />
+
+            <TextView
+                android:id="@+id/optionCustom"
+                style="@style/Text.Body"
+                android:layout_width="0dp"
+                android:layout_height="@dimen/touch_min"
+                android:layout_weight="1"
+                android:background="?attr/selectableItemBackground"
+                android:gravity="center"
+                android:text="@string/goal_custom" />
         </LinearLayout>
 
-        <!-- 目标体重（可跳过）：复用 row_sheet_field 字段行 -->
+        <!-- 目标体重（可跳过）：复用 row_sheet_field 字段行；选「自定义」时隐藏 -->
         <include
             android:id="@+id/weightField"
             layout="@layout/row_sheet_field"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="4dp" />
+
+        <!-- 自定义主目标文本（选「自定义」时才显示）：同样复用 row_sheet_field -->
+        <include
+            android:id="@+id/customField"
+            layout="@layout/row_sheet_field"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:visibility="gone" />
 
         <!-- 底部按钮：右对齐（跳过文字按钮 + 保存主按钮） -->
         <LinearLayout

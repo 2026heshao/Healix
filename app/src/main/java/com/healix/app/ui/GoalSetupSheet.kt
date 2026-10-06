@@ -17,9 +17,9 @@ import com.healix.app.databinding.SheetGoalSetupBinding
  * 载体复用 [FieldSheet] 风格（`BottomSheetDialogFragment`）而非系统 `AlertDialog` ——
  * 规避需求 3 的按钮坑，且贴合「无底色容器」规范（`docs/Healix设计规范系统.md` §3.5）。
  *
- * 交互：选主目标（增重 / 减重 / 保持）→ 可选填目标体重 → 「保存」；
- * 或「跳过」。**任何未经「保存」的关闭**（点跳过 / 下拖 / 点外部 / 返回）
- * 都回调 `onDone(null, null)` —— 宿主据此只写 `GOAL_SETUP_DONE` 标记，
+ * 交互：选主目标（增重 / 减重 / 保持 / 自定义）→ 可选填目标体重（自定义态改填文本）→
+ * 「保存」；或「跳过」。**任何未经「保存」的关闭**（点跳过 / 下拖 / 点外部 / 返回）
+ * 都回调 `onDone(null, null, null)` —— 宿主据此只写 `GOAL_SETUP_DONE` 标记，
  * 保证首启引导**只弹一次**、不反复骚扰；首页「主目标」行始终留着「去调整」入口。
  *
  * v8 问题 4：新增**编辑态**（[newInstanceForEdit]）—— 记录页「去调整 ›」开的是这一支：
@@ -39,10 +39,12 @@ class GoalSetupSheet : BottomSheetDialogFragment() {
     /**
      * 结果回调。
      *
-     * @param modeIndex 主目标模式（0=增重 / 1=减重 / 2=保持）；**null = 跳过**（不设主目标）
-     * @param weightKg 目标体重（kg）；null = 未填或跳过
+     * @param modeIndex 主目标模式（0=增重 / 1=减重 / 2=保持 / 3=自定义）；**null = 跳过**（不设主目标）
+     * @param weightKg 目标体重（kg）；null = 未填或跳过或自定义（自定义态隐藏体重字段）
+     * @param customText 自定义主目标文本（仅 modeIndex == 3 且非空时非 null）；
+     *   落 `settings.GOAL_STATEMENT`（与「我的目标」自述同键，见 [SettingsViewModel.GOAL_MODE_CUSTOM]）
      */
-    var onDone: ((modeIndex: Int?, weightKg: Double?) -> Unit)? = null
+    var onDone: ((modeIndex: Int?, weightKg: Double?, customText: String?) -> Unit)? = null
 
     private var selected: Int = SettingsViewModel.GOAL_MODE_GAIN
 
@@ -85,15 +87,24 @@ class GoalSetupSheet : BottomSheetDialogFragment() {
         binding.weightField.fieldValue.hint = getString(R.string.goal_setup_weight_hint)
         binding.weightField.fieldValue.inputType =
             InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
+        // 自定义主目标文本字段：单行文本，上限与「我的目标」自述一致（80 字，输入期硬截断）
+        binding.customField.fieldLabel.setText(R.string.setting_goal_statement)
+        binding.customField.fieldValue.hint = getString(R.string.goal_setup_custom_hint)
+        binding.customField.fieldValue.inputType = InputType.TYPE_CLASS_TEXT
+        binding.customField.fieldValue.filters =
+            arrayOf(android.text.InputFilter.LengthFilter(CUSTOM_TEXT_MAX))
         if (editMode) {
             val w = args?.getDouble(ARG_WEIGHT, 0.0) ?: 0.0
             if (w > 0.0) binding.weightField.fieldValue.setText(trimNumber(w))
+            val custom = args?.getString(ARG_CUSTOM).orEmpty()
+            if (custom.isNotBlank()) binding.customField.fieldValue.setText(custom)
         }
 
         listOf(
             binding.optionGain to SettingsViewModel.GOAL_MODE_GAIN,
             binding.optionLoss to SettingsViewModel.GOAL_MODE_LOSS,
             binding.optionKeep to SettingsViewModel.GOAL_MODE_KEEP,
+            binding.optionCustom to SettingsViewModel.GOAL_MODE_CUSTOM,
         ).forEach { (option, mode) ->
             option.setOnClickListener {
                 selected = mode
@@ -107,20 +118,29 @@ class GoalSetupSheet : BottomSheetDialogFragment() {
 
         binding.btnSkip.setOnClickListener { dismiss() }
         binding.btnSave.setOnClickListener {
-            val w = binding.weightField.fieldValue.text?.toString()?.trim()?.toDoubleOrNull()
+            val custom = selected == SettingsViewModel.GOAL_MODE_CUSTOM
+            val text = binding.customField.fieldValue.text?.toString()?.trim().orEmpty()
+            val w = if (custom) null
+            else binding.weightField.fieldValue.text?.toString()?.trim()?.toDoubleOrNull()
             saved = true
-            onDone?.invoke(selected, if (w != null && w > 0) w else null)
+            onDone?.invoke(
+                selected,
+                if (w != null && w > 0) w else null,
+                if (custom && text.isNotEmpty()) text else null,
+            )
             dismiss()
         }
         binding.btnSave.bindPressScale()
     }
 
-    /** 选中项文字色 = accent + 加粗；未选中 = text_2（无彩色面，规范 §2.3）。 */
+    /** 选中项文字色 = accent + 加粗；未选中 = text_2（无彩色面，规范 §2.3）。
+     *  自定义态：隐藏体重字段、显示文本字段（体重目标对自定义主目标无意义）。 */
     private fun renderSelection() {
         val options = listOf(
             binding.optionGain to SettingsViewModel.GOAL_MODE_GAIN,
             binding.optionLoss to SettingsViewModel.GOAL_MODE_LOSS,
             binding.optionKeep to SettingsViewModel.GOAL_MODE_KEEP,
+            binding.optionCustom to SettingsViewModel.GOAL_MODE_CUSTOM,
         )
         for ((view, mode) in options) {
             val on = mode == selected
@@ -132,6 +152,9 @@ class GoalSetupSheet : BottomSheetDialogFragment() {
             )
             view.setTypeface(null, if (on) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
         }
+        val isCustom = selected == SettingsViewModel.GOAL_MODE_CUSTOM
+        binding.weightField.root.visibility = if (isCustom) View.GONE else View.VISIBLE
+        binding.customField.root.visibility = if (isCustom) View.VISIBLE else View.GONE
     }
 
     override fun onDestroyView() {
@@ -145,7 +168,7 @@ class GoalSetupSheet : BottomSheetDialogFragment() {
      */
     override fun onDismiss(dialog: DialogInterface) {
         super.onDismiss(dialog)
-        if (!saved) onDone?.invoke(null, null)
+        if (!saved) onDone?.invoke(null, null, null)
     }
 
     /** 去掉无意义的小数尾巴：70.0 → "70"，70.5 → "70.5"。 */
@@ -159,19 +182,27 @@ class GoalSetupSheet : BottomSheetDialogFragment() {
         private const val ARG_MODE = "mode"
         private const val ARG_WEIGHT = "weight"
 
+        /** 自定义主目标文本（编辑态预填；与 `GOAL_STATEMENT` 同源）。 */
+        private const val ARG_CUSTOM = "custom"
+
+        /** 自定义文本上限（与 PersonalInfoFragment 原「我的目标」上限一致，迁移后统一 80 字）。 */
+        private const val CUSTOM_TEXT_MAX = 80
+
         /** 首启引导（无预填、含「跳过」）。 */
         fun newInstance(): GoalSetupSheet = GoalSetupSheet()
 
         /**
          * 编辑态（v8 问题 4）：记录页「去调整 ›」开这一支。
-         * 预填 [modeIndex] 与 [weightKg]（`<=0` 视为未设，留空）。
+         * 预填 [modeIndex] 与 [weightKg]（`<=0` 视为未设，留空）；
+         * [customText] 为自定义主目标文本（modeIndex == 3 时回显，可空）。
          */
-        fun newInstanceForEdit(modeIndex: Int, weightKg: Double): GoalSetupSheet =
+        fun newInstanceForEdit(modeIndex: Int, weightKg: Double, customText: String = ""): GoalSetupSheet =
             GoalSetupSheet().apply {
                 arguments = Bundle().apply {
                     putBoolean(ARG_EDIT, true)
                     putInt(ARG_MODE, modeIndex)
                     putDouble(ARG_WEIGHT, weightKg)
+                    putString(ARG_CUSTOM, customText)
                 }
             }
     }

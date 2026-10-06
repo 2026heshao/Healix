@@ -271,8 +271,11 @@ class RecordFragment : Fragment() {
         GoalSetupSheet.newInstanceForEdit(
             modeIndex = g.modeIndex,
             weightKg = g.weightTargetKg,
+            customText = g.statement,
         ).apply {
-            onDone = { modeIndex, weightKg -> vm.completeGoalSetup(modeIndex, weightKg) }
+            onDone = { modeIndex, weightKg, customText ->
+                vm.completeGoalSetup(modeIndex, weightKg, customText)
+            }
         }.show(childFragmentManager, GoalSetupSheet.TAG)
     }
 
@@ -548,7 +551,7 @@ class RecordFragment : Fragment() {
      */
     private fun renderPrimaryRow(g: HomeGoal?, primarySet: Boolean) {
         if (primarySet && g != null) {
-            val mode = primaryModeLabel(g.modeIndex)
+            val mode = primaryModeLabel(g)
             binding.goalPrimaryText.setTextColor(
                 ContextCompat.getColor(requireContext(), R.color.text_1),
             )
@@ -646,10 +649,11 @@ class RecordFragment : Fragment() {
         )
     }
 
-    /** 主目标模式 → 展示文案（增重/减重/保持）。 */
-    private fun primaryModeLabel(mode: Int): String = when (mode) {
+    /** 主目标模式 → 展示文案（增重/减重/保持/自定义文本；自定义回落保持文案）。 */
+    private fun primaryModeLabel(g: HomeGoal): String = when (g.modeIndex) {
         SettingsViewModel.GOAL_MODE_LOSS -> getString(R.string.goal_loss)
         SettingsViewModel.GOAL_MODE_KEEP -> getString(R.string.goal_keep)
+        SettingsViewModel.GOAL_MODE_CUSTOM -> g.statement.trim().ifBlank { getString(R.string.goal_keep) }
         else -> getString(R.string.goal_gain)
     }
 
@@ -679,7 +683,9 @@ class RecordFragment : Fragment() {
             // 此时 show() 会抛 IllegalStateException。跳过即可：标记未写，下次启动补弹。
             if (childFragmentManager.isStateSaved) return@launch
             GoalSetupSheet.newInstance().apply {
-                onDone = { modeIndex, weightKg -> vm.completeGoalSetup(modeIndex, weightKg) }
+                onDone = { modeIndex, weightKg, customText ->
+                    vm.completeGoalSetup(modeIndex, weightKg, customText)
+                }
             }.show(childFragmentManager, GoalSetupSheet.TAG)
         }
     }

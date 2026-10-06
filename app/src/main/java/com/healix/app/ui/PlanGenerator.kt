@@ -865,6 +865,7 @@ class PlanGenerator(context: Context) {
     private fun goalName(idx: Int): String = when (idx) {
         1 -> "减重"
         2 -> "保持"
+        3 -> "自定义（见下方用户自述）"
         else -> "增重"
     }
 
