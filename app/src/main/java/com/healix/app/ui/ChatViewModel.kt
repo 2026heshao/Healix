@@ -518,17 +518,28 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** 计划修改确认：读改写当日 `plan_json` 的备注。 */
+    /**
+     * 计划修改确认：读改写当日 `plan_json`（条目级补丁 / 备注，见 [PlanChangeWriter]）。
+     *
+     * ⚠️ 拟稿期（`HealthAgent.proposePlanChange`）已校验过一次；这里 [PlanChangeWriter.apply]
+     * **重新读库定位**再落库 —— 拟稿到确认之间计划可能被重新生成，若此刻定位不到则返回
+     * 失败（不写库、回执失败），避免把补丁落到错的条目上。
+     */
     private suspend fun confirmPlanChange(proposal: PlanChangeProposal) {
         val app = getApplication<Application>()
-        val applied = runCatching {
-            PlanChangeWriter.applyPlanChange(db, proposal.date, proposal.op)
-        }.getOrDefault(false)
-        if (applied) {
-            markApproved(proposal.callUid, 1)
-            persistAssistant(app.getString(R.string.receipt_plan_applied, proposal.date))
-        } else {
-            _proposalToast.emit(app.getString(R.string.receipt_apply_failed))
+        val result = runCatching {
+            PlanChangeWriter.apply(app, db, proposal.date, proposal.op)
+        }.getOrNull()
+        when (result) {
+            is PlanChangeWriter.Result.Ok -> {
+                markApproved(proposal.callUid, 1)
+                persistAssistant(app.getString(R.string.receipt_plan_applied, proposal.date))
+            }
+
+            is PlanChangeWriter.Result.Error -> _proposalToast.emit(result.message)
+
+            // apply 内部已吞掉校验类异常；此处兜底 DB/IO 等意外
+            null -> _proposalToast.emit(app.getString(R.string.receipt_apply_failed))
         }
     }
 

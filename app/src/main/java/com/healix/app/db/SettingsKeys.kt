@@ -174,7 +174,10 @@ object SettingsKeys {
     const val AI_TOOL_WRITE_PLAN = "ai_tool_write_plan"
 
     /**
-     * 写工具权限：**拟记 / 删记录**（`propose_record_delete`）。默认开。
+     * 写工具权限：**拟记记录 + 删记录**（`propose_log` / `propose_record_delete`）。默认开。
+     *
+     * 两项都归此键：拟记虽是「新增」而非「删除」，但同属对**记录**的写操作
+     * （设置页文案「拟记 / 删除记录」，见 `@string/ai_tool_write_record`）。
      * 判定口径：`!= "false"`。
      */
     const val AI_TOOL_WRITE_RECORD = "ai_tool_write_record"

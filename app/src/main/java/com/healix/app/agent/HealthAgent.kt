@@ -20,6 +20,7 @@ import com.healix.app.parse.loadsLenient
 import com.healix.app.repo.EventRepository
 import com.healix.app.ui.ChatEngine
 import com.healix.app.ui.PROMPT_VER_CHAT_TOOL
+import com.healix.app.ui.PlanChangeWriter
 import com.healix.app.ui.PromptMode
 import com.healix.app.ui.TodaySummary
 import com.healix.app.ui.TrainingPlanner
@@ -64,10 +65,12 @@ data class LogProposal(
 }
 
 /**
- * 拟改某日计划的**备注**（`propose_plan_change`）。
+ * 拟改计划（`propose_plan_change`）：今日计划**条目级**改动 / 备注，或周训练设休息日。
  *
- * @property date 目标日期 `yyyy-MM-dd`（必须已存在该日计划，否则确认时落库失败）
- * @property op   机器可应用的改动载荷（当前唯一操作 = 新的计划备注文本）
+ * @property date 目标日期 `yyyy-MM-dd`（今日计划类；`set_training_rest` 落到本周）
+ * @property op   机器可应用的改动载荷（**规范化 JSON 串**）。取值域见
+ *                [PlanChangeWriter]：`op` ∈ {`set_rest` / `patch_item` / `set_note` /
+ *                `clear_note` / `set_training_rest`}
  */
 data class PlanChangeProposal(
     val date: String,
@@ -312,21 +315,53 @@ internal object ToolRegistry {
         ToolDef(
             function = ToolFunctionDef(
                 name = NAME_PROPOSE_PLAN_CHANGE,
-                description = "拟修改某一天计划的备注（如把某天改成休息日、调整安排说明）。" +
-                    "草稿经用户确认后才生效，你无权直接修改计划。",
+                description = "拟修改计划（草稿，需用户确认）：把某个计划条目改成休息、" +
+                    "按字段修改某个条目、改或清空当日计划备注，也可把本周某天设为休息日。" +
+                    "定位条目用 match_title（可加 match_time 消歧，命中必须唯一）。你无权直接修改计划。",
                 parameters = mapOf(
                     "type" to "object",
                     "properties" to mapOf(
                         "date" to mapOf(
                             "type" to "string",
-                            "description" to "要修改的日期，yyyy-MM-dd",
+                            "description" to "要修改的日期 yyyy-MM-dd（今日计划类用；set_training_rest 忽略）",
+                        ),
+                        "action" to mapOf(
+                            "type" to "string",
+                            "description" to "动作：set_rest=把某条目改成休息；patch_item=按字段改某条目；" +
+                                "set_note=改当日备注；clear_note=清空备注；" +
+                                "set_training_rest=把本周某天设为休息日",
+                        ),
+                        "match_title" to mapOf(
+                            "type" to "string",
+                            "description" to "要改的条目：标题片段（子串、不区分大小写）。set_rest / patch_item 用",
+                        ),
+                        "match_time" to mapOf(
+                            "type" to "string",
+                            "description" to "可选：条目时间 HH:mm，同名条目消歧用。set_rest / patch_item 用",
+                        ),
+                        "patch" to mapOf(
+                            "type" to "object",
+                            "description" to "patch_item 的改动对象，只允许含 type/title/detail/kcal/duration/why" +
+                                "（type 只能 meal/exercise/sleep/habit）",
+                            "properties" to mapOf(
+                                "type" to mapOf("type" to "string"),
+                                "title" to mapOf("type" to "string"),
+                                "detail" to mapOf("type" to "string"),
+                                "kcal" to mapOf("type" to "integer"),
+                                "duration" to mapOf("type" to "string"),
+                                "why" to mapOf("type" to "string"),
+                            ),
                         ),
                         "note" to mapOf(
                             "type" to "string",
-                            "description" to "新的计划备注文本",
+                            "description" to "set_note 的新备注文本",
+                        ),
+                        "weekday" to mapOf(
+                            "type" to "integer",
+                            "description" to "set_training_rest 的星期几 1..7（1 = 周一）",
                         ),
                     ),
-                    "required" to listOf("date", "note"),
+                    "required" to listOf("date", "action"),
                 ),
             ),
         ),
@@ -407,12 +442,16 @@ internal object ToolRegistry {
             NAME_QUERY_GOAL -> ok(uid, queryGoal(context))
             NAME_QUERY_TRAINING_WEEK -> ok(uid, queryTrainingWeek(context))
 
-            NAME_PROPOSE_LOG -> proposeLog(args, uid)
+            NAME_PROPOSE_LOG -> if (!perms.writeRecord) {
+                denied(uid)
+            } else {
+                proposeLog(args, uid)
+            }
 
             NAME_PROPOSE_PLAN_CHANGE -> if (!perms.writePlan) {
                 denied(uid)
             } else {
-                proposePlanChange(args, uid)
+                proposePlanChange(context, args, uid)
             }
 
             NAME_PROPOSE_GOAL_CHANGE -> if (!perms.writeGoal) {
@@ -555,23 +594,78 @@ internal object ToolRegistry {
         )
     }
 
-    private fun proposePlanChange(args: JSONObject, uid: String): ToolExecResult {
+    /**
+     * 拟改计划（**条目级**，v0.3 B6 返工）：把模型给的 `action` 规格化成
+     * [PlanChangeWriter] 的 `op` 载荷，再走 [PlanChangeWriter.describe] 的**拟稿期校验**
+     * （只读库、不写库）—— 校验通过才产 draft，失败把错误文本回给模型（循环可继续）。
+     *
+     * 这样「改不了就静默改成别的」不再可能：条目定位失败（命中 0 条 / 多条）与非法
+     * 补丁都在这里被拦下、原样回错误文本；真正落库推迟到用户确认后的
+     * [PlanChangeWriter.apply]。
+     */
+    private suspend fun proposePlanChange(
+        context: Context,
+        args: JSONObject,
+        uid: String,
+    ): ToolExecResult {
         val date = args.optString("date").trim()
-        val note = args.optString("note").trim()
         if (!DATE_PATTERN.matches(date)) {
             return ToolExecResult("date 必须是 yyyy-MM-dd 格式。", null, uid, true)
         }
-        if (note.isEmpty()) return ToolExecResult("note 不能为空。", null, uid, true)
-        if (note.length > MAX_PLAN_NOTE_LEN) {
-            return ToolExecResult("note 太长（最多 $MAX_PLAN_NOTE_LEN 字）。", null, uid, true)
+        val action = args.optString("action").trim()
+        val op = JSONObject()
+        when (action) {
+            PlanChangeWriter.OP_SET_NOTE -> {
+                val note = args.optString("note").trim()
+                if (note.isEmpty()) {
+                    return ToolExecResult("set_note 需要给出 note。", null, uid, true)
+                }
+                if (note.length > MAX_PLAN_NOTE_LEN) {
+                    return ToolExecResult("note 太长（最多 $MAX_PLAN_NOTE_LEN 字）。", null, uid, true)
+                }
+                op.put("op", PlanChangeWriter.OP_SET_NOTE)
+                op.put("note", note)
+            }
+
+            PlanChangeWriter.OP_CLEAR_NOTE -> op.put("op", PlanChangeWriter.OP_CLEAR_NOTE)
+
+            PlanChangeWriter.OP_SET_REST -> {
+                op.put("op", PlanChangeWriter.OP_SET_REST)
+                op.put("match_title", args.optString("match_title").trim())
+                op.put("match_time", args.optString("match_time").trim())
+            }
+
+            PlanChangeWriter.OP_PATCH_ITEM -> {
+                op.put("op", PlanChangeWriter.OP_PATCH_ITEM)
+                op.put("match_title", args.optString("match_title").trim())
+                op.put("match_time", args.optString("match_time").trim())
+                val patch = args.optJSONObject("patch")
+                    ?: return ToolExecResult("patch_item 需要给出 patch 对象。", null, uid, true)
+                op.put("patch", patch)
+            }
+
+            PlanChangeWriter.OP_SET_TRAINING_REST -> {
+                op.put("op", PlanChangeWriter.OP_SET_TRAINING_REST)
+                op.put("weekday", args.optInt("weekday", 0))
+            }
+
+            else -> return ToolExecResult(
+                "action 不合法，可选：set_rest / patch_item / set_note / clear_note / set_training_rest。",
+                null, uid, true,
+            )
         }
-        val summary = "把 $date 的计划备注改成：$note"
-        return draft(
-            uid,
-            "已拟好计划修改草稿：$summary。等待用户确认。",
-            // op = 机器可应用的载荷（当前唯一操作 = 新的计划备注）
-            PlanChangeProposal(date = date, op = note, callUid = uid, summary = summary),
-        )
+        val db = HealixApp.from(context).database
+        val opJson = op.toString()
+        return when (val r = PlanChangeWriter.describe(context, db, date, opJson)) {
+            is PlanChangeWriter.Result.Ok -> draft(
+                uid,
+                "已拟好计划修改草稿：${r.summary}。等待用户确认。",
+                // op = 机器可应用的规范化载荷（已过拟稿期校验）
+                PlanChangeProposal(date = date, op = opJson, callUid = uid, summary = r.summary),
+            )
+
+            is PlanChangeWriter.Result.Error -> ToolExecResult(r.message, null, uid, true)
+        }
     }
 
     private fun proposeGoalChange(args: JSONObject, uid: String): ToolExecResult {
@@ -929,7 +1023,7 @@ internal class HealthAgent(
             else -> {
                 val writeParts = buildList {
                     if (perms.writePlan) add("改今日计划")
-                    if (perms.writeRecord) add("删记录")
+                    if (perms.writeRecord) add("拟记 / 删记录")
                     if (perms.writeGoal) add("改目标")
                 }
                 if (writeParts.isEmpty()) {
@@ -983,7 +1077,7 @@ internal class HealthAgent(
 - query_goal：查当前生效的目标。
 - query_training_week：查本周训练安排与完成情况。
 - propose_log：用户让你记东西时，用用户原话拟一条草稿。草稿经用户确认后才会写入，你无权直接写入记录。
-- propose_plan_change：拟改某天计划备注（date + note）。草稿经用户确认后才生效。
+- propose_plan_change：拟改计划（date + action）：把某条目改成休息 / 按字段改某条目 / 改或清备注 / 把本周某天设为休息日。草稿经用户确认后才生效。
 - propose_goal_change：拟改某项目标值（metric + value）。草稿经用户确认后才生效。
 - propose_record_delete：拟删一条记录（day + keyword，命中须唯一）。草稿经用户确认后才删除。
 回答里引用的数字只能来自记录原文或工具返回。

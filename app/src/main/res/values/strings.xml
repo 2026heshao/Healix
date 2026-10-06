@@ -696,7 +696,7 @@
     <string name="ai_data_note">关闭后 AI 不再读取你的画像 / 体格 / 目标 / 计划，但仍可查询你的记录（如「上周练了几次」）。</string>
     <string name="ai_tools_toggle">允许 AI 使用工具查询记录</string>
     <string name="ai_tool_write_plan">允许 AI 修改今日计划</string>
-    <string name="ai_tool_write_record">允许 AI 删除记录</string>
+    <string name="ai_tool_write_record">允许 AI 拟记 / 删除记录</string>
     <string name="ai_tool_write_goal">允许 AI 修改目标</string>
 
     <!-- ── B6 拟稿确认与回执：写工具（计划 / 目标 / 删除）的二次确认与落库反馈 ── -->
@@ -712,4 +712,10 @@
     <string name="receipt_apply_failed">操作没成功，请重试</string>
     <!-- 记录软删后的内联撤销条文案（B6 复用 UndoBar；summary 过长不宜嵌「」，故单列一条） -->
     <string name="undo_record_deleted">已删除 1 条记录，5 秒内可撤销</string>
+
+    <!-- ── 计划条目改为「休息」的固定文案（v0.3 B6 返工；PlanChangeWriter.restPatch 用）── -->
+    <!-- 休息条目 detail（口径与 type=sleep 的「恢复」档一致：不排训练、做低强度活动） -->
+    <string name="plan_rest_detail">今天改成休息：做点拉伸或散步，早点睡</string>
+    <!-- 休息条目 why -->
+    <string name="plan_rest_why">按你的要求改成休息</string>
 </resources>
