@@ -515,14 +515,19 @@ class PlanReviewViewModel(app: Application) : AndroidViewModel(app) {
     // ------------------------------------------------------------------
 
     /**
-     * 空态入口：时间轴一条都没有时，用户点「生成今日计划」主动调一次模型。
+     * 手动生成 / 重排今日计划（**用户主动触发**的 AI 入口）。
      *
-     * ⚠️ 这是本轮**唯一新增的用户可触发 AI 入口**，且只在 `entries` 为空时渲染
-     *    （见 `fragment_plan_review.xml` 的 `planEmptyRow`）—— 不恢复 v8 需求 7
-     *    刻意去掉的常驻「更新」按钮，也就不改变「打开页面 0 AI」的成本纪律。
+     * 渲染位有两个（2026-10-06 起恢复常驻入口，替代 v8 需求 7 的「仅空态」设计）：
+     * - 空态（`entries` 为空）→ `planEmptyRow` 的 `btnGenerateToday`（「生成今日计划」）；
+     * - 有计划 → 常驻低调行 `btnRerankToday`（「按今天的记录重新生成」，
+     *   应用户要求恢复；两者互斥，见 [com.healix.app.ui.PlanReviewFragment.renderTimeline]）。
+     *
+     * 「打开页面 0 AI」成本纪律**不变**：打开 / 刷新 / 数据变化全程不调模型，
+     * 只有用户点上面两处之一才调；每次点击 = 一次 provider 往返（配额门禁兜底）。
      *
      * 与 [autoRerankIfDue] 共用同一套节流与配额门禁：
-     * - 先落 `PLAN_AUTO_RERANK_DAY` 标记再调网（防同日重复；失败也不再自动重试）；
+     * - 先落 `PLAN_AUTO_RERANK_DAY` 标记再调网（防同日重复；用户已手动重排过 →
+     *   当日自动重排让位；失败也不再自动重试）；
      * - 配额不足 → 只置 `quotaExhausted`，不调网、不给死循环重试；
      * - 未配置 / 断网 → 不调网（离线会白等整条退避链，最坏 ~75-80 秒）。
      *

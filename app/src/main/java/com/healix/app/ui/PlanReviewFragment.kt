@@ -65,6 +65,8 @@ class PlanReviewFragment : PageFragment() {
         binding.tabReview.setOnClickListener { selectTab(PlanTab.REVIEW) }
         binding.btnGenerateWeek.setOnClickListener { vm.generateTraining() }
         binding.btnGenerateToday.setOnClickListener { vm.generateTodayPlan() }
+        // 常驻手动重排入口（仅非空态可见，与空态 planEmptyRow 互斥）
+        binding.btnRerankToday.setOnClickListener { vm.generateTodayPlan() }
 
         selectTab(PlanTab.PLAN)
         observe()
@@ -256,6 +258,8 @@ class PlanReviewFragment : PageFragment() {
         if (p.entries.isEmpty()) {
             binding.planEmptyRow.visibility = View.VISIBLE
             binding.planNote.visibility = View.GONE
+            // 空态走 planEmptyRow 的生成入口 → 常驻重排行隐藏（互斥，避免两个入口同屏）
+            binding.btnRerankToday.visibility = View.GONE
             binding.btnGenerateToday.isEnabled = !p.generatingToday
             binding.btnGenerateToday.isClickable = !p.generatingToday
             binding.btnGenerateToday.text = getString(
@@ -267,6 +271,18 @@ class PlanReviewFragment : PageFragment() {
             return
         }
         binding.planEmptyRow.visibility = View.GONE
+
+        // 常驻手动重排入口（用户 2026-10-06 要求恢复）：非空态恒显示；
+        // 生成中的禁用/文案/着色与空态按钮同口径。先算后写（B1 纪律）。
+        binding.btnRerankToday.visibility = View.VISIBLE
+        binding.btnRerankToday.isEnabled = !p.generatingToday
+        binding.btnRerankToday.isClickable = !p.generatingToday
+        binding.btnRerankToday.text = getString(
+            if (p.generatingToday) R.string.plan_generating else R.string.plan_rerank_today,
+        )
+        binding.btnRerankToday.setTextColor(
+            color(if (p.generatingToday) R.color.text_3 else R.color.accent),
+        )
 
         val lastIndex = p.entries.lastIndex
         var lastDay = -1

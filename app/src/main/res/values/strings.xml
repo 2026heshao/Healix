@@ -49,6 +49,7 @@
     <!-- 空态入口（问题 3 方案 C）：时间轴一条都没有时 -->
     <string name="plan_empty_today">今天还没有计划</string>
     <string name="plan_generate_today">生成今日计划</string>
+    <string name="plan_rerank_today">按今天的记录重新生成</string>
     <string name="plan_generating">生成中…</string>
 
     <!-- 对话 -->

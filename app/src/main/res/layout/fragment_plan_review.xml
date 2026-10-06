@@ -224,9 +224,10 @@
                     android:orientation="vertical" />
 
                 <!--
-                    空态入口（问题 3 方案 C）：时间轴一条都没有时的**唯一**主动生成入口。
-                    只在 `entries` 为空时可见（见 PlanReviewFragment.renderTimeline），
-                    不恢复 v8 需求 7 刻意去掉的常驻「更新」按钮 —— 打开页面仍是 0 AI。
+                    空态入口（问题 3 方案 C）：时间轴一条都没有时的「生成今日计划」。
+                    只在 `entries` 为空时可见（见 PlanReviewFragment.renderTimeline）。
+                    有计划时的手动入口 = 下方 `btnRerankToday`（用户 2026-10-06 要求
+                    恢复常驻手动重排；用户主动点击才调 AI，打开页面仍是 0 AI）。
                 -->
                 <LinearLayout
                     android:id="@+id/planEmptyRow"
@@ -268,6 +269,26 @@
                     android:paddingTop="@dimen/block_gap"
                     android:paddingBottom="@dimen/block_gap"
                     tools:text="今日蛋白质偏低，晚餐优先补蛋白" />
+
+                <!--
+                    手动重排入口（常驻、低调文字行）：仅 `entries` 非空时可见
+                    （空态走上方 planEmptyRow，两者互斥不重复）。
+                    点击 = 用户主动调一次模型 —— generateTodayPlan 自带配额门禁，
+                    且先落日标记（当日自动重排让位）。生成中禁用并显示「生成中…」。
+                -->
+                <TextView
+                    android:id="@+id/btnRerankToday"
+                    style="@style/Text.Link"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:paddingStart="@dimen/screen_margin"
+                    android:paddingEnd="@dimen/screen_margin"
+                    android:background="?attr/selectableItemBackground"
+                    android:gravity="start|center_vertical"
+                    android:minHeight="@dimen/touch_min"
+                    android:text="@string/plan_rerank_today"
+                    android:visibility="gone"
+                    tools:visibility="visible" />
 
                 <!-- 无训练计划时的**低调文字入口**（非主按钮）：
                      需求 7 去掉手动「更新」后，整周计划仍需一个生成入口。 -->
