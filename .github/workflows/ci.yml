@@ -73,6 +73,13 @@ jobs:
       - name: 资源静态检查
         run: python3 pipeline/check_resources.py
 
+      # 夜间资源对等检查：values-night/ 下的 colors.xml / themes.xml 是**整份重定义**
+      # （同名资源不跨限定符合并）→ 白天有、夜间漏的颜色键/样式 item 只在夜间模式
+      # **静默错**（本仓库踩过"夜间弹层白底 bug 复现"）。纯静态、零依赖，
+      # 与资源检查同一批、放在编译之前。
+      - name: 夜间资源对等检查
+        run: python3 pipeline/check_night_parity.py
+
       # Kotlin/Room 静态检查：本机不装 JDK，编译错误本地复现不了；
       # 这一步把「编译器最常抓到的那几类问题」提前到秒级暴露
       # （重复 @TypeConverter、SUM() 映射成 Int、悬空 binding.xxx、

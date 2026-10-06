@@ -33,7 +33,7 @@ import org.json.JSONObject
  * - `items[].type` 的**实际取值域**（`PlanGenerator.kt` prompt L70 + `itemsOf` 兜底）=
  *   `{ meal, exercise, sleep, habit }` —— **没有「休息」这一档**。App 里「休息 / 恢复」
  *   一向落在 `sleep`（见 `buildTimeline` 的「恢复：补水 + 早睡」与 `tailItem`），
- *   且 `TimelineMerger` 的 `canLog = type∈{meal,exercise}` → 休息条目天然不可「记一笔」。
+ *   且 `TimelineEntry` 的 `canLog = type∈{meal,exercise}` → 休息条目天然不可「记一笔」。
  *   故 [OP_SET_REST] 的固定补丁把 `type` 归一到 `sleep`。
  *
  * 周训练（`training_plans`，`op = set_training_rest`）结构（亲读 `TrainingPlanner.kt`
@@ -305,30 +305,52 @@ internal object PlanChangeWriter {
         }
 
         if (commit) {
-            db.trainingPlanDao().upsert(row.copy(planJson = root.toString(), content = renderTrainingText(root)))
+            db.trainingPlanDao().upsert(
+                row.copy(planJson = root.toString(), content = renderTrainingText(context, root)),
+            )
         }
         return Result.Ok("把本周${dowLabel(dow)}设为休息日")
     }
 
     /**
      * `training_plans.plan_json` → 纯文本（`content` 列）。
-     * **镜像** `TrainingPlanner.renderText`（该函数为 private，且 `TrainingPlanner.kt` WIP 只读）：
-     * 每天输出「周X 标题」，非休息且 items 非空时另起一行给动作串；动作串格式
+     *
+     * **与 `TrainingPlanner.renderText` 逐条等价**（该函数 private 且 `TrainingPlanner.kt`
+     * WIP 只读，故此处镜像其规则、不改 `plan_json` 的 schema）。等价性含三条子句，缺任一条
+     * 写入的 `content` 就会与训练页实际渲染漂移：
+     * 1. **休息判定** `isRest = items.isEmpty() || title == restTitle` —— 与
+     *    `TrainingPlanner.parsePlan` 同源（`renderText` 判据 `day.isRest || day.items.isEmpty()`）；
+     * 2. **空标题回落** —— `title` 空串时退回 `restTitle`
+     *    （`parsePlan`：`optString("title").trim().ifEmpty { restTitle }`）；
+     * 3. **补足 7 天** —— 缺失的 `dow`（或数组乱序 / 缺项）一律补成休息日
+     *    （`parsePlan`：`(1..7).map { byDow[it] ?: TrainingDay(it, restTitle, emptyList(), true) }`）。
+     * 渲染口径：每天「周X 标题」，休息条目只出头行；否则另起一行给动作串
      * 「名 组×次 · …」（镜像 `TrainingDay.itemsLine`）。
      */
-    private fun renderTrainingText(root: JSONObject): String {
-        val days = root.optJSONArray("days") ?: return ""
-        val lines = mutableListOf<String>()
-        for (i in 0 until days.length()) {
-            val dayObj = days.optJSONObject(i) ?: continue
-            val dow = dayObj.optInt("dow", 0)
-            if (dow !in 1..7) continue
-            val title = dayObj.optString("title").trim()
-            val head = "${dowLabel(dow)} $title"
-            val itemsLine = itemsLineOf(dayObj)
-            lines += if (itemsLine.isEmpty()) head else "$head\n$itemsLine"
+    private fun renderTrainingText(context: Context, root: JSONObject): String {
+        val restTitle = context.getString(R.string.training_rest)
+        // ① 按 dow 建索引（镜像 parsePlan 的 byDow；dow 非 1..7 的条目丢弃、同 dow 后者覆盖）
+        val byDow = LinkedHashMap<Int, JSONObject>()
+        val days = root.optJSONArray("days")
+        if (days != null) {
+            for (i in 0 until days.length()) {
+                val dayObj = days.optJSONObject(i) ?: continue
+                val dow = dayObj.optInt("dow", 0)
+                if (dow !in 1..7) continue
+                byDow[dow] = dayObj
+            }
         }
-        return lines.joinToString("\n")
+        // ③ 一律铺满 7 天（缺失的天按休息日渲染）
+        return (1..7).joinToString("\n") { dow ->
+            val dayObj = byDow[dow]
+            // ② 空标题回落 restTitle
+            val title = dayObj?.optString("title")?.trim().orEmpty().ifEmpty { restTitle }
+            val itemsLine = dayObj?.let { itemsLineOf(it) } ?: ""
+            // ① 休息判定：items 为空 或 title == restTitle
+            val isRest = itemsLine.isEmpty() || title == restTitle
+            val head = "${dowLabel(dow)} $title"
+            if (isRest) head else "$head\n$itemsLine"
+        }
     }
 
     /** 镜像 `TrainingDay.itemsLine`（格式「名 组×次 · …」）。 */
@@ -400,6 +422,9 @@ internal object PlanChangeWriter {
             if (key !in ITEM_PATCH_KEYS) {
                 return "不允许修改字段「$key」（只能改 ${ITEM_PATCH_KEYS.joinToString(" / ")}）。"
             }
+            // JSON null 守卫：`JSONObject.optString` 会把 JSON `null` 读成**字面串 "null"**，
+            // 直接写库会把条目字段污染成字符串 "null"（而非缺省）。视为非法、原样回错误文本。
+            if (patch.isNull(key)) return "字段「$key」的值不能为空。"
         }
         if (patch.has("type")) {
             val t = patch.optString("type").trim()
