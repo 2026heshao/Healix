@@ -3,7 +3,7 @@
     前进转场（设计规范 11.2）：新页 translateX(22%)→0。
     ⚠️ 仅位移、恒不透明 —— 不加 alpha。Android 是双窗口共存模型，
        入场窗口一旦半透明，被盖住的旧窗口会透出，形成"页面叠影"。
-       时长 180ms（v8 需求1：由 400ms 收紧，缩短感知冻结窗口）。由 startActivity 后 overridePendingTransition 注入。
+       时长 180ms（v8 需求1：由 400ms 收紧，缩短感知冻结窗口）。由 NavHost.setCustomAnimations 注入（前进方向）。
 -->
 <set xmlns:android="http://schemas.android.com/apk/res/android"
     android:interpolator="@android:interpolator/decelerate_cubic"

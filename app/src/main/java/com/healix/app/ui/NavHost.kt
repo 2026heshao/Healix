@@ -2,9 +2,13 @@ package com.healix.app.ui
 
 import android.content.Context
 import android.content.ContextWrapper
+import android.os.Bundle
+import android.view.View
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.FragmentActivity
+import androidx.fragment.app.FragmentManager
 import com.healix.app.R
+import java.util.WeakHashMap
 
 /**
  * 二级页导航（v8 T03：二级页 Fragment 化；v8 后续：replace → add+hide/show 保活）。
@@ -52,6 +56,20 @@ internal object NavHost {
 
     /** 回退栈标签前缀：二级页统一携带，调试时一眼分辨来源。 */
     private const val TAG_PREFIX = "page:"
+
+    /**
+     * 转场期硬件层保留时长：> 动画 180ms（in_fwd / in_back）+ 余量，
+     * 保证动画播完后才还原 LAYER_TYPE_NONE（P1 / H1 方案）。
+     */
+    private const val LAYER_HOLD_MS = 250L
+
+    /**
+     * 已注册「转场期硬件层」钩子的 FragmentManager（**弱键**）。
+     * 用弱键而非强引用：[NavHost] 是进程级单例，强引用被销毁的 FM 会经
+     * `FM -> Activity` 泄漏宿主；弱键随 FM 回收自动清理，且 FM 自身销毁时会
+     * 自动注销其回调，故这里只需保证「同一 FM 不重复注册」。
+     */
+    private val layerHookedFms = WeakHashMap<FragmentManager, Unit>()
 
     // ── 二级页标签（唯一事实来源）──────────────────────────────────────────
     // 调用点**不得**各写一份字面量：重复字面量正是"改一处漏一处"的温床
@@ -118,7 +136,24 @@ internal object NavHost {
         // fm.fragments 按 add 序排列，last() 才是确定性的"栈顶"。
         val current = fm.fragments.lastOrNull { it.id == R.id.pageContainer }
         current?.view?.clearFocus()
+        // P1（H1 方案）：转场前给移动中的页面根 view 挂硬件层，动画后还原。
+        applyTransitionLayerHook(fm)
         fm.beginTransaction()
+            // 与 Tab 页 applyTab（MainActivity.kt:252）同范式：置 true 后 FragmentManager
+            // 可重排/合并本事务的操作，把 add 路径的 onCreateView → onViewCreated →
+            // onStart → onResume 生命周期链的执行粒度收紧，减轻单条主线程消息的抖动
+            // （专项-二级页转场卡顿 P0-2：真机探针显示这笔事务消息耗时 16–25ms，
+            //  贴着 16.6ms 帧预算 → 掉 2 帧；对齐 Tab 范式可把这笔开销压回预算内）。
+            //
+            // 为什么不破坏 keep-alive 两个不变量：本事务只做 hide(下层) + add(新页)，
+            // 不存在「同一 Fragment 先 add 后 remove」这类会被重排改变语义的组合，
+            // 故重排不改变最终可见性结果：
+            //   验证点①「返回零重建」：pop 仍逆向回放为 remove(顶层) + show(下层)，
+            //     下层页不重走 onCreateView/onViewCreated；
+            //   验证点②「滚动位置/输入草稿保留」：下层视图全程未销毁，状态天然留存。
+            // 回归手段：真机走 status_detail → plan_review → 返回，确认返回后滚动位置
+            // 与输入草稿不变、无重建（探针对比 LONG_FRAME / SLOW_MSG）。
+            .setReorderingAllowed(true)
             .setCustomAnimations(R.anim.in_fwd, R.anim.out_fwd, R.anim.in_back, R.anim.out_back)
             .apply { if (current != null) hide(current) }
             .add(R.id.pageContainer, fragment, TAG_PREFIX + tag)
@@ -140,6 +175,8 @@ internal object NavHost {
         val host = activityOf(context) ?: return false
         val fm = host.supportFragmentManager
         if (fm.backStackEntryCount == 0) return false
+        // P1（H1 方案）：弹栈两侧（被弹出的顶层 + 归位的下层）同样挂硬件层。
+        applyTransitionLayerHook(fm)
         fm.popBackStack()
         return true
     }
@@ -169,5 +206,64 @@ internal object NavHost {
             }
         }
         if (changed) tx.commitNowAllowingStateLoss()
+    }
+
+    /**
+     * 转场期「硬件层」钩子（P1 / H1 方案）：把移动中的二级页根视图在动画期间切到
+     * [View.LAYER_TYPE_HARDWARE]，动画播完还原 [View.LAYER_TYPE_NONE]。
+     *
+     * **为什么**：真机探针坐实次因 **H1「doFrame 整层光栅化 22ms」** —— 转场首帧对
+     * 整层内容重新光栅化造成长帧。位移动画（纯 translateX）期间整层内容不变，
+     * 切到硬件层后内容只光栅化一次进 GPU 纹理，后续帧纯合成 → 消掉这笔长帧。
+     *
+     * ⚠️ **为什么不是 onFragmentPreAnimation / onFragmentPostAnimation**：
+     * 核对 **androidx.fragment 1.5.4 sources.jar** 后发现
+     * [FragmentManager.FragmentLifecycleCallbacks] 只有 14 个 `onFragmentXxx` 回调，
+     * **不含任何 animation / animator 回调**（`onFragmentPreAnimation` 等**不存在**）；
+     * 且 `FragmentTransaction.setCustomAnimations` 只有 `@AnimRes int` 重载，
+     * 无法注入自带 Animation 监听器的动画。故改用跨版本稳定的等价组合：
+     * - [FragmentManager.FragmentLifecycleCallbacks.onFragmentViewCreated]：新页
+     *   （open 的入场页）`onCreateView` 返回后立即挂层 —— 该回调早于
+     *   `DefaultSpecialEffectsController` 启动动画，保证首帧即在硬件层上；
+     * - [FragmentManager.FragmentLifecycleCallbacks.onFragmentViewDestroyed]：视图
+     *   销毁即强制还原，**兜底防硬件层永久残留**（内存 + 渲染异常）；
+     * - 出场景页 / 弹栈两侧的视图在调用时已存在，由本函数末尾的循环直接挂层。
+     * ⚠️ 还原依赖定时（[LAYER_HOLD_MS]）而非动画结束回调，这是本等价机制的已知差异。
+     *
+     * 幂等：同一 FM 只注册一次回调；挂层循环重复调用安全。
+     * [FragmentManager.registerFragmentLifecycleCallbacks] 第二参 `recursive=false`
+     * —— 二级页无子 FragmentManager，无需递归注册（避免误伤子 fragment 视图）。
+     */
+    private fun applyTransitionLayerHook(fm: FragmentManager) {
+        if (!layerHookedFms.containsKey(fm)) {
+            val callback = object : FragmentManager.FragmentLifecycleCallbacks() {
+                override fun onFragmentViewCreated(
+                    fm: FragmentManager,
+                    f: Fragment,
+                    v: View,
+                    savedInstanceState: Bundle?,
+                ) {
+                    if (f.id == R.id.pageContainer) armHardwareLayer(v)
+                }
+
+                override fun onFragmentViewDestroyed(fm: FragmentManager, f: Fragment) {
+                    if (f.id != R.id.pageContainer) return
+                    f.view?.setLayerType(View.LAYER_TYPE_NONE, null)
+                }
+            }
+            fm.registerFragmentLifecycleCallbacks(callback, false)
+            layerHookedFms[fm] = Unit
+        }
+        // 已存在的二级页视图（open 的出场景页 / back 的弹栈两侧）立即挂层；
+        // open 的入场页视图此刻尚未创建，由 onFragmentViewCreated 兜底。
+        for (page in fm.fragments) {
+            if (page.id == R.id.pageContainer) page.view?.let { armHardwareLayer(it) }
+        }
+    }
+
+    /** 单视图切 [View.LAYER_TYPE_HARDWARE]，[LAYER_HOLD_MS] 后还原（幂等延时）。 */
+    private fun armHardwareLayer(view: View) {
+        view.setLayerType(View.LAYER_TYPE_HARDWARE, null)
+        view.postDelayed({ view.setLayerType(View.LAYER_TYPE_NONE, null) }, LAYER_HOLD_MS)
     }
 }

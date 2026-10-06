@@ -2,7 +2,7 @@
 <!--
     后退转场（设计规范 11.2）：返回到的页面 translateX(-22%)→0。
     ⚠️ 仅位移、恒不透明（不加 alpha）。时长 dur_slow 收紧为 180ms（v8 需求1：转场越短越不易感知冻结）。
-    由二级页 finish 后 overridePendingTransition 注入。
+    由 NavHost.setCustomAnimations 注入（弹栈方向）。
 -->
 <set xmlns:android="http://schemas.android.com/apk/res/android"
     android:interpolator="@android:interpolator/decelerate_cubic"

@@ -24,6 +24,7 @@ import com.healix.app.databinding.ItemEventBinding
 import com.healix.app.databinding.ItemIllnessTimelineBinding
 import com.healix.app.databinding.RowSettingValueBinding
 import com.healix.app.notify.EventText
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.ZoneId
@@ -93,13 +94,33 @@ class StatusDetailFragment : Fragment() {
      * 故在重新可见（pop 逆向回放 show）时重读一次；首次进入不经过此回调
      * （初 add 即可见），不会与 init 的 refresh 重复。
      * FragmentStateManager 保证 show 时派发本回调（与 Tab 页 Record 同范式）。
+     *
+     * ⚠️ **为什么把刷新延后（专项-二级页转场卡顿 P0-1）**：pop 返回本页时若立即
+     * `vm.refresh()`，IO 读库会很快回到主线程，collector 随即对运动/睡眠/体重/身体
+     * 四段**全量重绑 UI** —— 这笔主线程工作量正好落在 180ms 的入场动画窗口内，与
+     * 真机探针观测到的「动画中段卡一下」（LONG_FRAME 33.3ms）叠加。
+     * 把刷新推到动画窗口之外，让转场帧保持纯净。
+     *
+     * **为什么是 200ms**：入场动画时长 180ms（`in_back.xml`），200ms = 180ms + 余量，
+     * 保证重绑严格发生在动画结束之后；再长则会扩大快照误差窗口 —— 而本页只读，唯一
+     * 覆盖方 plan_review 的写入在「返回」发生前刚结束，200ms 足以保证读到的即最新库。
+     *
+     * **竞态安全**：延后走 `viewLifecycleOwner.lifecycleScope`（视图生命周期感知）——
+     * 延迟期间页面被销毁时协程随视图 `ON_DESTROY` **自动取消**，结构上杜绝「在
+     * onDestroyView 之后执行」；`_binding != null` 再兜一层，双重保险。
      */
     override fun onHiddenChanged(hidden: Boolean) {
         super.onHiddenChanged(hidden)
         // ⚠️ 视图未建（_binding == null）时跳过：onViewCreated 初始化 vm 前若被派发
         //    （如重建保险 show 触发）会踩 lateinit 崩溃 —— 而那时 vm 的 init 已读库，
         //    无需重复刷新。
-        if (!hidden && _binding != null) vm.refresh()
+        if (!hidden && _binding != null) {
+            // 延后到入场动画（180ms）之外再刷新，避免全量重绑落在动画帧里（P0-1）。
+            viewLifecycleOwner.lifecycleScope.launch {
+                delay(REFRESH_AFTER_TRANSITION_MS)
+                if (_binding != null) vm.refresh()
+            }
+        }
     }
 
     override fun onDestroyView() {
@@ -496,6 +517,9 @@ class StatusDetailFragment : Fragment() {
 
         /** 小于半个最小刻度即视为持平（保留 1 位后为 0.0）。 */
         private const val TREND_EPSILON = 0.05
+
+        /** 重新可见后延后刷新时长：> 180ms 入场动画（in_back.xml）+ 余量（专项 P0-1）。 */
+        private const val REFRESH_AFTER_TRANSITION_MS = 200L
 
         private const val DASH = "—"
 
