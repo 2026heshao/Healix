@@ -1,0 +1,189 @@
+classDiagram
+    %% Healix v0.3 增量设计（第二波 B4/B5/B6）— 类图
+    %% 生成：2026-10-06 架构师（高见远）。与 docs/v0.3-增量设计-W2-2026-10-06.md §3.1/§3.3/§3.4 同源。
+    %% 注：docs/class-diagram.mermaid 属 v8 设计、docs/v0.3-增量-类图.mermaid 属第一波，本文件为第二波，未覆盖任何既有文件。
+
+    %% ── DB 层（新增 2 表，DB_VERSION 3→4）───────────────────────
+    class RoomDatabase
+    class AppDatabase {
+        +DB_VERSION = 4
+        +aiRuleDao() AiRuleDao
+        +toolCallDao() ToolCallDao
+        #MIGRATION_3_4
+    }
+    RoomDatabase <|-- AppDatabase
+
+    class AiRuleEntity {
+        +id Long
+        +text String
+        +enabled Int
+        +sortOrder Int
+        +createdAt Long
+    }
+    class AiRuleDao {
+        <<interface>>
+        +upsert(rule) Long
+        +listEnabled() List
+        +listAll() List
+        +observeAll() Flow
+        +setEnabled(id, enabled)
+        +delete(id)
+    }
+    class ToolCallEntity {
+        +id Long
+        +ts Long
+        +callUid String
+        +name String
+        +args String
+        +resultDigest String
+        +latencyMs Long
+        +needsConfirm Int
+        +approved Int
+    }
+    class ToolCallDao {
+        <<interface>>
+        +insert(call)
+        +markApproved(callUid, approved)
+        +observeRecent(limit) Flow
+    }
+    AppDatabase --> AiRuleEntity
+    AppDatabase --> AiRuleDao
+    AppDatabase --> ToolCallEntity
+    AppDatabase --> ToolCallDao
+    AiRuleDao ..> AiRuleEntity : 读写
+    ToolCallDao ..> ToolCallEntity : 读写
+
+    %% ── B4 规则库页面 ─────────────────────────────────────────
+    class PageFragment {
+        <<abstract>>
+        +onHiddenChanged(hidden)
+        #onPageShown()
+    }
+    class RulesFragment {
+        +onPageShown()
+        -renderList()
+        -openFieldSheet()
+    }
+    PageFragment <|-- RulesFragment
+    class RulesViewModel {
+        -_rules MutableStateFlow
+        +observeAll() Flow
+        +add(text)
+        +update(rule)
+        +toggle(id, enabled)
+        +delete(id)
+        +reorder(from, to)
+    }
+    RulesFragment --> RulesViewModel
+    RulesViewModel ..> AiRuleDao : lifecycleScope + Dispatchers.IO
+
+    %% ── 提示 / Agent 层 ──────────────────────────────────────
+    class ChatEngine {
+        <<object>>
+        +PROMPT_VER_CHAT = "v3"
+        +PROMPT_VER_CHAT_TOOL = "v2"
+        +systemPrompt(ctx, date, bg, kb, mode, userRules) String
+        +reply(..., mode, userRules) Reply
+    }
+    class PromptMode {
+        <<enum>>
+        FULL
+        TOOL
+    }
+    class HealthAgent {
+        -MAX_STEPS int
+        -TOOL_TEMPERATURE double
+        +TOOLS_SECTION
+        +run(cfg, date, text, hist, bg, kb, userRules) AgentOutcome
+        -recordRoundTrip(cfg, result, latency)
+    }
+    class ToolRegistry {
+        <<object>>
+        +defs List
+        +execute(ctx, call, perms) ToolResult
+    }
+    class ToolPermissions {
+        +toolsEnabled Boolean
+        +writePlan Boolean
+        +writeRecord Boolean
+        +writeGoal Boolean
+    }
+    ChatEngine ..> PromptMode : 选说话方式段 / 省略今日数字
+    HealthAgent ..> ChatEngine : systemPrompt(mode, userRules)
+    HealthAgent --> ToolRegistry : 分派工具
+    ToolRegistry ..> ToolPermissions : 纵深防御（未授权直接拒）
+
+    %% ── 提案（B6 泛化）───────────────────────────────────────
+    class AgentProposal {
+        <<interface>>
+    }
+    class LogProposal {
+        +rawText String
+    }
+    class PlanChangeProposal {
+        +date String
+        +op String
+        +summary String
+    }
+    class GoalChangeProposal {
+        +metric String
+        +value Double
+        +summary String
+    }
+    class RecordDeleteProposal {
+        +clientEventId String
+        +summary String
+    }
+    AgentProposal <|-- LogProposal
+    AgentProposal <|-- PlanChangeProposal
+    AgentProposal <|-- GoalChangeProposal
+    AgentProposal <|-- RecordDeleteProposal
+
+    %% ── 编排层 ──────────────────────────────────────────────
+    class ChatViewModel {
+        +executeChat()
+        +confirmProposal()
+        -readEnabledRules() String
+    }
+    class ActionConfirmSheet {
+        <<BottomSheetDialogFragment>>
+        +newInstance(title, message)
+        +onConfirm()
+    }
+    class EventRepository {
+        +recordChatCall(..., promptVer)
+        +undo(clientEventId)
+    }
+    ChatViewModel --> HealthAgent : AI_TOOLS_ENABLED 开则走 Agent
+    ChatViewModel --> ChatEngine : 关则直接单轮 / 失败回退
+    ChatViewModel ..> AiRuleEntity : 读 enabled 规则（IO）
+    ChatViewModel ..> ActionConfirmSheet : two-step 确认（AgentProposal）
+    ChatViewModel ..> ToolCallDao : markApproved(call_uid)
+    ChatViewModel ..> EventRepository : 确认后写路径 / 软删+UndoBar
+    HealthAgent ..> ToolCallDao : 每次 execute 后落 1 行（fire-and-forget）
+
+    %% ── 开关来源 ────────────────────────────────────────────
+    class SettingsKeys {
+        <<object>>
+        +AI_TOOLS_ENABLED
+        +AI_TOOL_WRITE_PLAN
+        +AI_TOOL_WRITE_RECORD
+        +AI_TOOL_WRITE_GOAL
+    }
+    SettingsKeys ..> ToolPermissions : 组装
+
+    %% ── 备份链路（DR-1：rules 纳入 / tool_calls 有意排除）──────────
+    class ExportWriter {
+        <<object>>
+        +FORMAT_VERSION = 2
+        +buildJson(ctx) String
+    }
+    class ImportReader {
+        <<object>>
+        +JSON_RULES = "rules"
+        +importFrom(ctx, uri) Report
+    }
+    ExportWriter ..> AiRuleDao : 导出 rules 节（不导 id）
+    ImportReader ..> AiRuleDao : 导入 rules（按 text 去重）
+    ExportWriter ..> ToolCallEntity : 刻意不导出（KDoc 声明）
+    ImportReader ..> ToolCallEntity : 无分支（check_backup_parity 零影响）

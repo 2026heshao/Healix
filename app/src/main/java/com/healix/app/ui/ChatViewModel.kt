@@ -6,13 +6,20 @@ import androidx.lifecycle.viewModelScope
 import com.healix.app.HealixApp
 import com.healix.app.R
 import com.healix.app.agent.AgentOutcome
+import com.healix.app.agent.AgentProposal
+import com.healix.app.agent.GoalChangeProposal
 import com.healix.app.agent.HealthAgent
 import com.healix.app.agent.LogProposal
+import com.healix.app.agent.PlanChangeProposal
+import com.healix.app.agent.RecordDeleteProposal
 import com.healix.app.db.ChatMessageEntity
 import com.healix.app.db.EventEntity
 import com.healix.app.db.PresetEntity
+import com.healix.app.db.SettingsKeys
 import com.healix.app.net.NetworkStatus
+import com.healix.app.net.ProviderConfig
 import com.healix.app.parse.loadsLenient
+import com.healix.app.repo.KnowledgeHit
 import com.healix.app.repo.ProfileContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -127,11 +134,20 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     val presetToast: SharedFlow<String> = _presetToast.asSharedFlow()
 
     /**
-     * propose_log 拟稿（S3–S4 agent）：Activity 收到后弹确认框。
-     * 确认 → [confirmProposal] 走完整抽取链；取消 → 什么都不发生。
+     * 拟稿（S3–S4 agent / v0.3 B6 泛化）：Activity 收到后弹确认框。
+     * 确认 → [confirmProposal] 走对应写路径；取消 → [cancelProposal] 只回填 `approved=0`。
+     *
+     * 类型由 `LogProposal` 泛化为 `AgentProposal`（记录 / 计划 / 目标 / 删除四类草案）。
      */
-    private val _proposal = MutableSharedFlow<LogProposal>(extraBufferCapacity = 4)
-    val proposal: SharedFlow<LogProposal> = _proposal.asSharedFlow()
+    private val _proposal = MutableSharedFlow<AgentProposal>(extraBufferCapacity = 4)
+    val proposal: SharedFlow<AgentProposal> = _proposal.asSharedFlow()
+
+    /**
+     * 记录软删成功后置位（v0.3 B6）：UI 收到后弹 [UndoBar] 提供 5 秒退回机会。
+     * 只在「删除」这一路发；其它草案成功用回执消息，不给撤销位。
+     */
+    private val _undo = MutableSharedFlow<RecordDeleteProposal>(extraBufferCapacity = 4)
+    val undo: SharedFlow<RecordDeleteProposal> = _undo.asSharedFlow()
 
     /** 拟稿确认后的落库结果 Toast（复用预设同一组文案资源）。 */
     private val _proposalToast = MutableSharedFlow<String>(extraBufferCapacity = 4)
@@ -244,6 +260,19 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             val history = db.chatMessageDao().recentForContext(todayKey(), 17)
                 .withoutTrailingDuplicate(text)
 
+            // 用户自定义输出偏好规则（v0.3 B4）：IO 读库，拼成一段注入 system prompt。
+            // 空 = 不注入（userRulesBlock 空段省略 → 输出与无规则时逐字节相同）。
+            val userRules = loadUserRules()
+
+            // ── AI 工具总开关（v0.3 B5，D4：默认开）──────────────────────
+            // 关 = 退回单轮：**跳过 agent**（不调任何工具、不写 tool_calls），
+            // 与降级链第二级同一出口 → `llm_calls` 恰好 1 行（验收 1）。
+            val toolsEnabled = db.settingsDao().get(SettingsKeys.AI_TOOLS_ENABLED) != "false"
+            if (!toolsEnabled) {
+                replySingleTurn(config, text, history, background, knowledge, userRules, hits)
+                return
+            }
+
             // ── S3–S4 第一级：有界工具循环 ────────────────────────────
             // 限步 4 / 墙钟 30s / 同参即停（见 HealthAgent）。任何失败都
             // 落回第二级单轮 ChatEngine（其内含第三级本地模板）。
@@ -254,6 +283,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 history = history,
                 background = background,
                 knowledge = knowledge,
+                userRules = userRules,
             )
             when (outcome) {
                 is AgentOutcome.Done ->
@@ -270,50 +300,83 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                     _uiState.value = ChatUiState.Queued(seconds = 4)
                 }
 
-                AgentOutcome.Failed -> {
+                AgentOutcome.Failed ->
                     // 第二级：单轮（无工具）。Degraded 时 reply.text 已是本地模板文案。
-                    val reply = ChatEngine.reply(
-                        context = getApplication(),
-                        config = config,
-                        sessionDate = todayKey(),
-                        userText = text,
-                        history = history,
-                        background = background,
-                        knowledge = knowledge,
-                    )
-                    // §4.1（2026-10-04 复核更正）：单轮回退路径此前不记 llm_calls，
-                    // 补一条 —— 否则配额计数与设置页「今日对话调用」会漏掉这一档。
-                    repo.recordChatCall(
-                        model = config.model,
-                        attempts = reply.attempts,
-                        latencyMs = reply.latencyMs,
-                        status = when (reply.state) {
-                            ChatEngine.State.Ok -> com.healix.app.repo.EventRepository.STATUS_OK
-                            else -> com.healix.app.repo.EventRepository.STATUS_RETRY_EXHAUSTED
-                        },
-                        httpCode = reply.httpCode,
-                        inputTokens = reply.inputTokens,
-                        outputTokens = reply.outputTokens,
-                        errorHead = reply.errorHead,
-                        // 对话链 prompt 版本 —— ChatEngine.systemPrompt 内容对应版本。
-                        promptVer = PROMPT_VER_CHAT,
-                    )
-                    when (reply.state) {
-                        ChatEngine.State.Ok -> completeWithText(reply.text, hits.firstOrNull())
-                        ChatEngine.State.Queued -> {
-                            persistAssistant(reply.text)
-                            _uiState.value = ChatUiState.Queued(seconds = 4)
-                        }
-                        // 模型真失败了 → 这一种才给重试入口（未配置/断网在上面提前 return）
-                        ChatEngine.State.Degraded -> {
-                            persistAssistant(reply.text)
-                            _uiState.value = ChatUiState.Degraded
-                            _retryAvailable.value = true
-                        }
-                    }
-                }
+                    replySingleTurn(config, text, history, background, knowledge, userRules, hits)
             }
     }
+
+    /**
+     * 单轮回复（降级链第二级；v0.3 B5 起工具总开关关闭也走这里）。
+     *
+     * 组装 prompt → 调 [ChatEngine.reply] → **补记一次 `llm_calls`**（§4.1：单轮回退路径
+     * 此前不记，会漏配额计数）→ 按状态落库 / 复位。Degraded 才给重试入口。
+     *
+     * 抽成方法是为了让「工具关闭退回单轮」与「agent 失败退回单轮」共用**同一段**逻辑 ——
+     * 两处各抄一份必然漂移。
+     */
+    private suspend fun replySingleTurn(
+        config: ProviderConfig,
+        text: String,
+        history: List<ChatMessageEntity>,
+        background: String,
+        knowledge: String,
+        userRules: String,
+        hits: List<KnowledgeHit>,
+    ) {
+        val reply = ChatEngine.reply(
+            context = getApplication(),
+            config = config,
+            sessionDate = todayKey(),
+            userText = text,
+            history = history,
+            background = background,
+            knowledge = knowledge,
+            userRules = userRules,
+        )
+        // §4.1（2026-10-04 复核更正）：单轮回退路径此前不记 llm_calls，
+        // 补一条 —— 否则配额计数与设置页「今日对话调用」会漏掉这一档。
+        repo.recordChatCall(
+            model = config.model,
+            attempts = reply.attempts,
+            latencyMs = reply.latencyMs,
+            status = when (reply.state) {
+                ChatEngine.State.Ok -> com.healix.app.repo.EventRepository.STATUS_OK
+                else -> com.healix.app.repo.EventRepository.STATUS_RETRY_EXHAUSTED
+            },
+            httpCode = reply.httpCode,
+            inputTokens = reply.inputTokens,
+            outputTokens = reply.outputTokens,
+            errorHead = reply.errorHead,
+            // 对话链 prompt 版本 —— ChatEngine.systemPrompt 内容对应版本。
+            promptVer = PROMPT_VER_CHAT,
+        )
+        when (reply.state) {
+            ChatEngine.State.Ok -> completeWithText(reply.text, hits.firstOrNull())
+            ChatEngine.State.Queued -> {
+                persistAssistant(reply.text)
+                _uiState.value = ChatUiState.Queued(seconds = 4)
+            }
+            // 模型真失败了 → 这一种才给重试入口（未配置/断网在上面提前 return）
+            ChatEngine.State.Degraded -> {
+                persistAssistant(reply.text)
+                _uiState.value = ChatUiState.Degraded
+                _retryAvailable.value = true
+            }
+        }
+    }
+
+    /**
+     * 读出生效中的用户规则（v0.3 B4），拼成一段文本供 system prompt 注入。
+     *
+     * 在 IO 线程读库（调用方 [executeChat] 已在 `Dispatchers.IO` 协程内）。
+     * 空 / 读取异常 → 空串（`ChatEngine.systemPrompt` 空段省略 → 输出与无规则时逐字节相同）。
+     * 只读 [com.healix.app.db.AiRuleDao.listEnabled]（`enabled = 1`，按 `sort_order` 升序）。
+     */
+    private suspend fun loadUserRules(): String =
+        runCatching {
+            db.aiRuleDao().listEnabled().joinToString("\n") { "· ${it.text}" }
+        }.getOrDefault("")
 
     /**
      * 当前执行计划段（AI_DATA_FULL 门控；三条全空 → 空串）。
@@ -385,38 +448,129 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
-     * 用户确认拟稿（agent propose_log）：走完整抽取链（与「记一笔」同管道），
-     * source = ai_suggestion。
+     * 用户确认拟稿（v0.3 B6 泛化）：按草案类型走各自的写路径，并回填 `tool_calls.approved = 1`。
      *
-     * §4.2 回执闭环：**成功**由本地模板回一条助理消息（零 token，不再发成功
-     * Toast，避免双反馈）；**失败**仍经 [proposalToast] 提示（行为不变）。
+     * - [LogProposal]：走完整抽取链（source = ai_suggestion），**不变**；
+     * - [PlanChangeProposal]：读改写 `daily_plans.plan_json`（[PlanChangeWriter]）；
+     * - [GoalChangeProposal]：`GoalDao.setTarget`；
+     * - [RecordDeleteProposal]：软删（[EventRepository.undo]），成功后置 [undo] 供退回。
+     *
+     * 成功一律由本地模板回一条助理消息（零 token，避免双反馈）；失败经 [proposalToast] 提示。
      */
-    fun confirmProposal(proposal: LogProposal) {
+    fun confirmProposal(proposal: AgentProposal) {
         viewModelScope.launch(Dispatchers.IO) {
-            val app = getApplication<Application>()
-            try {
-                val result = repo.submit(
-                    proposal.rawText,
-                    source = com.healix.app.repo.SOURCE_AI_SUGGESTION,
-                )
-                if (result.ok) {
-                    // 回执口径：只提「已记下 + 本周运动还差 N 次 / 已达标」，
-                    // 不提 kcal 数字（规避隐私开关 HIDE_KCAL 的边界）。
-                    val s = TodaySummary.build(app)
-                    val gap = s.goalSessionsWeek - s.exerciseCountThisWeek
-                    val receipt = if (gap > 0) {
-                        app.getString(R.string.proposal_receipt_gap, proposal.rawText, gap)
-                    } else {
-                        app.getString(R.string.proposal_receipt_done, proposal.rawText)
-                    }
-                    persistAssistant(receipt)
-                } else {
-                    _proposalToast.emit(app.getString(R.string.preset_log_failed))
-                }
-            } catch (_: Exception) {
-                _proposalToast.emit(app.getString(R.string.preset_log_failed))
+            when (proposal) {
+                is LogProposal -> confirmLog(proposal)
+                is PlanChangeProposal -> confirmPlanChange(proposal)
+                is GoalChangeProposal -> confirmGoalChange(proposal)
+                is RecordDeleteProposal -> confirmRecordDelete(proposal)
             }
         }
+    }
+
+    /**
+     * 用户取消拟稿：**不写任何业务数据**，只把对应 `tool_calls.approved` 回填为 0。
+     * （确认/取消两条路径对称回填，审计里能看出每个拟稿的最终归宿。）
+     */
+    fun cancelProposal(proposal: AgentProposal) {
+        viewModelScope.launch(Dispatchers.IO) {
+            markApproved(proposal.callUid, 0)
+        }
+    }
+
+    /** 撤回一次记录软删（[undo] 的 UndoBar 落点）：清 `deleted_at` 让记录回到原位。 */
+    fun restoreDeleted(proposal: RecordDeleteProposal) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { repo.restore(proposal.clientEventId) }
+        }
+    }
+
+    /**
+     * 记录草稿确认：走完整抽取链（与「记一笔」同管道），source = ai_suggestion。
+     *
+     * §4.2 回执闭环：**成功**由本地模板回一条助理消息（零 token，不再发成功 Toast）；
+     * **失败**仍经 [proposalToast] 提示（行为不变）。
+     */
+    private suspend fun confirmLog(proposal: LogProposal) {
+        val app = getApplication<Application>()
+        try {
+            val result = repo.submit(
+                proposal.rawText,
+                source = com.healix.app.repo.SOURCE_AI_SUGGESTION,
+            )
+            if (result.ok) {
+                markApproved(proposal.callUid, 1)
+                // 回执口径：只提「已记下 + 本周运动还差 N 次 / 已达标」，
+                // 不提 kcal 数字（规避隐私开关 HIDE_KCAL 的边界）。
+                val s = TodaySummary.build(app)
+                val gap = s.goalSessionsWeek - s.exerciseCountThisWeek
+                val receipt = if (gap > 0) {
+                    app.getString(R.string.proposal_receipt_gap, proposal.rawText, gap)
+                } else {
+                    app.getString(R.string.proposal_receipt_done, proposal.rawText)
+                }
+                persistAssistant(receipt)
+            } else {
+                _proposalToast.emit(app.getString(R.string.preset_log_failed))
+            }
+        } catch (_: Exception) {
+            _proposalToast.emit(app.getString(R.string.preset_log_failed))
+        }
+    }
+
+    /** 计划修改确认：读改写当日 `plan_json` 的备注。 */
+    private suspend fun confirmPlanChange(proposal: PlanChangeProposal) {
+        val app = getApplication<Application>()
+        val applied = runCatching {
+            PlanChangeWriter.applyPlanChange(db, proposal.date, proposal.op)
+        }.getOrDefault(false)
+        if (applied) {
+            markApproved(proposal.callUid, 1)
+            persistAssistant(app.getString(R.string.receipt_plan_applied, proposal.date))
+        } else {
+            _proposalToast.emit(app.getString(R.string.receipt_apply_failed))
+        }
+    }
+
+    /** 目标修改确认：更新既有 active 目标值（没有该目标行 → 失败）。 */
+    private suspend fun confirmGoalChange(proposal: GoalChangeProposal) {
+        val app = getApplication<Application>()
+        val applied = runCatching {
+            if (db.goalDao().getByMetric(proposal.metric) == null) {
+                false
+            } else {
+                db.goalDao().setTarget(proposal.metric, proposal.value, System.currentTimeMillis())
+                true
+            }
+        }.getOrDefault(false)
+        if (applied) {
+            markApproved(proposal.callUid, 1)
+            persistAssistant(app.getString(R.string.receipt_goal_applied, proposal.summary))
+        } else {
+            _proposalToast.emit(app.getString(R.string.receipt_apply_failed))
+        }
+    }
+
+    /** 记录删除确认：软删 + 置位 [undo]（UI 弹 UndoBar 给 5 秒退回机会）。 */
+    private suspend fun confirmRecordDelete(proposal: RecordDeleteProposal) {
+        val app = getApplication<Application>()
+        val deleted = runCatching { repo.undo(proposal.clientEventId) }.getOrDefault(false)
+        if (deleted) {
+            markApproved(proposal.callUid, 1)
+            persistAssistant(app.getString(R.string.receipt_record_deleted, proposal.summary))
+            _undo.emit(proposal)
+        } else {
+            _proposalToast.emit(app.getString(R.string.receipt_apply_failed))
+        }
+    }
+
+    /**
+     * 回填 `tool_calls.approved`（确认 = 1 / 取消 = 0）。`callUid` 为空（老路径）时跳过。
+     * 失败不影响主流程（审计回填是锦上添花）。
+     */
+    private suspend fun markApproved(callUid: String, approved: Int) {
+        if (callUid.isBlank()) return
+        runCatching { db.toolCallDao().markApproved(callUid, approved) }
     }
 
     /**

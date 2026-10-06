@@ -154,6 +154,37 @@ object SettingsKeys {
      *  判定口径全仓唯一：`!= "false"`（读点 ProfileContext.aiDataFull）。 */
     const val AI_DATA_FULL = "ai_data_full"
 
+    // ── AI 工具权限（v0.3 B5/B6，D4：全部默认开）────────────────────────
+    /**
+     * AI 工具总开关。`"true"` / `"false"`；**键不存在 = "true"（默认开）**。
+     *
+     * 关 = `ChatViewModel` 在调 `HealthAgent` **之前**判定，直接走 [ui.ChatEngine.reply]
+     * 单轮（跳过 agent）—— 因此既不会调用任何工具，也不会写 `tool_calls` 行。
+     * 与"降级链第二级"同一出口。判定口径：`!= "false"`。
+     */
+    const val AI_TOOLS_ENABLED = "ai_tools_enabled"
+
+    /**
+     * 写工具权限：**拟改今日计划**（`propose_plan_change`）。默认开（键不存在 = 开）。
+     *
+     * 仅控制 Agent **执行层**是否能产出该 draft（纵深防御的第二道，见
+     * `HealthAgent.ToolPermissions`）；即使开着，用户仍需在 UI 二次确认后才落库。
+     * 判定口径：`!= "false"`。
+     */
+    const val AI_TOOL_WRITE_PLAN = "ai_tool_write_plan"
+
+    /**
+     * 写工具权限：**拟记 / 删记录**（`propose_record_delete`）。默认开。
+     * 判定口径：`!= "false"`。
+     */
+    const val AI_TOOL_WRITE_RECORD = "ai_tool_write_record"
+
+    /**
+     * 写工具权限：**拟改目标**（`propose_goal_change`）。默认开。
+     * 判定口径：`!= "false"`。
+     */
+    const val AI_TOOL_WRITE_GOAL = "ai_tool_write_goal"
+
     // ── 目标组的一次性提示（设计规范系统 9.7 / 921 行） ────────────────
     /**
      * 目标组「依据提示」是否已展示过。`"true"` / `"false"`，默认 `false`（未展示）。

@@ -18,6 +18,8 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.healix.app.HealixApp
 import com.healix.app.R
+import com.healix.app.agent.AgentProposal
+import com.healix.app.agent.LogProposal
 import com.healix.app.databinding.FragmentAssistantBinding
 import com.healix.app.db.ChatMessageEntity
 import com.healix.app.ui.widget.InputBarHeightAnimator
@@ -59,8 +61,11 @@ class AssistantFragment : Fragment() {
     /** §5.3：快捷问答第 2 行的当前时段词。点按回调读本字段，刷新后即用新文案发送。 */
     private var quickMealText: String = ""
 
-    /** 拟稿确认在 Tab 隐藏期间到达时先暂存，切回可见再弹（否则会盖在别的 Tab 上）。 */
-    private var pendingProposal: com.healix.app.agent.LogProposal? = null
+    /**
+     * 拟稿确认在 Tab 隐藏期间到达时先暂存，切回可见再弹（否则会盖在别的 Tab 上）。
+     * v0.3 B6：类型由 `LogProposal` 泛化为 [AgentProposal]（记录 / 计划 / 目标 / 删除四类草案）。
+     */
+    private var pendingProposal: AgentProposal? = null
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -285,6 +290,19 @@ class AssistantFragment : Fragment() {
                     }
                 }
 
+                // v0.3 B6：记录软删确认后弹内联撤销条（5 秒可退回），复用 [UndoBar]。
+                launch {
+                    vm.undo.collect { proposal ->
+                        UndoBar.bind(
+                            binding.undoBar,
+                            binding.undoLeft,
+                            binding.undoAction,
+                            getString(R.string.undo_record_deleted),
+                            getString(R.string.undo_record_deleted),
+                        ) { vm.restoreDeleted(proposal) }
+                    }
+                }
+
                 // S3–S4：拟稿落库结果反馈
                 launch {
                     vm.proposalToast.collect { text ->
@@ -348,13 +366,26 @@ class AssistantFragment : Fragment() {
         }
     }
 
-    /** S3–S4：弹拟稿确认（底色容器 ActionConfirmSheet，挂子FragmentManager）。 */
-    private fun showProposalSheet(proposal: com.healix.app.agent.LogProposal) {
-        val sheet = ActionConfirmSheet.newInstance(
-            getString(R.string.proposal_sheet_title),
-            getString(R.string.proposal_confirm, proposal.rawText),
-        )
+    /**
+     * 拟稿确认（v0.3 B6 泛化）：记录 / 计划 / 目标 / 删除四类草案共用同一个
+     * [ActionConfirmSheet]（§1.3.3）。记录草稿沿用原「确认记录」文案（**行为不变**）；
+     * 其余三类以各自的 [AgentProposal.summary] 作正文（message = draft 的 summary）。
+     * 确认 → [ChatViewModel.confirmProposal]；取消 / 下拖 → [ChatViewModel.cancelProposal]
+     * （只回填 `tool_calls.approved = 0`，不写任何业务数据）。
+     */
+    private fun showProposalSheet(proposal: AgentProposal) {
+        val title: String
+        val message: String
+        if (proposal is LogProposal) {
+            title = getString(R.string.proposal_sheet_title)
+            message = getString(R.string.proposal_confirm, proposal.rawText)
+        } else {
+            title = getString(R.string.proposal_sheet_title_action)
+            message = proposal.summary
+        }
+        val sheet = ActionConfirmSheet.newInstance(title, message)
         sheet.onConfirm = { vm.confirmProposal(proposal) }
+        sheet.onCancel = { vm.cancelProposal(proposal) }
         sheet.show(childFragmentManager, ActionConfirmSheet.TAG)
     }
 

@@ -67,6 +67,43 @@
         android:visibility="gone"
         tools:visibility="visible" />
 
+    <!--
+        内联撤销条（v0.3 B6；规范 §9.6）：AI 拟稿删除记录、用户确认后出现，5 秒后自动消失。
+        与设置页 / 首页同构 —— 无底色无边框，靠文字区分。放在消息区上方，
+        保证无论消息滚到哪里都可见。
+    -->
+    <LinearLayout
+        android:id="@+id/undoBar"
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/touch_min"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="@dimen/screen_margin"
+        android:paddingEnd="@dimen/screen_margin"
+        android:visibility="gone"
+        tools:visibility="visible">
+
+        <TextView
+            android:id="@+id/undoLeft"
+            style="@style/Text.Secondary"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:maxLines="1"
+            tools:text="已删除 1 条记录，5 秒内可撤销" />
+
+        <TextView
+            android:id="@+id/undoAction"
+            style="@style/Text.Link"
+            android:layout_width="wrap_content"
+            android:layout_height="@dimen/touch_min"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:gravity="center"
+            android:minWidth="@dimen/touch_min"
+            android:text="@string/undo" />
+    </LinearLayout>
+
     <!-- 消息区：可滚动，输入区固定底部 -->
     <FrameLayout
         android:layout_width="match_parent"

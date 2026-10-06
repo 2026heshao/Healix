@@ -1,0 +1,127 @@
+%% Healix v0.3 增量设计（第二波 B4/B5/B6）— 调用流程（4 张）
+%% 生成：2026-10-06 架构师（高见远）。与 docs/v0.3-增量设计-W2-2026-10-06.md §3.5/§3.6 同源。
+%% 注：docs/sequence-diagram.mermaid 属 v8 设计、docs/v0.3-增量-时序图.mermaid 属第一波，本文件为第二波，未覆盖任何既有文件。
+
+%% ─────────────────────────────────────────────────────────────
+%% 图 1：B4 规则库「保存 → 注入」（空规则 = 逐字节不变）
+%% ─────────────────────────────────────────────────────────────
+sequenceDiagram
+    autonumber
+    participant U as 用户
+    participant RF as RulesFragment
+    participant RVM as RulesViewModel
+    participant DB as AiRuleDao(rules)
+    participant CV as ChatViewModel
+    participant CE as ChatEngine
+
+    U->>RF: 进入「规则库」→ 加一条「回答不超过 3 句」
+    RF->>RVM: add(text)
+    RVM->>DB: upsert(AiRuleEntity(text, enabled=1, sortOrder))
+    DB-->>RVM: id
+    DB-->>RF: observeAll() 新值 → 重绘列表
+
+    Note over CV,CE: 下一次对话
+    CV->>DB: listEnabled()（Dispatchers.IO）
+    DB-->>CV: List<AiRuleEntity>
+    CV->>CV: 拼成 userRules 文本（enabled 且按 sort_order）
+    CV->>CE: systemPrompt(..., mode, userRules)
+    alt userRules 为空
+        CE-->>CV: 输出与改前【逐字节相同】（userRulesBlock="")
+    else userRules 非空
+        CE-->>CV: 在「说话方式」之后、「硬边界」之前插入 userRulesBlock
+        Note right of CE: 硬边界恒为末段 → 用户段无法遮蔽；<br/>冲突时以硬边界为准（同段声明）
+    end
+
+%% ─────────────────────────────────────────────────────────────
+%% 图 2：B5 只读工具一轮 + 审计（配额不变式：1 往返 = 1 行 llm_calls）
+%% ─────────────────────────────────────────────────────────────
+sequenceDiagram
+    autonumber
+    participant CV as ChatViewModel
+    participant HA as HealthAgent
+    participant TR as ToolRegistry
+    participant DB as DAO(plans/goals/training)
+    participant TC as ToolCallDao(tool_calls)
+    participant P as Provider
+    participant R as EventRepository
+
+    CV->>CV: 读 AI_TOOLS_ENABLED
+    alt 关
+        CV->>CE: reply(mode = FULL)（跳过 Agent，无工具角标）
+    else 开
+        CV->>HA: run(..., perms = ToolPermissions)
+        HA->>HA: systemPrompt(mode = TOOL, userRules)<br/>（省略「今日数字」段，去重）
+        loop 有界循环（steps < MAX_STEPS）
+            HA->>P: chat(ToolRegistry.defs)
+            P-->>HA: 工具调用 query_plan / query_goal / query_training_week
+            HA->>R: recordRoundTrip()（移位：当场记，恰好 1 行 llm_calls）
+            HA->>TR: execute(ctx, call, perms)
+            TR->>DB: 只读查询（非法参数 → 返回错误文本，不抛异常）
+            DB-->>TR: 紧凑中文文本
+            TR-->>HA: ToolResult
+            HA->>TC: insert(ToolCallEntity(name, args, resultDigest, latencyMs, needsConfirm=0))
+            Note right of TC: fire-and-forget，runCatching 吞异常，不碰 llm_calls
+        end
+        HA-->>CV: AgentOutcome.Done(text, toolsUsed)
+    end
+
+%% ─────────────────────────────────────────────────────────────
+%% 图 3：B6 写工具「拟稿 → 确认 → 落库」（只产 draft + 服务端门控）
+%% ─────────────────────────────────────────────────────────────
+sequenceDiagram
+    autonumber
+    participant CV as ChatViewModel
+    participant HA as HealthAgent
+    participant TR as ToolRegistry
+    participant UI as ActionConfirmSheet
+    participant TC as ToolCallDao(tool_calls)
+    participant W as 写路径
+    participant R as EventRepository
+
+    CV->>HA: run(..., perms)
+    HA->>HA: TOOLS_SECTION 追加动态权限声明
+    HA->>TR: execute(ctx, call, perms)
+    alt 未授权该写操作
+        TR-->>HA: 拒绝文本「你当前没有该操作权限…」（不产 draft）
+    else 已授权
+        TR-->>HA: AgentProposal（PlanChange/GoalChange/RecordDelete）
+        HA-->>CV: AgentOutcome.ProposalPending(text, proposal)（终止循环）
+        CV->>TC: insert(needsConfirm=1, call_uid=UUID)
+        CV-->>UI: _proposal.emit(draft) → 弹确认（message = summary）
+        alt 用户确认
+            UI->>CV: onConfirm()
+            CV->>TC: markApproved(call_uid, 1)
+            CV->>W: 记录软删→EventRepository.undo/Restore；计划→PlanGenerator.applyPlanChange；目标→GoalDao.setTarget
+            W-->>UI: 回执（记录场景给 UndoBar 可退）
+        else 取消 / 下拖
+            UI->>CV: dismiss
+            CV->>TC: markApproved(call_uid, 0)
+            Note right of W: 不写库，状态不变
+        end
+    end
+    Note over CV,R: 全程不新增 llm_calls 行（配额不变式保持）
+
+%% ─────────────────────────────────────────────────────────────
+%% 图 4：DR-1 备份链路（rules 纳入 / tool_calls 有意排除，不升 FORMAT_VERSION）
+%% ─────────────────────────────────────────────────────────────
+sequenceDiagram
+    autonumber
+    participant U as 用户
+    participant EW as ExportWriter
+    participant IR as ImportReader
+    participant AD as AiRuleDao(rules)
+
+    Note over U,AD: 旧机导出（文件头 version=2，schema_version=4）
+    U->>EW: buildJson(ctx)
+    EW->>AD: listAll()
+    AD-->>EW: List<AiRuleEntity>
+    EW->>EW: root.put("rules", [{text,enabled,sort_order,created_at}])（不导 id）
+    Note right of EW: tool_calls 【刻意不导出】（KDoc 声明）；FORMAT_VERSION 保持 2
+
+    Note over U,AD: 新机导入（只合并不覆盖、单事务）
+    U->>IR: importFrom(ctx, uri)
+    IR->>IR: 闸门：version>2? / schema_version>4? → TOO_NEW 拒绝
+    IR->>AD: listAll() → seenRules（按 text 去重）
+    IR->>AD: upsert(AiRuleEntity(text,enabled,sort_order,created_at))
+    IR-->>U: Report(inserted, skipped)（规则完整还原）
+    Note right of IR: 旧备份无 rules 节 → optJSONArray=null → each 空跑，不报错

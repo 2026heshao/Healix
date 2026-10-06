@@ -377,6 +377,51 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content" />
 
+            <!-- D3 文案（v0.3 B6）：关掉可见资料范围后仍可查询记录，说清边界。 -->
+            <TextView
+                android:id="@+id/aiDataNote"
+                style="@style/Text.Caption"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingStart="@dimen/screen_margin"
+                android:paddingEnd="@dimen/screen_margin"
+                android:paddingBottom="8dp"
+                android:text="@string/ai_data_note"
+                android:textColor="@color/text_3" />
+
+            <!-- 规则库入口（v0.3 B4）：二级页加/删/改/启停/排序。 -->
+            <include
+                android:id="@+id/rowAiRules"
+                layout="@layout/row_setting_value"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+
+            <!-- AI 工具总开关（v0.3 B5）：关 = 退回单轮，不调用任何工具。 -->
+            <include
+                android:id="@+id/rowAiTools"
+                layout="@layout/row_setting_switch"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+
+            <!-- 写权限三开关（v0.3 B6）：仅工具总开关开启时显示。 -->
+            <include
+                android:id="@+id/rowAiToolWritePlan"
+                layout="@layout/row_setting_switch"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+
+            <include
+                android:id="@+id/rowAiToolWriteRecord"
+                layout="@layout/row_setting_switch"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+
+            <include
+                android:id="@+id/rowAiToolWriteGoal"
+                layout="@layout/row_setting_switch"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+
             <!-- ══ 提醒 ★v4（规范 9.7 ③）══
                  读写落在 reminders 表。行是**动态渲染**的（可增删 + 左滑删除），
                  所以容器用 LinearLayout，行由代码 inflate item_swipe_row.xml 后加入。

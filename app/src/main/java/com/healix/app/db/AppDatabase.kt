@@ -15,7 +15,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  * 本机没有 JDK、编译不了，赌不起。因此注解里保留**字面量**，
  * 由 `pipeline/check_schema.py` 强制两者相等 —— 一旦漂移，CI 立刻报错。
  */
-internal const val DB_VERSION = 3
+internal const val DB_VERSION = 4
 
 /**
  * Healix 本地数据库。
@@ -46,8 +46,10 @@ internal const val DB_VERSION = 3
         ReminderEntity::class,
         KnowledgeDocEntity::class,
         KnowledgeChunkEntity::class,
+        AiRuleEntity::class,
+        ToolCallEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 // ⚠️ 这里**故意不加** @TypeConverters。
@@ -72,6 +74,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun reminderDao(): ReminderDao
     abstract fun knowledgeDocDao(): KnowledgeDocDao
     abstract fun knowledgeChunkDao(): KnowledgeChunkDao
+    abstract fun aiRuleDao(): AiRuleDao
+    abstract fun toolCallDao(): ToolCallDao
 
     companion object {
         /** 库文件名。[DbSnapshot] 也要按它推算 `-wal` / `-shm` 伴生文件。 */
@@ -138,10 +142,39 @@ abstract class AppDatabase : RoomDatabase() {
         }
 
         /**
+         * v3 → v4（v0.3 B4/B5）：一次建两表 —— 规则库 `rules` + 工具调用审计 `tool_calls`。
+         *
+         * 纯 DDL，写法照既有惯例：标识符反引号、自增主键
+         * `INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL`、可空列不加 NOT NULL。
+         * 建表语句与 `AiRuleEntity.kt` / `ToolCallEntity.kt` 的 @Entity 定义逐字段一致；
+         * `index_tool_calls_ts` 对应 `ToolCallEntity` 的 `indices = [Index("ts")]`。
+         *
+         * ⚠️ DDL 必须与 CI 由 Room 导出的 `app/schemas/…/4.json` 的 createSql **逐字一致**
+         *    （`check_schema.py` 会校验：v4 新增表/索引的建表语句必须逐字出现在本块体内）。
+         *    本机无 JDK，4.json 由 CI `assembleDebug` 生成后经 `pull_schemas.py` 拉回入库。
+         *
+         * ⚠️ `rules` **纳入备份**（ExportWriter/ImportReader 两侧同步，DR-1）；
+         *    `tool_calls` **有意不导出**（诊断/审计痕迹，与 `llm_calls` 同类）。
+         */
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `rules` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `text` TEXT NOT NULL, `enabled` INTEGER NOT NULL, `sort_order` INTEGER NOT NULL, `created_at` INTEGER NOT NULL)"
+                )
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `tool_calls` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `ts` INTEGER NOT NULL, `call_uid` TEXT NOT NULL, `name` TEXT NOT NULL, `args` TEXT NOT NULL, `result_digest` TEXT NOT NULL, `latency_ms` INTEGER NOT NULL, `needs_confirm` INTEGER NOT NULL, `approved` INTEGER)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_tool_calls_ts` ON `tool_calls` (`ts`)"
+                )
+            }
+        }
+
+        /**
          * 所有历史 Migration。v1 之前无历史版本；v2 起每升一次 version
          * 必须往这里加一个 Migration 对象。
          */
-        val MIGRATIONS: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3)
+        val MIGRATIONS: Array<Migration> = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
 
         fun get(context: Context): AppDatabase =
             instance ?: synchronized(this) {

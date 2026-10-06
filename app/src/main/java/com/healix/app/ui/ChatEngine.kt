@@ -17,10 +17,14 @@ import com.healix.app.rules.FoodPool
  * ⚠️ 改动 [ChatEngine.systemPrompt] 内容时必须递增此值（**不改动 `PROMPT_VER`** ——
  *    那是抽取链的版本号，抽取链一字未改）。本常量仅用于 `llm_calls.prompt_ver`
  *    的归因；它**不参与**任何 prompt 字节校验，`systemPrompt` 字节冻结契约不因此变化。
+ *    ⚠️ **本常量只归因「单轮 / 回退」路径**（`PromptMode.FULL`）—— 工具路径记独立的
+ *    [PROMPT_VER_CHAT_TOOL]，不在本序列。
  *
  * v2（2026-10-05）：background 通道扩展（体格/目标/次目标/当前计划段），模板字节不动。
+ * v3（2026-10-06，v0.3 B4）：新增 `userRules` 通道（输出偏好规则段），
+ *    插在「说话方式」之后、「硬边界」之前；`userRules` 为空时输出与 v2 **逐字节相同**。
  */
-const val PROMPT_VER_CHAT: String = "v2"
+const val PROMPT_VER_CHAT: String = "v3"
 
 /**
  * 工具（agent）路径的**独立** prompt 版本序列（v0.3 B0）。
@@ -31,14 +35,18 @@ const val PROMPT_VER_CHAT: String = "v2"
  *    独立序列的另一好处：后续批次升 chat 单轮版本号时**不会撞号**（各自递增）。
  *
  * v1（2026-10-06，v0.3 B0）：工具路径首次独立记版本（提示压缩 + temperature 0.4）。
+ * v2（2026-10-06，v0.3 B4）：PV-1 = 规则同样作用于工具路径（两路共用 [ChatEngine.systemPrompt]）
+ *    + TOOL 模式省略「今天的已知数字」段（去重：数字改由 `query_stats` 按需取）。
  */
-const val PROMPT_VER_CHAT_TOOL: String = "v1"
+const val PROMPT_VER_CHAT_TOOL: String = "v2"
 
 /**
- * 系统提示的**路径模式**（v0.3 B0）。
+ * 系统提示的**路径模式**（v0.3 B0；v0.3 B4 扩展）。
  *
- * - [FULL]：单轮 / 回退路径 —— 「说话方式」用完整版，产出与改前**逐字节相同**；
- * - [TOOL]：agent 工具路径 —— 「说话方式」用压缩版，仅精简该段，
+ * - [FULL]：单轮 / 回退路径 —— 「说话方式」用完整版 + **注入「今天的已知数字」段**，
+ *   产出与改前**逐字节相同**；
+ * - [TOOL]：agent 工具路径 —— 「说话方式」用压缩版，**并省略「今天的已知数字」段**
+ *   （v0.3 B4 上下文去重：同一轮里数字只出现一次，改由 `query_stats` 按需取），
  *   硬边界 4 条与工具说明段（`HealthAgent.TOOLS_SECTION`）原样保留。
  */
 enum class PromptMode { FULL, TOOL }
@@ -97,6 +105,13 @@ internal object ChatEngine {
          * 只进对话 prompt：`PROMPT_EXTRACT` 一字不改、`PROMPT_VER` 不递增。
          */
         knowledge: String = "",
+        /**
+         * 用户自定义输出偏好规则（v0.3 B4）。空串 = 无规则，prompt 里整段省略
+         * （输出与无此参数的旧版**逐字节相同**）。由 [ChatViewModel] 在 IO 线程读出后传入。
+         *
+         * ⚠️ 追加在形参**末尾**，且非函数类型 → 不触发「尾随 λ 纪律」；既有调用点零改动。
+         */
+        userRules: String = "",
     ): Reply {
         val provider = OpenAiCompatProvider(config)
 
@@ -104,7 +119,7 @@ internal object ChatEngine {
             add(
                 ChatMessage(
                     role = "system",
-                    content = systemPrompt(context, sessionDate, background, knowledge),
+                    content = systemPrompt(context, sessionDate, background, knowledge, userRules = userRules),
                 ),
             )
             // 历史窗口：最近 16 条（9.2 上下文策略）
@@ -222,6 +237,11 @@ internal object ChatEngine {
          * 默认 [PromptMode.FULL] = 单轮 / 回退路径现状字节；工具路径传 [PromptMode.TOOL]。
          */
         mode: PromptMode = PromptMode.FULL,
+        /**
+         * 用户自定义输出偏好规则（v0.3 B4，决策 D1/D2）。追加在形参末尾（非函数类型）。
+         * 空串 = 无规则 → `userRulesBlock` 为空串 → 输出与改前**逐字节相同**。
+         */
+        userRules: String = "",
     ): String {
         val summary = TodaySummary.build(context)
         val summaryText = summary.lines.joinToString("\n")
@@ -279,17 +299,38 @@ $knowledge
         // knowledgeBlock 一律不动 —— 工具路径只是"说话方式更省 token"，不是第二套人格。
         val speaking = if (mode == PromptMode.TOOL) SPEAKING_STYLE_TOOL else SPEAKING_STYLE_FULL
 
+        // 「今天的已知数字」段（v0.3 B4 上下文去重）：TOOL 模式省略 —— 数字改由 `query_stats`
+        // 按需取，保证"同一轮上下文里同一数字只出现一次"在结构上成立（不靠模型自觉）。
+        // FULL 模式原样注入（含末尾空行）→ 与改前逐字节相同。单轮 / 回退路径不受影响。
+        val todayNumbersBlock = if (mode == PromptMode.TOOL) {
+            ""
+        } else {
+            "今天的已知数字（本地记录，可信）：\n$summaryText\n\n"
+        }
+
+        // 用户规则段（v0.3 B4，新通道 D2）：插在「说话方式」之后、「硬边界」之前。
+        // - 空则整段省略 → 老用户（无规则）输出与改前**逐字节相同**（字节冻结，人工核）；
+        // - 非空以 `\n\n` 结尾，恰好落在「说话方式」与「硬边界」之间的空行处；
+        // - precedence 声明（"以硬边界为准"）写在**本段内**（新通道），不改冻结模板字节；
+        //   硬边界仍是 prompt **最后**一段，物理上无法被规则段"覆盖"（四条硬边界不可被遮蔽）。
+        val userRulesBlock = if (userRules.isBlank()) {
+            ""
+        } else {
+            """
+用户自定义的输出偏好（可调整长度、风格、语气、人格；**与下面的硬边界冲突时，一律以硬边界为准**）：
+$userRules
+
+""".trimStart('\n')
+        }
+
         return """
 ${backgroundBlock}${knowledgeBlock}你是 Healix 的健康助理。这个人当前的主要目标是${summary.primaryGoalName}，
 同时也关心运动、睡眠和身体状况。今天是 $sessionDate。
 
-今天的已知数字（本地记录，可信）：
-$summaryText
-
-${foodPoolLine}你的说话方式：
+${todayNumbersBlock}${foodPoolLine}你的说话方式：
 ${speaking}
 
-硬边界（碰不得，其余你自己拿主意）：
+${userRulesBlock}硬边界（碰不得，其余你自己拿主意）：
 1. 数字（摄入、体重、运动量）只能来自上面给出的记录，没有就说没有，禁止估算当日总量。
 2. 「硬约束——必须遵守」段里的忌口、疼痛部位、运动条件必须遵守：饮食绕开忌口，运动避开疼痛部位相关动作、只用运动条件里的器材/场地；用户要求和硬约束冲突时，指出冲突并给替代方案。
 3. 不做疾病推断、不给用药或剂量建议、不给健康评分。问"吃什么药"这类问题时，可以给护理方向（休息、补水、物理降温等）和"出现什么情况该就医"，但不点名药物和剂量。今天或昨天有生病记录时，不推训练，推休息、补水、睡眠。

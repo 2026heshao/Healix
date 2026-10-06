@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    规则管理行：规则正文（text_1 15sp，单行省略，占满剩余宽度）+ 右侧启停开关。
+    点按正文 = 编辑；长按正文 = 上移 / 下移 / 删除（行为在 Fragment 侧回调）。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:gravity="center_vertical"
+    android:minHeight="@dimen/setting_row_height"
+    android:orientation="horizontal"
+    android:paddingStart="@dimen/screen_margin"
+    android:paddingTop="8dp"
+    android:paddingEnd="@dimen/screen_margin"
+    android:paddingBottom="8dp">
+
+    <TextView
+        android:id="@+id/ruleText"
+        style="@style/Text.Body"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:background="?attr/selectableItemBackground"
+        android:ellipsize="end"
+        android:maxLines="2"
+        tools:text="回答别超过 3 句，语气随意一点" />
+
+    <com.google.android.material.switchmaterial.SwitchMaterial
+        android:id="@+id/ruleSwitch"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_vertical"
+        android:layout_marginStart="12dp"
+        android:contentDescription="@null" />
+
+</LinearLayout>

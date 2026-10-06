@@ -7,6 +7,7 @@ import android.net.Uri
 import android.util.Log
 import androidx.room.withTransaction
 import com.healix.app.HealixApp
+import com.healix.app.db.AiRuleEntity
 import com.healix.app.db.DB_VERSION
 import com.healix.app.db.DailyPlanEntity
 import com.healix.app.db.DailyReviewEntity
@@ -107,6 +108,16 @@ internal object ImportReader {
     private const val MAX_SLEEP_H = 24.0
 
     /**
+     * 单条用户规则的字符上限（v0.3 B4）。
+     *
+     * 规则会整体拼进 system prompt，理论上该由写侧（[RulesViewModel]）约束；
+     * 但这里是**不信任来源**（手改文件 / 别版本写出），必须独立再截一刀，
+     * 否则一条 10MB 的规则会永久占住 SQLite 页、且每次对话都把它塞进 prompt。
+     * 数值 500 与写侧同一量级 —— 有第二处引用时再收敛成公共常量。
+     */
+    private const val MAX_RULE_LEN = 500
+
+    /**
      * 容器键：与 [ExportWriter.buildJson] 写出的结构一一对应，两侧必须同步改。
      *
      * 命名用 `JSON_` 前缀而不是 `KEY_`：`pipeline/check_kotlin.py` 的
@@ -122,6 +133,7 @@ internal object ImportReader {
     private const val JSON_REMINDERS = "reminders"
     private const val JSON_TRAINING = "training_plans"
     private const val JSON_SETTINGS = "settings"
+    private const val JSON_RULES = "rules"
 
     /**
      * `events.weight_kg` 的导出字段名。
@@ -318,6 +330,7 @@ internal object ImportReader {
         val seenReminders = db.reminderDao().listAll().mapTo(mutableSetOf()) { it.name }
         val seenWeeks = db.trainingPlanDao().listAll().mapTo(mutableSetOf()) { it.weekKey }
         val seenSettingKeys = db.settingsDao().listAll().mapTo(mutableSetOf()) { it.key }
+        val seenRules = db.aiRuleDao().listAll().mapTo(mutableSetOf()) { it.text }
 
         var inserted = 0
         var skipped = 0
@@ -472,6 +485,24 @@ internal object ImportReader {
                 }
             }
             for (row in settingRows) db.settingsDao().put(row)
+
+            // ── rules（v0.3 B4 / DR-1）：按 text 去重（自然键；id 是设备本地自增值，不搬）──
+            each(root.optJSONArray(JSON_RULES)) { o ->
+                val text = o.optString("text").trim().take(MAX_RULE_LEN)
+                if (text.isBlank() || !seenRules.add(text)) {
+                    skipped++
+                } else {
+                    db.aiRuleDao().upsert(
+                        AiRuleEntity(
+                            text = text,
+                            enabled = if (o.optInt("enabled", 1) != 0) 1 else 0,
+                            sortOrder = o.optInt("sort_order", 0),
+                            createdAt = o.optLong("created_at", 0L),
+                        ),
+                    )
+                    inserted++
+                }
+            }
         }
 
         return Report(

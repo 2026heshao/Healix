@@ -101,6 +101,9 @@ internal object NavHost {
     const val PAGE_KNOWLEDGE = "knowledge"
     const val PAGE_DEBUG = "debug"
 
+    /** 规则库（v0.3 B4；入口在设置页 AI 组）。 */
+    const val PAGE_RULES = "rules"
+
     /** 就医准备材料（v8 需求 9 功能 3；入口在「我的」页数据组）。 */
     const val PAGE_MEDICAL = "medical"
 

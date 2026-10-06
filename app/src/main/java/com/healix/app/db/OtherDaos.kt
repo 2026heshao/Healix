@@ -115,6 +115,13 @@ interface PlanDao {
     @Query("SELECT * FROM daily_plans WHERE date = :date LIMIT 1")
     suspend fun getPlan(date: String): DailyPlanEntity?
 
+    /**
+     * 取某一日区间内的全部今日计划（v0.3 B5，`query_plan` 工具用）。
+     * 按日期升序；`date` 是主键且格式为 `yyyy-MM-dd`，区间比较即字典序比较。
+     */
+    @Query("SELECT * FROM daily_plans WHERE date BETWEEN :dayFrom AND :dayTo ORDER BY date ASC")
+    suspend fun listPlansInRange(dayFrom: String, dayTo: String): List<DailyPlanEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertReview(review: DailyReviewEntity)
 

@@ -30,6 +30,8 @@ import java.time.LocalDate
  * - `body_signals`：由规则从 events 重新推导得出，`acknowledged` 是瞬时 UI 状态；
  * - `knowledge_docs` / `knowledge_chunks`：`uri` 指向本机 SAF 文档，新机上必然失效。
  *   知识库的迁移路径是"在新机重新上传 PDF"，而不是搬一串打不开的路径。
+ * - `tool_calls`：**工具调用是设备本地诊断/审计痕迹**（工具名/参数/耗时/是否确认），
+ *   不是跨设备有意义的用户数据；与 `llm_calls` 同类，**有意排除，非遗漏**。
  * - **API Key**：key 存在 EncryptedSharedPreferences，不在业务表里，天然导不出。
  *
  * 向后兼容：v1 的老备份仍可被 [ImportReader] 导入（缺的表就是不导入）。
@@ -189,6 +191,22 @@ internal object ExportWriter {
             settings.put(s.key, s.value)
         }
         root.put("settings", settings)
+
+        // rules（v0.3 B4 / DR-1 新增；**不导 id** —— 主键是设备本地自增值，
+        //        导入侧按 text 去重，text 才是用户眼里的身份；同 presets 的去重键选型）。
+        // 含 enabled = 0 的行：停用 ≠ 删除，重新启用即恢复（同 goals / reminders 的理由）。
+        val rules = JSONArray()
+        for (r in db.aiRuleDao().listAll()) {
+            rules.put(
+                JSONObject().apply {
+                    put("text", r.text)
+                    put("enabled", r.enabled)
+                    put("sort_order", r.sortOrder)
+                    put("created_at", r.createdAt)
+                },
+            )
+        }
+        root.put("rules", rules)
 
         root.toString()
     }

@@ -32,6 +32,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -74,6 +75,17 @@ data class SettingsValues(
      * 与 hideKcal 的「隐藏取反显示」语义相反）。
      */
     val aiDataFull: Boolean = true,
+    /**
+     * AI 工具总开关（settings 键 [SettingsKeys.AI_TOOLS_ENABLED]，v0.3 B5）。
+     * 键不存在 = 开（默认 true；判定口径 `!= "false"`）。
+     */
+    val aiToolsEnabled: Boolean = true,
+    /** 写工具：拟改今日计划（[SettingsKeys.AI_TOOL_WRITE_PLAN]，v0.3 B6，默认开）。 */
+    val aiToolWritePlan: Boolean = true,
+    /** 写工具：拟删记录（[SettingsKeys.AI_TOOL_WRITE_RECORD]，v0.3 B6，默认开）。 */
+    val aiToolWriteRecord: Boolean = true,
+    /** 写工具：拟改目标（[SettingsKeys.AI_TOOL_WRITE_GOAL]，v0.3 B6，默认开）。 */
+    val aiToolWriteGoal: Boolean = true,
     /**
      * 最近一条 events(type=body) 记录的体重（F5「当前体重」行）。
      * 0 = 从未记录，UI 显示「未记录」。读的是 events 表，不是 settings。
@@ -159,6 +171,11 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
     /** 启用中的提醒，按到期日升序。 */
     val reminders: StateFlow<List<ReminderEntity>> = db.reminderDao().observeEnabled()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** 规则库条数（v0.3 B4）：设置页「规则库」入口行的右侧值。 */
+    val ruleCount: StateFlow<Int> = db.aiRuleDao().observeAll()
+        .map { it.size }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
 
     // v6（11.1）：知识库文档数入口已迁「我的」页（MineFragment.observeKnowledgeCount 直连 DAO），
     // 设置页不再展示，此 Flow 与 exportBackup() 一并移除。
@@ -315,6 +332,11 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
             hideWeight = all[SettingsKeys.HIDE_WEIGHT] == "true",
             // 判定口径与 ProfileContext.aiDataFull 同源：!= "false"（键不存在 = 开）
             aiDataFull = all[SettingsKeys.AI_DATA_FULL] != "false",
+            // AI 工具与写权限（v0.3 B5/B6）：同为「键不存在 = 开」（D4）。
+            aiToolsEnabled = all[SettingsKeys.AI_TOOLS_ENABLED] != "false",
+            aiToolWritePlan = all[SettingsKeys.AI_TOOL_WRITE_PLAN] != "false",
+            aiToolWriteRecord = all[SettingsKeys.AI_TOOL_WRITE_RECORD] != "false",
+            aiToolWriteGoal = all[SettingsKeys.AI_TOOL_WRITE_GOAL] != "false",
             latestWeightKg = latestBody?.weightKg ?: 0.0,
             latestWeightDayKey = latestBody?.dayKey.orEmpty(),
             profileAllergens = parseProfileList(all[SettingsKeys.PROFILE_ALLERGENS]),
@@ -550,6 +572,23 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch(Dispatchers.IO) {
             val full = settings.get(SettingsKeys.AI_DATA_FULL) != "false"
             settings.put(SettingEntity(key = SettingsKeys.AI_DATA_FULL, value = if (full) "false" else "true"))
+            reload()
+        }
+    }
+
+    /**
+     * 切换一个 AI 工具权限开关（v0.3 B5/B6）。`key` ∈ {AI_TOOLS_ENABLED, AI_TOOL_WRITE_*}。
+     *
+     * 语义统一为「默认开」（决策 D4）：键不存在视为开 → 当前为开则写 `"false"`、否则写 `"true"`。
+     * 写法镜像 [toggleAiDataFull]（IO 协程 put + reload）。
+     *
+     * ⚠️ 这只是**用户意图的持久化**；真正的拦截在 `HealthAgent` 执行层（纵深防御），
+     *    关掉写权限后即使模型构造出写调用也会被拒（不产 draft）。
+     */
+    fun toggleAiSwitch(key: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val on = settings.get(key) != "false"
+            settings.put(SettingEntity(key = key, value = if (on) "false" else "true"))
             reload()
         }
     }

@@ -1,7 +1,12 @@
 package com.healix.app.agent
 
 import android.content.Context
+import com.healix.app.HealixApp
 import com.healix.app.db.ChatMessageEntity
+import com.healix.app.db.GoalEntity
+import com.healix.app.db.GoalMetrics
+import com.healix.app.db.SettingsKeys
+import com.healix.app.db.ToolCallEntity
 import com.healix.app.net.ChatMessage
 import com.healix.app.net.ChatRequest
 import com.healix.app.net.ChatResult
@@ -11,25 +16,80 @@ import com.healix.app.net.ProviderConfig
 import com.healix.app.net.ToolCall
 import com.healix.app.net.ToolDef
 import com.healix.app.net.ToolFunctionDef
+import com.healix.app.parse.loadsLenient
 import com.healix.app.repo.EventRepository
 import com.healix.app.ui.ChatEngine
 import com.healix.app.ui.PROMPT_VER_CHAT_TOOL
 import com.healix.app.ui.PromptMode
 import com.healix.app.ui.TodaySummary
+import com.healix.app.ui.TrainingPlanner
+import com.healix.app.ui.dowLabel
+import java.util.UUID
 import org.json.JSONObject
 
 /**
- * propose_log 拟好的记录草稿。
+ * Agent 产出的**待确认草案**（v0.3 B6 泛化）：一切"需要用户点确认才生效"的动作。
  *
- * ⚠️ 这**不是**已入库的事件 —— 只是一段待确认的原文。用户点确认后由
- * ChatViewModel 调 [EventRepository.submit] 走完整抽取链（pending → done），
- * 与「记一笔」共用同一条数据管道；点取消则什么都不发生。
- * Agent 自身**无权直接写入** events 表。
+ * ⚠️ 这**不是**已入库的副作用 —— 只是"我打算这么做"的说明。用户点确认后由
+ * ChatViewModel 走各自的写路径落库；点取消/下拖则什么都不发生。
+ * Agent 自身**无权直接写入** events / daily_plans / goals 表。
  *
- * public（非 internal）：ChatViewModel 的公开流 [ChatViewModel.proposal]
- * 要暴露它 —— Kotlin 禁止 public 成员暴露 internal 类型。
+ * public（非 internal）：ChatViewModel 的公开流 [ChatViewModel.proposal] 要暴露它
+ * —— Kotlin 禁止 public 成员暴露 internal 类型。
+ *
+ * ⚠️ `callUid` 是**相对设计草图的最小必要扩展**：设计 §1.3.3 要求确认/取消后
+ *    `ToolCallDao.markApproved(call_uid, …)`，而 §3.3 的草案数据类未携带关联键 ——
+ *    没有它就无法把"这次确认"回填到对应的 `tool_calls` 行。故各草案统一携带
+ *    [callUid]（= 对应 `tool_calls.call_uid`）。
  */
-data class LogProposal(val rawText: String)
+sealed interface AgentProposal {
+    /** 关联的 `tool_calls.call_uid`，供确认/取消后回填 `approved`。 */
+    val callUid: String
+
+    /** 供 UI 展示的人类可读摘要（`ActionConfirmSheet` 的 message）。 */
+    val summary: String
+}
+
+/**
+ * 拟一条记录草稿（`propose_log`）。
+ *
+ * `rawText` 是用户原话，确认后由 ChatViewModel 调 [EventRepository.submit]
+ * 走完整抽取链（pending → done），与「记一笔」共用同一条数据管道。
+ */
+data class LogProposal(
+    val rawText: String,
+    override val callUid: String = "",
+) : AgentProposal {
+    override val summary: String get() = rawText
+}
+
+/**
+ * 拟改某日计划的**备注**（`propose_plan_change`）。
+ *
+ * @property date 目标日期 `yyyy-MM-dd`（必须已存在该日计划，否则确认时落库失败）
+ * @property op   机器可应用的改动载荷（当前唯一操作 = 新的计划备注文本）
+ */
+data class PlanChangeProposal(
+    val date: String,
+    val op: String,
+    override val callUid: String,
+    override val summary: String,
+) : AgentProposal
+
+/** 拟改某个目标值（`propose_goal_change`）。 */
+data class GoalChangeProposal(
+    val metric: String,
+    val value: Double,
+    override val callUid: String,
+    override val summary: String,
+) : AgentProposal
+
+/** 拟删除一条记录（`propose_record_delete`，服务端已解析出唯一 `clientEventId`）。 */
+data class RecordDeleteProposal(
+    val clientEventId: String,
+    override val callUid: String,
+    override val summary: String,
+) : AgentProposal
 
 /** Agent 循环的结果（调用方 ChatViewModel 按分支落库 / 回退）。 */
 internal sealed interface AgentOutcome {
@@ -41,8 +101,11 @@ internal sealed interface AgentOutcome {
      */
     data class Done(val text: String, val toolsUsed: Int = 0) : AgentOutcome
 
-    /** propose_log 已拟稿，等用户确认。text 是随附说明（落库为 assistant 消息）。 */
-    data class ProposalPending(val text: String, val proposal: LogProposal) : AgentOutcome
+    /**
+     * 已拟稿（记录 / 计划 / 目标 / 删除），等用户确认。
+     * text 是随附说明（落库为 assistant 消息）；proposal 是待确认草案（v0.3 B6 泛化）。
+     */
+    data class ProposalPending(val text: String, val proposal: AgentProposal) : AgentOutcome
 
     /** 明确限流：UI 显示"排队中"，不进降级链（等待本身是预期行为）。 */
     data class RateLimited(val message: String) : AgentOutcome
@@ -52,21 +115,101 @@ internal sealed interface AgentOutcome {
 }
 
 /**
- * 工具注册表（S3）：三个只读/拟稿工具，全部针对本地 Room。
+ * Agent 的工具权限（v0.3 B5/B6，决策 D4：全默认开）。
+ *
+ * ══════════════════════════════════════════════════════════════════════════
+ * 纵深防御的第二道（不能只靠 UI 拦）
+ * ══════════════════════════════════════════════════════════════════════════
+ * `HealthAgent` 读出当前开关 → 组成本对象 → 传给 [ToolRegistry.execute]；
+ * **未授权时执行层直接拒绝**（返回"没有权限"文本，**不产 draft**）。
+ * 即便模型被诱导构造出写调用，也拿不到任何副作用。
+ *
+ * 判定口径与设置页一致：键不存在 = 开（`!= "false"`）。
+ */
+data class ToolPermissions(
+    val toolsEnabled: Boolean = true,
+    val writePlan: Boolean = true,
+    val writeRecord: Boolean = true,
+    val writeGoal: Boolean = true,
+) {
+    companion object {
+        /** 从 `settings` 读出当前权限（默认全开）。IO 读库，调用方在协程内。 */
+        suspend fun load(context: Context): ToolPermissions {
+            val dao = HealixApp.from(context).database.settingsDao()
+            return ToolPermissions(
+                toolsEnabled = dao.get(SettingsKeys.AI_TOOLS_ENABLED) != "false",
+                writePlan = dao.get(SettingsKeys.AI_TOOL_WRITE_PLAN) != "false",
+                writeRecord = dao.get(SettingsKeys.AI_TOOL_WRITE_RECORD) != "false",
+                writeGoal = dao.get(SettingsKeys.AI_TOOL_WRITE_GOAL) != "false",
+            )
+        }
+    }
+}
+
+/**
+ * 一次工具执行的结果（v0.3 B5/B6）。
+ *
+ * @property text        回给模型的文本（中文紧凑 / 错误说明）
+ * @property proposal    非空 = 已拟稿（调用方应终止循环转人工确认）
+ * @property callUid     本次调用的关联 id（写 `tool_calls` + 回填 `approved` 用）
+ * @property needsConfirm 是否需用户确认（拟稿类工具 = true，只读 = false）
+ */
+internal data class ToolExecResult(
+    val text: String,
+    val proposal: AgentProposal?,
+    val callUid: String,
+    val needsConfirm: Boolean,
+)
+
+/**
+ * 工具注册表（S3–S4；v0.3 B5 加 3 只读 + B6 加 3 写）。
  *
  * 设计取舍：
- * - **只读为主**：query_events / query_stats 只查不写；唯一的"写"入口
- *   propose_log 也只产草稿（见 [LogProposal]）—— 有界自主的边界在这里划死。
- * - 工具结果一律转成**中文紧凑文本**回给模型：模型读文本比读 JSON 省 token，
- *   且「来源标注」规则天然成立（数字来自工具返回）。
- * - 参数解析失败 / 未知工具名**不抛异常**，返回一句错误说明 —— 模型能看到
- *   错误就有机会自纠，循环也不至于断。
+ * - **只读为主**：query_events / query_stats / query_plan / query_goal /
+ *   query_training_week 只查不写；写入口（propose_log / propose_plan_change /
+ *   propose_goal_change / propose_record_delete）**只产草稿**（见 [AgentProposal]）
+ *   —— 有界自主的边界在这里划死。
+ * - 工具结果一律转成**中文紧凑文本**回给模型：省 token，且「来源标注」规则天然成立。
+ * - 参数解析失败 / 未知名 / **无权限** 一律**不抛异常**，返回一句错误说明 ——
+ *   模型能看到错误就有机会自纠，循环也不至于断。
  */
 internal object ToolRegistry {
 
     const val NAME_QUERY_EVENTS = "query_events"
     const val NAME_QUERY_STATS = "query_stats"
+    const val NAME_QUERY_PLAN = "query_plan"
+    const val NAME_QUERY_GOAL = "query_goal"
+    const val NAME_QUERY_TRAINING_WEEK = "query_training_week"
     const val NAME_PROPOSE_LOG = "propose_log"
+    const val NAME_PROPOSE_PLAN_CHANGE = "propose_plan_change"
+    const val NAME_PROPOSE_GOAL_CHANGE = "propose_goal_change"
+    const val NAME_PROPOSE_RECORD_DELETE = "propose_record_delete"
+
+    /** `yyyy-MM-dd` 校验正则（与 `query_events` 既有先例同款）。 */
+    private val DATE_PATTERN = Regex("""\d{4}-\d{2}-\d{2}""")
+
+    /** 可写目标指标（**不含 `primary`** —— 它的 `target_value` 编码的是模式，不是数值）。 */
+    private val WRITABLE_GOAL_METRICS = setOf(
+        GoalMetrics.KCAL_DAILY,
+        GoalMetrics.WEIGHT_KG,
+        GoalMetrics.SESSIONS_PER_WEEK,
+        GoalMetrics.TRAIN_MINUTES_PER_WEEK,
+        GoalMetrics.SLEEP_H,
+        GoalMetrics.WATER_ML,
+    )
+
+    /**
+     * 计划备注长度上限（防模型回超长串）。
+     *
+     * ⚠️ 刻意不叫 `MAX_NOTE_LEN`：`PlanGenerator` 内已有同名同值的私有常量，而
+     *    `check_kotlin.py` 的 `check_duplicate_constants` 判据是「同名**且**同值」——
+     *    本常量属工具层、与计划生成层的用途不同，取不同名避免无意义的收敛提示
+     *    （与 `RULE_TEXT_MAX_LEN` vs `MAX_RULE_LEN` 同一处置理由）。
+     */
+    private const val MAX_PLAN_NOTE_LEN = 200
+
+    /** `query_plan` 单次最多回多少条计划行（token 预算）。 */
+    private const val MAX_PLAN_ROWS = 14
 
     /** 交给模型的工具 schema（OpenAI function calling 格式）。 */
     val defs: List<ToolDef> = listOf(
@@ -108,6 +251,49 @@ internal object ToolRegistry {
         ),
         ToolDef(
             function = ToolFunctionDef(
+                name = NAME_QUERY_PLAN,
+                description = "查询某日期区间内已生成的今日计划（备注 / 来源）。" +
+                    "回答“我的计划是什么/某天安排了什么”用它查证。",
+                parameters = mapOf(
+                    "type" to "object",
+                    "properties" to mapOf(
+                        "day_from" to mapOf(
+                            "type" to "string",
+                            "description" to "开始日期，yyyy-MM-dd",
+                        ),
+                        "day_to" to mapOf(
+                            "type" to "string",
+                            "description" to "结束日期，yyyy-MM-dd",
+                        ),
+                    ),
+                    "required" to listOf("day_from", "day_to"),
+                ),
+            ),
+        ),
+        ToolDef(
+            function = ToolFunctionDef(
+                name = NAME_QUERY_GOAL,
+                description = "查询当前生效的目标（主目标 / 体重 / 训练 / 睡眠 / 饮水 / 摄入）。" +
+                    "回答“我的目标是什么”用它查证，不要凭记忆。",
+                parameters = mapOf(
+                    "type" to "object",
+                    "properties" to mapOf<String, Any?>(),
+                ),
+            ),
+        ),
+        ToolDef(
+            function = ToolFunctionDef(
+                name = NAME_QUERY_TRAINING_WEEK,
+                description = "查询本周训练计划（每天安排 + 已完成情况 + 每周目标）。" +
+                    "回答“这周练什么/练了几次”用它查证。",
+                parameters = mapOf(
+                    "type" to "object",
+                    "properties" to mapOf<String, Any?>(),
+                ),
+            ),
+        ),
+        ToolDef(
+            function = ToolFunctionDef(
                 name = NAME_PROPOSE_LOG,
                 description = "拟一条记录草稿。用户让你记东西时调用（raw_text 用用户的原话），" +
                     "草稿要经用户确认后才会写入，你无权直接写入记录。",
@@ -123,37 +309,152 @@ internal object ToolRegistry {
                 ),
             ),
         ),
+        ToolDef(
+            function = ToolFunctionDef(
+                name = NAME_PROPOSE_PLAN_CHANGE,
+                description = "拟修改某一天计划的备注（如把某天改成休息日、调整安排说明）。" +
+                    "草稿经用户确认后才生效，你无权直接修改计划。",
+                parameters = mapOf(
+                    "type" to "object",
+                    "properties" to mapOf(
+                        "date" to mapOf(
+                            "type" to "string",
+                            "description" to "要修改的日期，yyyy-MM-dd",
+                        ),
+                        "note" to mapOf(
+                            "type" to "string",
+                            "description" to "新的计划备注文本",
+                        ),
+                    ),
+                    "required" to listOf("date", "note"),
+                ),
+            ),
+        ),
+        ToolDef(
+            function = ToolFunctionDef(
+                name = NAME_PROPOSE_GOAL_CHANGE,
+                description = "拟修改一个目标值（体重 kg / 每周训练次数 / 训练分钟 / 睡眠小时 / 饮水 ml / " +
+                    "每日摄入 kcal）。草稿经用户确认后才生效，你无权直接修改目标。",
+                parameters = mapOf(
+                    "type" to "object",
+                    "properties" to mapOf(
+                        "metric" to mapOf(
+                            "type" to "string",
+                            "description" to "目标指标：weight_kg / sessions_per_week / " +
+                                "train_minutes_per_week / sleep_h / water_ml / kcal_daily",
+                        ),
+                        "value" to mapOf(
+                            "type" to "number",
+                            "description" to "新的目标数值（正数）",
+                        ),
+                    ),
+                    "required" to listOf("metric", "value"),
+                ),
+            ),
+        ),
+        ToolDef(
+            function = ToolFunctionDef(
+                name = NAME_PROPOSE_RECORD_DELETE,
+                description = "拟删除一条记录。用日期 + 关键词定位那条记录（关键词取原文里能唯一识别它的片段）；" +
+                    "命中 0 条或多条会失败，请把关键词说得更具体。草稿经用户确认后才删除。",
+                parameters = mapOf(
+                    "type" to "object",
+                    "properties" to mapOf(
+                        "day" to mapOf(
+                            "type" to "string",
+                            "description" to "记录所在日期，yyyy-MM-dd",
+                        ),
+                        "keyword" to mapOf(
+                            "type" to "string",
+                            "description" to "能唯一识别该记录的原文片段",
+                        ),
+                    ),
+                    "required" to listOf("day", "keyword"),
+                ),
+            ),
+        ),
     )
 
     /**
      * 执行一次工具调用。
      *
-     * @return 第一元素 = 回给模型的结果文本；第二元素非空 = propose_log 拟稿
-     * （调用方应终止循环转人工确认）。
+     * @return [ToolExecResult]：text 回给模型；proposal 非空 = 拟稿（调用方终止循环）。
+     *   未授权 / 参数非法 / 未知名一律返回错误文本，**不抛异常**。
      */
-    suspend fun execute(context: Context, call: ToolCall): Pair<String, LogProposal?> {
+    suspend fun execute(
+        context: Context,
+        call: ToolCall,
+        perms: ToolPermissions,
+    ): ToolExecResult {
+        val uid = UUID.randomUUID().toString()
+        val name = call.function.name
+
+        // 纵深防御第一道：总开关关闭 → 任何工具一律拒绝（不产 draft、不查库）。
+        if (!perms.toolsEnabled) {
+            return ToolExecResult("AI 工具当前已被关闭，无法执行。", null, uid, false)
+        }
+
         val args: JSONObject = try {
             JSONObject(call.function.arguments.ifBlank { "{}" })
         } catch (_: Exception) {
-            return "工具参数不是合法 JSON，请检查后重试。" to null
+            return ToolExecResult("工具参数不是合法 JSON，请检查后重试。", null, uid, false)
         }
-        return when (call.function.name) {
-            NAME_QUERY_EVENTS -> queryEvents(context, args) to null
-            NAME_QUERY_STATS -> queryStats(context) to null
-            NAME_PROPOSE_LOG -> propose(args)
-            else -> "未知工具：${call.function.name}" to null
+
+        return when (name) {
+            NAME_QUERY_EVENTS -> ok(uid, queryEvents(context, args))
+            NAME_QUERY_STATS -> ok(uid, queryStats(context))
+            NAME_QUERY_PLAN -> ok(uid, queryPlan(context, args))
+            NAME_QUERY_GOAL -> ok(uid, queryGoal(context))
+            NAME_QUERY_TRAINING_WEEK -> ok(uid, queryTrainingWeek(context))
+
+            NAME_PROPOSE_LOG -> proposeLog(args, uid)
+
+            NAME_PROPOSE_PLAN_CHANGE -> if (!perms.writePlan) {
+                denied(uid)
+            } else {
+                proposePlanChange(args, uid)
+            }
+
+            NAME_PROPOSE_GOAL_CHANGE -> if (!perms.writeGoal) {
+                denied(uid)
+            } else {
+                proposeGoalChange(args, uid)
+            }
+
+            NAME_PROPOSE_RECORD_DELETE -> if (!perms.writeRecord) {
+                denied(uid)
+            } else {
+                proposeRecordDelete(context, args, uid)
+            }
+
+            else -> ToolExecResult("未知工具：$name", null, uid, false)
         }
     }
+
+    // ── 结果构造 ────────────────────────────────────────────────────
+
+    /** 只读工具结果。 */
+    private fun ok(uid: String, text: String): ToolExecResult =
+        ToolExecResult(text, null, uid, false)
+
+    /** 权限缺失（不产 draft）。 */
+    private fun denied(uid: String): ToolExecResult =
+        ToolExecResult("你当前没有该操作权限，请让用户在设置里开启。", null, uid, false)
+
+    /** 拟稿结果（需用户确认）。 */
+    private fun draft(uid: String, text: String, proposal: AgentProposal): ToolExecResult =
+        ToolExecResult(text, proposal, uid, true)
+
+    // ── 只读工具 ────────────────────────────────────────────────────
 
     private suspend fun queryEvents(context: Context, args: JSONObject): String {
         val from = args.optString("day_from").trim()
         val to = args.optString("day_to").trim()
         val typeFilter = args.optString("type").trim()
-        val datePattern = Regex("""\d{4}-\d{2}-\d{2}""")
-        if (!datePattern.matches(from) || !datePattern.matches(to)) {
+        if (!DATE_PATTERN.matches(from) || !DATE_PATTERN.matches(to)) {
             return "day_from / day_to 必须是 yyyy-MM-dd 格式。"
         }
-        val db = com.healix.app.HealixApp.from(context).database
+        val db = HealixApp.from(context).database
         val all = try {
             db.eventDao().listInRange(from, to)
         } catch (_: Exception) {
@@ -165,9 +466,7 @@ internal object ToolRegistry {
             all.filter { it.type == typeFilter }
         }
         if (filtered.isEmpty()) return "该区间没有任何记录。"
-        // token 预算（§4.3）：最多回 30 条（原 50），单条原文截断到 36 字，
-        // 多则提示截断 —— 单次工具结果目标 ≤ 600 token。现有行格式本就只含
-        // dayKey/类型/原文/kcal（无 id/created_at），压预算靠"降条数 + 截断原文"。
+        // token 预算（§4.3）：最多回 30 条，单条原文截断到 36 字。
         val shown = filtered.takeLast(30)
         val lines = shown.map { e ->
             val kcal = if (e.kcal > 0) "（${e.kcal} kcal）" else ""
@@ -187,11 +486,161 @@ internal object ToolRegistry {
         return TodaySummary.build(context).lines.joinToString("\n")
     }
 
-    private fun propose(args: JSONObject): Pair<String, LogProposal?> {
-        val raw = args.optString("raw_text").trim()
-        if (raw.isEmpty()) return "raw_text 不能为空。" to null
-        return "已拟好记录草稿：「$raw」。等待用户确认，确认后才会写入。" to LogProposal(raw)
+    private suspend fun queryPlan(context: Context, args: JSONObject): String {
+        val from = args.optString("day_from").trim()
+        val to = args.optString("day_to").trim()
+        if (!DATE_PATTERN.matches(from) || !DATE_PATTERN.matches(to)) {
+            return "day_from / day_to 必须是 yyyy-MM-dd 格式。"
+        }
+        val db = HealixApp.from(context).database
+        val rows = try {
+            db.planDao().listPlansInRange(from, to)
+        } catch (_: Exception) {
+            return "查询失败，请稍后再试。"
+        }
+        if (rows.isEmpty()) return "该区间没有生成过今日计划。"
+        val shown = rows.takeLast(MAX_PLAN_ROWS)
+        val lines = shown.map { p ->
+            val src = if (p.source == TrainingPlanner.SOURCE_AI) "AI" else "本地"
+            val detail = planNoteOf(p.planJson)
+                ?: p.content?.replace('\n', ' ')?.take(60)?.ifBlank { null }
+                ?: "无备注"
+            "• ${p.date}（$src）：$detail"
+        }
+        val truncated = if (rows.size > shown.size) {
+            "\n（仅显示最近 ${shown.size} 条，共 ${rows.size} 条）"
+        } else {
+            ""
+        }
+        return lines.joinToString("\n") + truncated
     }
+
+    private suspend fun queryGoal(context: Context): String {
+        val db = HealixApp.from(context).database
+        val rows = try {
+            db.goalDao().listActive()
+        } catch (_: Exception) {
+            return "查询失败，请稍后再试。"
+        }
+        if (rows.isEmpty()) return "还没有设置目标。"
+        return rows.joinToString("\n") { g -> "• ${goalMetricName(g.metric)}：${goalValueText(g)}" }
+    }
+
+    private suspend fun queryTrainingWeek(context: Context): String {
+        val planner = TrainingPlanner(context)
+        val plan = runCatching { planner.loadOrGenerate(false) }.getOrNull()
+            ?: return "本周还没有生成训练计划。"
+        val done = runCatching { planner.completedDows(plan) }.getOrDefault(emptySet())
+        val goal = runCatching { planner.sessionsGoal() }.getOrDefault(0)
+        val sb = StringBuilder()
+        if (plan.focus.isNotBlank()) sb.append("本周重点：").append(plan.focus).append('\n')
+        for (day in plan.days) {
+            val mark = if (day.dow in done) "✓" else "·"
+            val body = if (day.isRest) "休息" else "${day.title}（${day.itemsLine()}）"
+            sb.append("$mark ${dowLabel(day.dow)}：$body").append('\n')
+        }
+        sb.append("已完成 ${done.size}/$goal 次")
+        return sb.toString().trim()
+    }
+
+    // ── 拟稿工具（只产 draft）────────────────────────────────────────
+
+    private fun proposeLog(args: JSONObject, uid: String): ToolExecResult {
+        val raw = args.optString("raw_text").trim()
+        if (raw.isEmpty()) return ToolExecResult("raw_text 不能为空。", null, uid, true)
+        return draft(
+            uid,
+            "已拟好记录草稿：「$raw」。等待用户确认，确认后才会写入。",
+            LogProposal(rawText = raw, callUid = uid),
+        )
+    }
+
+    private fun proposePlanChange(args: JSONObject, uid: String): ToolExecResult {
+        val date = args.optString("date").trim()
+        val note = args.optString("note").trim()
+        if (!DATE_PATTERN.matches(date)) {
+            return ToolExecResult("date 必须是 yyyy-MM-dd 格式。", null, uid, true)
+        }
+        if (note.isEmpty()) return ToolExecResult("note 不能为空。", null, uid, true)
+        if (note.length > MAX_PLAN_NOTE_LEN) {
+            return ToolExecResult("note 太长（最多 $MAX_PLAN_NOTE_LEN 字）。", null, uid, true)
+        }
+        val summary = "把 $date 的计划备注改成：$note"
+        return draft(
+            uid,
+            "已拟好计划修改草稿：$summary。等待用户确认。",
+            // op = 机器可应用的载荷（当前唯一操作 = 新的计划备注）
+            PlanChangeProposal(date = date, op = note, callUid = uid, summary = summary),
+        )
+    }
+
+    private fun proposeGoalChange(args: JSONObject, uid: String): ToolExecResult {
+        val metric = args.optString("metric").trim()
+        val value = args.optDouble("value", Double.NaN)
+        if (metric !in WRITABLE_GOAL_METRICS) {
+            return ToolExecResult(
+                "metric 不合法，可选：${WRITABLE_GOAL_METRICS.joinToString(" / ")}。",
+                null, uid, true,
+            )
+        }
+        if (!value.isFinite() || value <= 0.0) {
+            return ToolExecResult("value 必须是正数。", null, uid, true)
+        }
+        val summary = "把「${metricName(metric)}」目标改为 ${trimNum(value)}${metricUnit(metric)}"
+        return draft(
+            uid,
+            "已拟好目标修改草稿：$summary。等待用户确认。",
+            GoalChangeProposal(metric = metric, value = value, callUid = uid, summary = summary),
+        )
+    }
+
+    private suspend fun proposeRecordDelete(
+        context: Context,
+        args: JSONObject,
+        uid: String,
+    ): ToolExecResult {
+        val day = args.optString("day").trim()
+        val keyword = args.optString("keyword").trim()
+        if (!DATE_PATTERN.matches(day)) {
+            return ToolExecResult("day 必须是 yyyy-MM-dd 格式。", null, uid, true)
+        }
+        if (keyword.isEmpty()) return ToolExecResult("keyword 不能为空。", null, uid, true)
+        val db = HealixApp.from(context).database
+        val rows = try {
+            db.eventDao().listByDay(day)
+        } catch (_: Exception) {
+            return ToolExecResult("查询失败，请稍后再试。", null, uid, true)
+        }
+        val hits = rows.filter { it.rawText.contains(keyword) }
+        if (hits.isEmpty()) {
+            return ToolExecResult("在 $day 没找到包含「$keyword」的记录。", null, uid, true)
+        }
+        if (hits.size > 1) {
+            return ToolExecResult(
+                "在 $day 找到 ${hits.size} 条包含「$keyword」的记录，请把关键词说得更具体。",
+                null, uid, true,
+            )
+        }
+        val target = hits.first()
+        val summary = "删除 $day 的记录「${target.rawText.take(30)}」"
+        return draft(
+            uid,
+            "已拟好删除草稿：$summary。等待用户确认。",
+            RecordDeleteProposal(
+                clientEventId = target.clientEventId,
+                callUid = uid,
+                summary = summary,
+            ),
+        )
+    }
+
+    // ── 辅助 ────────────────────────────────────────────────────────
+
+    private fun planNoteOf(json: String?): String? = runCatching {
+        if (json.isNullOrBlank()) return@runCatching null
+        val obj = loadsLenient(json) as? JSONObject ?: return@runCatching null
+        (obj.opt("note") as? String)?.trim()?.ifEmpty { null }
+    }.getOrNull()
 
     private fun typeName(type: String): String = when (type) {
         "meal" -> "饮食"
@@ -201,6 +650,49 @@ internal object ToolRegistry {
         "illness" -> "生病"
         else -> "其他"
     }
+
+    private fun goalMetricName(metric: String): String = metricName(metric)
+
+    /** 目标指标中文名。 */
+    private fun metricName(metric: String): String = when (metric) {
+        GoalMetrics.PRIMARY -> "主目标"
+        GoalMetrics.KCAL_DAILY -> "每日摄入"
+        GoalMetrics.WEIGHT_KG -> "体重"
+        GoalMetrics.SESSIONS_PER_WEEK -> "每周训练次数"
+        GoalMetrics.TRAIN_MINUTES_PER_WEEK -> "每周训练时长"
+        GoalMetrics.SLEEP_H -> "睡眠"
+        GoalMetrics.WATER_ML -> "饮水"
+        else -> metric
+    }
+
+    private fun metricUnit(metric: String): String = when (metric) {
+        GoalMetrics.WEIGHT_KG -> " kg"
+        GoalMetrics.SLEEP_H -> " 小时"
+        GoalMetrics.WATER_ML -> " ml"
+        GoalMetrics.KCAL_DAILY -> " kcal"
+        GoalMetrics.SESSIONS_PER_WEEK -> " 次/周"
+        GoalMetrics.TRAIN_MINUTES_PER_WEEK -> " 分钟/周"
+        else -> ""
+    }
+
+    private fun goalValueText(g: GoalEntity): String = when (g.metric) {
+        GoalMetrics.PRIMARY -> when (g.targetValue.toInt()) {
+            0 -> "增重"
+            1 -> "减重"
+            2 -> "保持"
+            else -> "自定义"
+        }
+        GoalMetrics.SLEEP_H -> "${trimNum(g.targetValue)} 小时"
+        GoalMetrics.WEIGHT_KG -> "${trimNum(g.targetValue)} kg"
+        GoalMetrics.KCAL_DAILY -> "${g.targetValue.toInt()} kcal"
+        GoalMetrics.SESSIONS_PER_WEEK -> "${g.targetValue.toInt()} 次/周"
+        GoalMetrics.TRAIN_MINUTES_PER_WEEK -> "${g.targetValue.toInt()} 分钟/周"
+        GoalMetrics.WATER_ML -> "${g.targetValue.toInt()} ml"
+        else -> trimNum(g.targetValue)
+    }
+
+    private fun trimNum(v: Double): String =
+        if (v == v.toLong().toDouble()) v.toLong().toString() else v.toString()
 }
 
 /**
@@ -208,21 +700,23 @@ internal object ToolRegistry {
  *
  * 三重保险（C5 有界自主，缺一不可）：
  * 1. **步数上限** [MAX_STEPS]：每执行一轮工具调用计 1 步，超过即弃局回退单轮；
- * 2. **墙钟上限** [WALL_CLOCK_MS]：从 run() 开始计时，任何一轮开始前检查，
- *    超时即回退 —— 网络慢的用户不等无底洞；
- * 3. **同参即停**：连续两轮工具调用签名（工具名+参数串）完全一致 = 模型卡死，
- *    立即回退，不浪费下一次请求。
+ * 2. **墙钟上限** [WALL_CLOCK_MS]：从 run() 开始计时，任何一轮开始前检查，超时即回退；
+ * 3. **同参即停**：连续两轮工具调用签名完全一致 = 模型卡死，立即回退。
  *
  * 降级链：agent（本类）→ 单轮 ChatEngine → 本地模板。
  * 本类只负责第一级到第二级的判定；单轮与模板由调用方（ChatViewModel / ChatEngine）承担。
  *
- * 埋点：**每次** provider 往返都经 [EventRepository.recordChatCall] 记 purpose=ask
- * —— 此前聊天链路从未落 llm_calls，配额计数与设置页「今日对话调用」都靠它。
+ * 埋点：
+ * - **每次** provider 往返经 [EventRepository.recordChatCall] 记一条 `llm_calls`
+ *   （purpose=ask，配额不变式：一次往返恰好一行、失败也记、禁补记）；
+ * - **每次**工具调用经 [recordToolCall] 记一条 `tool_calls`（独立新表，**不进** `llm_calls`）。
  */
 internal class HealthAgent(
     private val context: Context,
     private val repo: EventRepository,
 ) {
+
+    private val db = HealixApp.from(context).database
 
     suspend fun run(
         config: ProviderConfig,
@@ -231,20 +725,26 @@ internal class HealthAgent(
         history: List<ChatMessageEntity>,
         background: String,
         knowledge: String,
+        /** 用户自定义输出偏好规则（v0.3 B4）：与单轮同源注入，空 = 不注入。 */
+        userRules: String = "",
     ): AgentOutcome {
         val provider = OpenAiCompatProvider(config)
         val deadline = System.currentTimeMillis() + WALL_CLOCK_MS
+        // 权限（纵深防御第二道）：读出开关 → 执行层真拦（不只看 UI）。
+        val perms = ToolPermissions.load(context)
 
         val messages = mutableListOf<ChatMessage>()
         // 系统提示与单轮同源（ChatEngine），但按**工具路径模式**注入：
-        // `PromptMode.TOOL` 走压缩版「说话方式」（省 token），人格/硬边界/隐私规则仍同源
-        // （不出现第二套人格）。工具说明段追加在其后。
+        // `PromptMode.TOOL` 走压缩版「说话方式」+ 省略「今天的已知数字」（去重，数字改由
+        // query_stats 按需取），人格/硬边界/隐私规则仍同源（不出现第二套人格）。
+        // 用户规则同样作用于工具路径（PV-1）。工具说明段（含动态权限声明）追加在其后。
         messages += ChatMessage(
             role = "system",
             content = ChatEngine.systemPrompt(
                 context, sessionDate, background, knowledge,
                 mode = PromptMode.TOOL,
-            ) + TOOLS_SECTION,
+                userRules = userRules,
+            ) + toolsSection(perms),
         )
         history.takeLast(HISTORY_WINDOW).forEach { m ->
             if (m.role == "user" || m.role == "assistant") {
@@ -298,19 +798,29 @@ internal class HealthAgent(
                         toolCalls = result.toolCalls,
                     )
 
-                    var proposal: LogProposal? = null
+                    var proposal: AgentProposal? = null
                     for (call in result.toolCalls) {
-                        val (resultText, proposed) = ToolRegistry.execute(context, call)
+                        val callStarted = System.currentTimeMillis()
+                        val exec = ToolRegistry.execute(context, call, perms)
+                        val callLatency = System.currentTimeMillis() - callStarted
                         toolsUsed++
+                        // tool_calls 审计：fire-and-forget（失败不影响主流程），独立于 llm_calls
+                        recordToolCall(
+                            callUid = exec.callUid,
+                            call = call,
+                            resultText = exec.text,
+                            latencyMs = callLatency,
+                            needsConfirm = exec.needsConfirm,
+                        )
                         messages += ChatMessage(
                             role = "tool",
-                            content = resultText,
+                            content = exec.text,
                             toolCallId = call.id,
                         )
-                        if (proposed != null) proposal = proposed
+                        if (exec.proposal != null) proposal = exec.proposal
                     }
 
-                    // propose_log 是终止性动作：草稿必须经人确认，循环到此为止
+                    // 拟稿是终止性动作：草稿必须经人确认，循环到此为止
                     if (proposal != null) {
                         val note = result.content.trim().ifEmpty {
                             context.getString(com.healix.app.R.string.proposal_note_default)
@@ -336,15 +846,7 @@ internal class HealthAgent(
      * **一次 provider 往返恰好一行 `llm_calls`**；**失败也记**；**禁补记**。
      *
      * 本方法是**移位写法**：[run] 里每轮 `provider.chat` 之后**当场**调用它（`Ok` / `Err`
-     * 都记），不批处理、不事后补记。逐分支枚举（一次问答总往返数 = agent 内行数 + 回退单轮
-     * 补的 1 行，后者由 `ChatViewModel` 只针对**回退那次**往返补记，见 `ChatViewModel`）：
-     * - `Done`：每轮 1 行（本方法）；回退 0 → 合计 = 轮数 ✅
-     * - `ProposalPending`：每轮 1 行；回退 0 → 合计 = 轮数 ✅
-     * - `RateLimited`：本轮 1 行；回退 0 → 合计 = 1 ✅
-     * - `Failed`（步数 / 墙钟 / 同参耗尽）：每轮都记 M 行；回退单轮再补**它自己那一次**
-     *   往返 1 行 → 合计 = M + 1 = M 次 agent 往返 + 1 次回退往返 ✅
-     *
-     * 配额计数与设置页「今日对话调用」都依赖本不变式（验收：调试页对照往返数）。
+     * 都记），不批处理、不事后补记。
      */
     private suspend fun recordRoundTrip(
         config: ProviderConfig,
@@ -381,6 +883,65 @@ internal class HealthAgent(
         }
     }
 
+    /**
+     * 每次工具调用落一条 `tool_calls`（v0.3 B5/B6）。
+     *
+     * **独立于 `llm_calls`**：一次 provider 往返可有 N 次工具调用，粒度不同；
+     * 本表**不参与**配额计数（配额不变式只数 provider 往返）。fire-and-forget：
+     * 写库失败不影响主流程（[runCatching] 吞异常）。
+     *
+     * `args` / `result_digest` 截断后存（防长串占页）。
+     */
+    private suspend fun recordToolCall(
+        callUid: String,
+        call: ToolCall,
+        resultText: String,
+        latencyMs: Long,
+        needsConfirm: Boolean,
+    ) {
+        runCatching {
+            db.toolCallDao().insert(
+                ToolCallEntity(
+                    ts = System.currentTimeMillis(),
+                    callUid = callUid,
+                    name = call.function.name,
+                    args = call.function.arguments.take(MAX_ARGS_LEN),
+                    resultDigest = resultText.replace('\n', ' ').take(MAX_DIGEST_LEN),
+                    latencyMs = latencyMs,
+                    needsConfirm = if (needsConfirm) 1 else 0,
+                    approved = null,
+                ),
+            )
+        }
+    }
+
+    /**
+     * 工具说明段 + **动态权限声明**（v0.3 B6，非冻结区）。
+     *
+     * 权限声明随当前开关变化：只读 / 可拟改某几类草稿 / 全无 —— 让模型知道自己能做什么，
+     * 而不是在被拒绝后才明白。真正的拦截仍在 [ToolRegistry.execute] 执行层。
+     */
+    private fun toolsSection(perms: ToolPermissions): String {
+        val grant = when {
+            !perms.toolsEnabled ->
+                "你当前没有任何工具权限，只能凭已有信息回答。"
+
+            else -> {
+                val writeParts = buildList {
+                    if (perms.writePlan) add("改今日计划")
+                    if (perms.writeRecord) add("删记录")
+                    if (perms.writeGoal) add("改目标")
+                }
+                if (writeParts.isEmpty()) {
+                    "你当前只有只读权限（可查询记录 / 计划 / 目标 / 周训练），不能修改任何数据。"
+                } else {
+                    "你可以拟改${writeParts.joinToString("、")}的草稿（均需用户确认后才会生效，你无权直接写入）。"
+                }
+            }
+        }
+        return TOOLS_SECTION + "\n权限：$grant"
+    }
+
     companion object {
         /** 步数上限（C5）：一轮"模型响应 + 工具执行"算一步。 */
         private const val MAX_STEPS = 4
@@ -402,16 +963,29 @@ internal class HealthAgent(
         /** 历史窗口：与单轮一致（9.2 上下文策略）。 */
         private const val HISTORY_WINDOW = 16
 
+        /** `tool_calls.args` 截断长度。 */
+        private const val MAX_ARGS_LEN = 500
+
+        /** `tool_calls.result_digest` 截断长度。 */
+        private const val MAX_DIGEST_LEN = 200
+
         /**
          * 工具说明段（追加在系统提示之后）。
          * 硬措辞只有两条：查证义务 + 无写入权；其余交给模型自己判断何时用。
+         * 末尾由 [toolsSection] 追加一行动态权限声明。
          */
         private const val TOOLS_SECTION = """
 
 你可以使用工具（不必每轮都用，已有信息足够就直接回答）：
 - query_events：查某日期区间的记录原文。回答"我那天吃了什么/练了什么"必须先查证，禁止凭对话记忆编。
-- query_stats：重新取今日摘要数字。今日数字已注入背景，仅当用户问的范围超出它时才调。
+- query_stats：重新取今日摘要数字。今日数字**不再**注入背景，需要当日摄入/消耗等数字时调它。
+- query_plan：查某日期区间已生成的今日计划（备注 / 来源）。
+- query_goal：查当前生效的目标。
+- query_training_week：查本周训练安排与完成情况。
 - propose_log：用户让你记东西时，用用户原话拟一条草稿。草稿经用户确认后才会写入，你无权直接写入记录。
+- propose_plan_change：拟改某天计划备注（date + note）。草稿经用户确认后才生效。
+- propose_goal_change：拟改某项目标值（metric + value）。草稿经用户确认后才生效。
+- propose_record_delete：拟删一条记录（day + keyword，命中须唯一）。草稿经用户确认后才删除。
 回答里引用的数字只能来自记录原文或工具返回。
 """
     }

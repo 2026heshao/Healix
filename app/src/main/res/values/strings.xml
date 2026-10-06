@@ -673,4 +673,43 @@
     <string name="crash_dialog_share">分享</string>
     <string name="crash_dialog_close">关闭</string>
     <string name="crash_copied">已复制，粘贴发送即可反馈</string>
+
+    <!-- ══════════════════════════════════════════════════════════════════════
+        v0.3 B4/B5/B6（规则库 / 只读工具 / 写工具与权限）
+        ══════════════════════════════════════════════════════════════════════ -->
+
+    <!-- ── 规则库（B4）：自定义输出偏好，整段拼进对话 system prompt ── -->
+    <string name="rules_title">规则库</string>
+    <string name="rules_add">＋ 添加规则</string>
+    <string name="rules_empty">还没有规则，点下方「添加规则」加一条</string>
+    <string name="rules_new_title">新建规则</string>
+    <string name="rules_edit_title">编辑规则</string>
+    <string name="rules_field_text">规则内容</string>
+    <string name="rules_delete_confirm">删除规则「%1$s」？不可恢复。</string>
+    <string name="rules_move_up">上移</string>
+    <string name="rules_move_down">下移</string>
+    <string name="rules_actions_title">规则操作</string>
+    <string name="rules_entry_none">未创建</string>
+    <string name="rules_entry_count">%1$d 条</string>
+
+    <!-- ── AI 工具与写权限（B5/B6；D3 文案说明「关可见范围仍可查记录」）── -->
+    <string name="ai_data_note">关闭后 AI 不再读取你的画像 / 体格 / 目标 / 计划，但仍可查询你的记录（如「上周练了几次」）。</string>
+    <string name="ai_tools_toggle">允许 AI 使用工具查询记录</string>
+    <string name="ai_tool_write_plan">允许 AI 修改今日计划</string>
+    <string name="ai_tool_write_record">允许 AI 删除记录</string>
+    <string name="ai_tool_write_goal">允许 AI 修改目标</string>
+
+    <!-- ── B6 拟稿确认与回执：写工具（计划 / 目标 / 删除）的二次确认与落库反馈 ── -->
+    <!-- 非记录类草案（计划 / 目标 / 删除）的确认弹窗标题；记录类仍用 @string/proposal_sheet_title -->
+    <string name="proposal_sheet_title_action">确认操作</string>
+    <!-- 计划修改成功回执；%1$s = 日期（yyyy-MM-dd，草案 summary 已含改动说明） -->
+    <string name="receipt_plan_applied">%1$s 的计划已更新。</string>
+    <!-- 目标修改成功回执；%1$s = 草案 summary（如「把「体重」目标改为 65 kg」） -->
+    <string name="receipt_goal_applied">已完成：%1$s</string>
+    <!-- 记录删除成功回执；%1$s = 草案 summary（如「删除 2026-10-08 的记录「…」」） -->
+    <string name="receipt_record_deleted">已完成：%1$s</string>
+    <!-- 三条写路径统一的失败提示（本地模板，零 token） -->
+    <string name="receipt_apply_failed">操作没成功，请重试</string>
+    <!-- 记录软删后的内联撤销条文案（B6 复用 UndoBar；summary 过长不宜嵌「」，故单列一条） -->
+    <string name="undo_record_deleted">已删除 1 条记录，5 秒内可撤销</string>
 </resources>

@@ -24,6 +24,7 @@ import com.healix.app.HealixApp
 import com.healix.app.R
 import com.healix.app.databinding.FragmentSettingsBinding
 import com.healix.app.databinding.ItemSwipeRowBinding
+import com.healix.app.databinding.RowSettingSwitchBinding
 import com.healix.app.databinding.RowSettingValueBinding
 import com.healix.app.db.GoalDefaults
 import com.healix.app.db.GoalEntity
@@ -77,6 +78,27 @@ class SettingsFragment : Fragment() {
     private val aiDataSwitchListener: CompoundButton.OnCheckedChangeListener =
         CompoundButton.OnCheckedChangeListener { _, _ ->
             vm.toggleAiDataFull()
+        }
+
+    // ── AI 工具与写权限开关监听（v0.3 B5/B6，D4：默认开）───────────────
+    // 复用 SettingsViewModel.toggleAiSwitch(key)（IO 协程写键 + reload）。
+    // observe 回填时先摘监听再 setChecked 再挂回，防程序化 setChecked 触发
+    // 本监听造成写回环（与 aiDataSwitchListener 同款）。
+    private val aiToolsSwitchListener: CompoundButton.OnCheckedChangeListener =
+        CompoundButton.OnCheckedChangeListener { _, _ ->
+            vm.toggleAiSwitch(SettingsKeys.AI_TOOLS_ENABLED)
+        }
+    private val aiWritePlanListener: CompoundButton.OnCheckedChangeListener =
+        CompoundButton.OnCheckedChangeListener { _, _ ->
+            vm.toggleAiSwitch(SettingsKeys.AI_TOOL_WRITE_PLAN)
+        }
+    private val aiWriteRecordListener: CompoundButton.OnCheckedChangeListener =
+        CompoundButton.OnCheckedChangeListener { _, _ ->
+            vm.toggleAiSwitch(SettingsKeys.AI_TOOL_WRITE_RECORD)
+        }
+    private val aiWriteGoalListener: CompoundButton.OnCheckedChangeListener =
+        CompoundButton.OnCheckedChangeListener { _, _ ->
+            vm.toggleAiSwitch(SettingsKeys.AI_TOOL_WRITE_GOAL)
         }
 
     /** 左滑删除（11.3 / v8 需求 4）：目标行与提醒行共用 1 个实例 → 全局单开。 */
@@ -164,6 +186,31 @@ class SettingsFragment : Fragment() {
             sw.isChecked = !sw.isChecked // 触发监听 → toggleAiDataFull，与直拨同一写链
         }
 
+        // ── AI 组：规则库入口 + 工具 / 写权限开关（v0.3 B4/B5/B6）──
+        // 规则库入口：进二级页增删改启停排序（页面自带「添加规则」）。
+        binding.rowAiRules.label.setText(R.string.rules_title)
+        binding.rowAiRules.chevron.visibility = View.VISIBLE
+        binding.rowAiRules.root.setOnClickListener {
+            NavHost.open(requireContext(), RulesFragment(), NavHost.PAGE_RULES)
+        }
+        // 工具总开关 + 三个写权限开关：均为「默认开」，行点击 = 同义拨动开关（放大触控目标）。
+        setupAiSwitch(binding.rowAiTools, R.string.ai_tools_toggle, aiToolsSwitchListener)
+        setupAiSwitch(
+            binding.rowAiToolWritePlan,
+            R.string.ai_tool_write_plan,
+            aiWritePlanListener,
+        )
+        setupAiSwitch(
+            binding.rowAiToolWriteRecord,
+            R.string.ai_tool_write_record,
+            aiWriteRecordListener,
+        )
+        setupAiSwitch(
+            binding.rowAiToolWriteGoal,
+            R.string.ai_tool_write_goal,
+            aiWriteGoalListener,
+        )
+
         // ── 提醒（reminders 表）──────────────────────────────────
         // v8 需求 4：不再预置默认提醒，仅保留「添加提醒」入口；行支持左滑删除。
         setupRow(binding.rowReminderAdd, R.string.reminder_add) { editReminder(null) }
@@ -224,6 +271,38 @@ class SettingsFragment : Fragment() {
         row.root.setOnClickListener { onClick() }
     }
 
+    /**
+     * 给一个 AI 工具开关行设标签 + 监听 + 「行点击 = 同义拨动开关」（v0.3 B5/B6）。
+     * 与 rowKcalSwitch / rowAiDataSwitch 同款：拨动走同一写链，行点击只是放大触控目标。
+     * observe 回填负责 setChecked（先摘监听再挂回，防写回环）。
+     */
+    private fun setupAiSwitch(
+        row: RowSettingSwitchBinding,
+        labelRes: Int,
+        listener: CompoundButton.OnCheckedChangeListener,
+    ) {
+        row.label.setText(labelRes)
+        row.switchWidget.setOnCheckedChangeListener(listener)
+        row.root.setOnClickListener {
+            val sw = row.switchWidget
+            sw.isChecked = !sw.isChecked // 触发监听，与直拨开关同一写链
+        }
+    }
+
+    /**
+     * 回填一个开关：先摘监听 → `setChecked` → 挂回。
+     * 程序化 `setChecked` 不得触发写监听（防写回环）——与 `rowKcalSwitch` / `rowAiDataSwitch` 同款。
+     */
+    private fun bindSwitch(
+        sw: CompoundButton,
+        checked: Boolean,
+        listener: CompoundButton.OnCheckedChangeListener,
+    ) {
+        sw.setOnCheckedChangeListener(null)
+        sw.isChecked = checked
+        sw.setOnCheckedChangeListener(listener)
+    }
+
     private fun observe() {
         viewLifecycleOwner.lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -247,6 +326,28 @@ class SettingsFragment : Fragment() {
                     binding.rowAiDataSwitch.switchWidget.setOnCheckedChangeListener(null)
                     binding.rowAiDataSwitch.switchWidget.isChecked = v.aiDataFull
                     binding.rowAiDataSwitch.switchWidget.setOnCheckedChangeListener(aiDataSwitchListener)
+                    // AI 工具与写权限开关（v0.3 B5/B6）：先摘监听再回填再挂回（防写回环）。
+                    bindSwitch(binding.rowAiTools.switchWidget, v.aiToolsEnabled, aiToolsSwitchListener)
+                    bindSwitch(binding.rowAiToolWritePlan.switchWidget, v.aiToolWritePlan, aiWritePlanListener)
+                    bindSwitch(binding.rowAiToolWriteRecord.switchWidget, v.aiToolWriteRecord, aiWriteRecordListener)
+                    bindSwitch(binding.rowAiToolWriteGoal.switchWidget, v.aiToolWriteGoal, aiWriteGoalListener)
+                    // 写权限三行仅工具总开关开启时显示（关掉总开关 = 无工具，写权限无意义）。
+                    val writeVisible = if (v.aiToolsEnabled) View.VISIBLE else View.GONE
+                    binding.rowAiToolWritePlan.root.visibility = writeVisible
+                    binding.rowAiToolWriteRecord.root.visibility = writeVisible
+                    binding.rowAiToolWriteGoal.root.visibility = writeVisible
+                }
+            }
+        }
+        // 规则库条数（v0.3 B4）：入口行右侧值，随规则增删即时刷新。
+        viewLifecycleOwner.lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                vm.ruleCount.collect { n ->
+                    binding.rowAiRules.value.text = if (n == 0) {
+                        getString(R.string.rules_entry_none)
+                    } else {
+                        getString(R.string.rules_entry_count, n)
+                    }
                 }
             }
         }
