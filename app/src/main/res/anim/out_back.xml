@@ -1,8 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    后退转场的离场侧（设计规范 11.2）：二级页 0→22%。
-    ⚠️ 仅位移、恒不透明（去掉 alpha 淡出）。
-    与 in_back（返回页 -22%→0）配对，形成"退出"方向感。
+    后退转场的离场侧（设计规范 11.2）：二级页**整屏**滑出 translateX(0)→100%。
+    ⚠️ 仅位移、恒不透明（去掉 alpha 淡出）。与 in_back（返回页 -22%→0）配对，
+       形成"上层整屏滑出、下层轻微回位"的退出方向感。
+    ⚠️ 2026-10-06 修订：原为 0→22%。22% 时该页动画结束仍有 **78% 盖着屏幕**，
+       而 FragmentManager 会在退出动画结束的同一帧把它的视图置 GONE →
+       整块内容凭空消失（真机现象：用户描述"只滑了三分之一就直接消失"）。
+       改为整屏 100% 后，动画结束时该页已完全移出屏幕右侧，置 GONE 不可见 —— 无突跳。
 -->
 <set xmlns:android="http://schemas.android.com/apk/res/android"
     android:interpolator="@android:interpolator/decelerate_cubic"
@@ -11,5 +15,5 @@
 
     <translate
         android:fromXDelta="0"
-        android:toXDelta="22%" />
+        android:toXDelta="100%" />
 </set>

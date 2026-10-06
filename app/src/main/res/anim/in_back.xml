@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    后退转场（设计规范 11.2）：返回到的页面 translateX(-22%)→0。
+    后退转场（设计规范 11.2）：返回到的页面 translateX(-22%)→0（**轻微视差**）。
     ⚠️ 仅位移、恒不透明（不加 alpha）。时长 dur_slow 收紧为 180ms（v8 需求1：转场越短越不易感知冻结）。
+    与 out_back（二级页 0→100%，2026-10-06 由 22% 改整屏）配对：上层整屏滑出，
+    本页只回位 22% —— 两层速度差即"退出"方向感，且本页全程被上层盖住不露底。
     由 NavHost.setCustomAnimations 注入（弹栈方向）。
 -->
 <set xmlns:android="http://schemas.android.com/apk/res/android"

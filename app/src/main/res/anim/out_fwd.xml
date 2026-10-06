@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    前进转场的离场侧（设计规范 11.2）：被盖住的页面 0→-22%。
+    前进转场的离场侧（设计规范 11.2）：被盖住的页面 0→-22%（**轻微视差**）。
     ⚠️ 仅位移、恒不透明（去掉 alpha 淡出，避免左侧条带半透明露出下方）。
-    与 in_fwd（新页 22%→0）配对，形成"推入"方向感。
+    与 in_fwd（新页 100%→0，2026-10-06 由 22% 改整屏）配对：上层整屏压过来，
+    下层只走 22% 做视差 —— 两层速度差即"推入"方向感，且下层全程被上层盖住。
 -->
 <set xmlns:android="http://schemas.android.com/apk/res/android"
     android:interpolator="@android:interpolator/decelerate_cubic"

@@ -1,8 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    前进转场（设计规范 11.2）：新页 translateX(22%)→0。
+    前进转场（设计规范 11.2）：新页**整屏**自右侧滑入 translateX(100%)→0。
     ⚠️ 仅位移、恒不透明 —— 不加 alpha。Android 是双窗口共存模型，
        入场窗口一旦半透明，被盖住的旧窗口会透出，形成"页面叠影"。
+    ⚠️ 2026-10-06 修订：原为 translateX(22%)。22% 系照抄原型 HTML
+       （`docs/prototypes/prototype.html:434` 的 `in_fwd` = translateX(22%) + opacity .3→1），
+       但原型是「22% 位移 **由淡入托住**」的复合效果；Android 侧为消除叠影禁用了 alpha，
+       只剩 22% 位移 → 不再是"转场"而是"微推"：新页起始就已盖住 78% 屏幕，只走 22%。
+       改为整屏位移后，被移动的页真正"从画面外来"（与 out_back 的 100% 配对，
+       形成"上层整屏进出、下层 22% 轻微视差"的 iOS 标准手感）。
        时长 180ms（v8 需求1：由 400ms 收紧，缩短感知冻结窗口）。由 NavHost.setCustomAnimations 注入（前进方向）。
 -->
 <set xmlns:android="http://schemas.android.com/apk/res/android"
@@ -11,6 +17,6 @@
     android:shareInterpolator="true">
 
     <translate
-        android:fromXDelta="22%"
+        android:fromXDelta="100%"
         android:toXDelta="0" />
 </set>
