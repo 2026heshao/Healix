@@ -6,7 +6,6 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
 import androidx.core.content.ContextCompat
-import androidx.fragment.app.Fragment
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
@@ -35,8 +34,12 @@ import kotlinx.coroutines.launch
  *    二级页 keep-alive（[NavHost] 用 add + hide/show，非 replace）：本页被上层页
  *    覆盖时视图保活，pop 时由 FragmentManager 逆向回放自动 show，零重建 ——
  *    渲染完全依赖 [PlanReviewViewModel.plan] 的当前值（无状态重建，滚动位置天然保留）。
+ *
+ * v0.3 B3：改继承 [PageFragment]（统一 `onHiddenChanged` 派发）→ 重新可见时经
+ *   [onPageShown] 刷新（重算 + 重订阅今日键）。**不得用 `onResume` 替代**（keep-alive
+ *   下不触发）。
  */
-class PlanReviewFragment : Fragment() {
+class PlanReviewFragment : PageFragment() {
 
     private var _binding: FragmentPlanReviewBinding? = null
     private val binding get() = _binding!!
@@ -72,6 +75,14 @@ class PlanReviewFragment : Fragment() {
         _binding = null
     }
 
+    /**
+     * 重新可见（keep-alive 下由 [PageFragment.onHiddenChanged]`(false)` 触发）：
+     * 委托 VM 重算 + 重订阅今日键（跨零点 / 外部变更兜底）。纯本地，0 AI。
+     */
+    protected override fun onPageShown() {
+        vm.onPageShown()
+    }
+
     private fun selectTab(tab: PlanTab) {
         vm.showTab(tab)
         val isPlan = tab == PlanTab.PLAN
@@ -98,6 +109,11 @@ class PlanReviewFragment : Fragment() {
 
                 launch {
                     vm.plan.collect { p ->
+                        // B1 滑动弹跳修复：数据变化触发的重建会把 contentScroll 的 scrollY
+                        // 夹到 0。① 重建**前**记住当前滚动位置；② 渲染**结束后**用 `post`
+                        // 到新子树 layout 之后统一还原（不 post 会被旧高度夹取）。
+                        // 回调内只碰局部引用 `scroll`，不触碰可能已拆的 binding。
+                        val savedY = binding.contentScroll.scrollY
                         binding.gapLabel.text = if (p.gapLeft > 0) {
                             getString(R.string.plan_gap_label, p.gapLeft)
                         } else {
@@ -106,6 +122,8 @@ class PlanReviewFragment : Fragment() {
                         renderPlanHeader(p)
                         renderTrainingSummary(p)
                         renderTimeline(p)
+                        val scroll = binding.contentScroll
+                        scroll.post { scroll.scrollTo(0, savedY) }
                     }
                 }
 
@@ -150,7 +168,6 @@ class PlanReviewFragment : Fragment() {
     private fun renderPlanHeader(p: PlanUiState) {
         // 来源行：来源名 · HH:mm 生成（今日无计划条目时不显示）
         val hasPlanItems = p.entries.any { it.source == TimelineSource.PLAN }
-        binding.planSourceLabel.visibility = if (hasPlanItems) View.VISIBLE else View.GONE
         if (hasPlanItems) {
             // ⚠️ fallback（本地兜底）时用 plan_source_estimated（"本地简化 · 热量为估算"），
             //    让用户看得出 kcal 是**估算**；不复用 mode_simplified_local（提示行共用）。
@@ -174,45 +191,53 @@ class PlanReviewFragment : Fragment() {
             p.source == TrainingPlanner.SOURCE_FALLBACK -> getString(R.string.mode_simplified_local)
             else -> null
         }
-        binding.planModeLabel.visibility = if (hint == null) View.GONE else View.VISIBLE
         if (hint != null) binding.planModeLabel.text = hint
+
+        // B1：**先算后写** —— 所有 visibility 决策先算好，再于行尾统一提交，
+        // 消除同帧「先塌后复」的中间态（最终态与改前一致）。
+        binding.planSourceLabel.visibility = if (hasPlanItems) View.VISIBLE else View.GONE
+        binding.planModeLabel.visibility = if (hint == null) View.GONE else View.VISIBLE
     }
 
     /** 本周训练汇总行 + 训练空态的低调生成入口（互斥）。 */
     private fun renderTrainingSummary(p: PlanUiState) {
-        binding.trainingSummary.visibility = if (p.hasTraining) View.VISIBLE else View.GONE
-        if (p.hasTraining) {
+        val hasTraining = p.hasTraining
+        // 本周训练重点（原「训练」Tab 页脚）：仅在已生成且有内容时显示
+        val focus = p.trainingFocus
+        val showFocus = hasTraining && focus.isNotBlank()
+
+        if (hasTraining) {
             binding.trainingSummary.text =
                 getString(R.string.status_train_week, p.trainingSessions, p.trainingDone)
         }
-
-        // 本周训练重点（原「训练」Tab 页脚）：仅在已生成且有内容时显示
-        val focus = p.trainingFocus
-        binding.trainingFocus.visibility =
-            if (p.hasTraining && focus.isNotBlank()) View.VISIBLE else View.GONE
-        if (p.hasTraining && focus.isNotBlank()) {
+        if (showFocus) {
             binding.trainingFocus.text = getString(R.string.training_focus, focus)
         }
 
-        binding.trainingGenerateRow.visibility = if (p.hasTraining) View.GONE else View.VISIBLE
-        if (p.hasTraining) return
+        if (!hasTraining) {
+            binding.trainingIntro.text = getString(R.string.training_generate_intro, p.goalLabel)
+            binding.trainingGoalFooter.text = getString(R.string.training_goal_footer, p.sessionsGoal)
+            binding.trainingFailed.visibility = if (p.trainingFailed) View.VISIBLE else View.GONE
 
-        binding.trainingIntro.text = getString(R.string.training_generate_intro, p.goalLabel)
-        binding.trainingGoalFooter.text = getString(R.string.training_goal_footer, p.sessionsGoal)
-        binding.trainingFailed.visibility = if (p.trainingFailed) View.VISIBLE else View.GONE
+            binding.btnGenerateWeek.isEnabled = !p.generatingTraining
+            binding.btnGenerateWeek.isClickable = !p.generatingTraining
+            binding.btnGenerateWeek.text = getString(
+                when {
+                    p.generatingTraining -> R.string.training_generating
+                    p.trainingFailed -> R.string.retry
+                    else -> R.string.training_generate
+                },
+            )
+            binding.btnGenerateWeek.setTextColor(
+                color(if (p.generatingTraining) R.color.text_3 else R.color.accent),
+            )
+        }
 
-        binding.btnGenerateWeek.isEnabled = !p.generatingTraining
-        binding.btnGenerateWeek.isClickable = !p.generatingTraining
-        binding.btnGenerateWeek.text = getString(
-            when {
-                p.generatingTraining -> R.string.training_generating
-                p.trainingFailed -> R.string.retry
-                else -> R.string.training_generate
-            },
-        )
-        binding.btnGenerateWeek.setTextColor(
-            color(if (p.generatingTraining) R.color.text_3 else R.color.accent),
-        )
+        // B1：**先算后写** —— visibility 决策先算好，再于行尾统一提交（消除同帧「先塌后复」）。
+        // ⚠️ trainingFailed 仅在 !hasTraining 时写（保留既有语义：hasTraining 态不动它）。
+        binding.trainingSummary.visibility = if (hasTraining) View.VISIBLE else View.GONE
+        binding.trainingFocus.visibility = if (showFocus) View.VISIBLE else View.GONE
+        binding.trainingGenerateRow.visibility = if (hasTraining) View.GONE else View.VISIBLE
     }
 
     /**

@@ -13,7 +13,8 @@ import com.healix.app.net.ToolDef
 import com.healix.app.net.ToolFunctionDef
 import com.healix.app.repo.EventRepository
 import com.healix.app.ui.ChatEngine
-import com.healix.app.ui.PROMPT_VER_CHAT
+import com.healix.app.ui.PROMPT_VER_CHAT_TOOL
+import com.healix.app.ui.PromptMode
 import com.healix.app.ui.TodaySummary
 import org.json.JSONObject
 
@@ -235,12 +236,15 @@ internal class HealthAgent(
         val deadline = System.currentTimeMillis() + WALL_CLOCK_MS
 
         val messages = mutableListOf<ChatMessage>()
-        // 系统提示与单轮同源（ChatEngine），只追加工具说明段 ——
-        // 人格/边界/隐私规则不因有工具而出现第二套
+        // 系统提示与单轮同源（ChatEngine），但按**工具路径模式**注入：
+        // `PromptMode.TOOL` 走压缩版「说话方式」（省 token），人格/硬边界/隐私规则仍同源
+        // （不出现第二套人格）。工具说明段追加在其后。
         messages += ChatMessage(
             role = "system",
-            content = ChatEngine.systemPrompt(context, sessionDate, background, knowledge) +
-                TOOLS_SECTION,
+            content = ChatEngine.systemPrompt(
+                context, sessionDate, background, knowledge,
+                mode = PromptMode.TOOL,
+            ) + TOOLS_SECTION,
         )
         history.takeLast(HISTORY_WINDOW).forEach { m ->
             if (m.role == "user" || m.role == "assistant") {
@@ -262,8 +266,9 @@ internal class HealthAgent(
                 ChatRequest(
                     messages = messages.toList(),
                     tools = ToolRegistry.defs,
-                    // 与单轮聊天同为 0.7（抽取链 0.3 不动）
-                    temperature = 0.7,
+                    // 工具路径用 TOOL_TEMPERATURE(0.4)：比单轮 0.7 更克制，减少多步调用漂移；
+                    // 抽取链 0.3 / 训练链 0.4 一字不动（对齐 PRD §6.4 B）。
+                    temperature = TOOL_TEMPERATURE,
                     timeoutMs = TIMEOUT_MS,
                     // 循环内重试降为 2 次：墙钟预算优先给"走完多步"而不是"单步死磕"
                     maxRetries = 2,
@@ -324,7 +329,23 @@ internal class HealthAgent(
         return AgentOutcome.Failed
     }
 
-    /** 每次往返落一条 llm_calls（purpose=ask）。失败也是真实消耗，同样要记。 */
+    /**
+     * 每次 provider 往返落一条 `llm_calls`（`purpose = ask`）。失败也是真实消耗，同样要记。
+     *
+     * ── 埋点不变式（v0.3 B0 核对固化，**无行为改动**）─────────────────────────
+     * **一次 provider 往返恰好一行 `llm_calls`**；**失败也记**；**禁补记**。
+     *
+     * 本方法是**移位写法**：[run] 里每轮 `provider.chat` 之后**当场**调用它（`Ok` / `Err`
+     * 都记），不批处理、不事后补记。逐分支枚举（一次问答总往返数 = agent 内行数 + 回退单轮
+     * 补的 1 行，后者由 `ChatViewModel` 只针对**回退那次**往返补记，见 `ChatViewModel`）：
+     * - `Done`：每轮 1 行（本方法）；回退 0 → 合计 = 轮数 ✅
+     * - `ProposalPending`：每轮 1 行；回退 0 → 合计 = 轮数 ✅
+     * - `RateLimited`：本轮 1 行；回退 0 → 合计 = 1 ✅
+     * - `Failed`（步数 / 墙钟 / 同参耗尽）：每轮都记 M 行；回退单轮再补**它自己那一次**
+     *   往返 1 行 → 合计 = M + 1 = M 次 agent 往返 + 1 次回退往返 ✅
+     *
+     * 配额计数与设置页「今日对话调用」都依赖本不变式（验收：调试页对照往返数）。
+     */
     private suspend fun recordRoundTrip(
         config: ProviderConfig,
         result: ChatResult,
@@ -339,8 +360,9 @@ internal class HealthAgent(
                 httpCode = 200,
                 inputTokens = result.usage.inputTokens,
                 outputTokens = result.usage.outputTokens,
-                // agent 与单轮共用 ChatEngine.systemPrompt → 同一 prompt 版本。
-                promptVer = PROMPT_VER_CHAT,
+                // agent 走 PromptMode.TOOL（提示已变更）→ 独立版本序列 PROMPT_VER_CHAT_TOOL，
+                // 与单轮 / 回退路径的 PROMPT_VER_CHAT 分开归因。
+                promptVer = PROMPT_VER_CHAT_TOOL,
             )
 
             is ChatResult.Err -> repo.recordChatCall(
@@ -354,7 +376,7 @@ internal class HealthAgent(
                 },
                 httpCode = result.httpCode,
                 errorHead = result.message,
-                promptVer = PROMPT_VER_CHAT,
+                promptVer = PROMPT_VER_CHAT_TOOL,
             )
         }
     }
@@ -368,6 +390,14 @@ internal class HealthAgent(
 
         /** 单次往返超时（毫秒）。 */
         private const val TIMEOUT_MS = 12_000L
+
+        /**
+         * 工具路径采样温度（v0.3 B0）：落在 0.3~0.5 区间取中。
+         *
+         * 比单轮聊天的 0.7 更克制 —— 工具循环要"稳定走完多步 + 参数别乱飘"；
+         * **仅工具路径**用；单轮仍 0.7、抽取链 0.3、训练链 0.4 均不动（PRD §6.4 B）。
+         */
+        private const val TOOL_TEMPERATURE = 0.4
 
         /** 历史窗口：与单轮一致（9.2 上下文策略）。 */
         private const val HISTORY_WINDOW = 16

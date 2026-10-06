@@ -6,7 +6,6 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
-import androidx.fragment.app.Fragment
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
@@ -34,8 +33,11 @@ import kotlinx.coroutines.launch
  *
  * 迁移等价性：`supportFragmentManager` → `childFragmentManager`（弹窗挂在本页下，
  * 随本页一起出栈）；`finish()` → `NavHost.back()`。
+ *
+ * v0.3 B3：改继承 [PageFragment]，但**不覆写** `onPageShown()` —— 数据为 Room Flow
+ *   （`observeAll()`），天然实时，重新可见无需手动刷新。
  */
-internal class PresetManageFragment : Fragment() {
+internal class PresetManageFragment : PageFragment() {
 
     private var _binding: FragmentPresetManageBinding? = null
     private val binding get() = _binding!!

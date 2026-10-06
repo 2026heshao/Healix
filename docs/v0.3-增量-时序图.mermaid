@@ -1,0 +1,58 @@
+%% Healix v0.3 增量设计（第一波 B0/B1/B3）— 调用流程
+%% 生成：2026-10-06 架构师（高见远）。与 docs/v0.3-增量设计-2026-10-06.md §3.3 同源。
+%% 注：docs/sequence-diagram.mermaid 已属上一份（v8 AI 数据注入）设计，故本增量另存此文件，未覆盖。
+
+%% ─────────────────────────────────────────────────────────────
+%% 图 1：B3 二级页「返回即刷新」（keep-alive 手工页面栈）
+%% ─────────────────────────────────────────────────────────────
+sequenceDiagram
+    autonumber
+    participant U as 用户
+    participant NH as NavHost
+    participant FM as FragmentManager
+    participant F as 二级页(PageFragment)
+    participant VM as ViewModel
+
+    Note over U,VM: 场景：A 页停留 → 进 B 页改数据 → 返回 A 页
+    U->>NH: 触发返回（back 键 / btnBack）
+    NH->>FM: beginTransaction().hide(top).show(prev).commitNowAllowingStateLoss()
+    FM-->>F: onHiddenChanged(false)
+    F->>F: 守卫 !hidden && view != null
+    F->>VM: onPageShown() / refresh()
+    VM->>VM: reload()（本地重算，0 AI）
+    opt PlanReview：跨零点兜底
+        VM->>VM: observeToday() 重订阅今日 key（先 cancel 旧 job）
+    end
+    VM-->>F: StateFlow 新值
+    F->>F: 重绑 UI（Resource 逐框守卫：未落库草稿不覆盖）
+
+%% ─────────────────────────────────────────────────────────────
+%% 图 2：B0 工具路径一轮（精简提示 + 0.4 温度 + 移位埋点）
+%% ─────────────────────────────────────────────────────────────
+sequenceDiagram
+    autonumber
+    participant CV as ChatViewModel
+    participant HA as HealthAgent
+    participant CE as ChatEngine
+    participant P as Provider
+    participant R as EventRepository
+
+    CV->>HA: run(config, sessionDate, userText, history, background, knowledge)
+    HA->>CE: systemPrompt(..., mode = PromptMode.TOOL)
+    CE-->>HA: 精简系统提示（保留硬边界 + 工具段，压缩说话方式）
+    loop 有界循环（steps < MAX_STEPS）
+        HA->>P: chat(temperature = TOOL_TEMPERATURE(0.4), tools = ToolRegistry.defs)
+        P-->>HA: ChatResult.Ok / Err
+        HA->>R: recordRoundTrip()（移位：当场记，恰好 1 行 llm_calls）
+    end
+    alt 模型直接作答 / 工具答完
+        HA-->>CV: AgentOutcome.Done(text, toolsUsed)
+    else 明确限流
+        HA-->>CV: AgentOutcome.RateLimited
+    else 失败（步数 / 墙钟 / 同参）
+        HA-->>CV: AgentOutcome.Failed
+        CV->>CE: reply(..., mode = PromptMode.FULL)
+        Note right of CE: 单轮回退：字节与改前逐字一致
+        CE->>P: chat(temperature = 0.7)
+        CV->>R: recordChatCall(promptVer = PROMPT_VER_CHAT)
+    end

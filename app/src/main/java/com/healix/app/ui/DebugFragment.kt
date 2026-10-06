@@ -4,7 +4,6 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import androidx.fragment.app.Fragment
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
@@ -31,8 +30,11 @@ import java.time.ZoneId
  * 迁移等价性：`onCreate` → [onViewCreated]；collect 挂
  * `viewLifecycleOwner`（视图销毁即停，宿主 Activity 常驻不再当作页生命周期）；
  * `finish()` → `NavHost.back()`（keep-alive 结构改造后不再直连 FragmentManager 回退栈）。
+ *
+ * v0.3 B3：改继承 [PageFragment] → 重新可见时经 [onPageShown] 重算「汇总行 + token 行」
+ *   （列表是 Room Flow，天然实时，不动）。**不得用 `onResume` 替代**（keep-alive 下不触发）。
  */
-class DebugFragment : Fragment() {
+class DebugFragment : PageFragment() {
 
     private var _binding: FragmentDebugBinding? = null
     private val binding get() = _binding!!
@@ -67,28 +69,8 @@ class DebugFragment : Fragment() {
                             if (list.isEmpty()) View.VISIBLE else View.GONE
                     }
                 }
-                launch {
-                    // 汇总：今日调用次数 / 失败数 / P95 延迟
-                    val stats = withContext(Dispatchers.IO) {
-                        val since = startOfToday()
-                        val dao = container.database.llmCallDao()
-                        Triple(dao.countSince(since), dao.countFailedSince(since), p95())
-                    }
-                    binding.summaryLine.text = getString(
-                        R.string.debug_summary, stats.first, stats.second, stats.third,
-                    )
-                }
-                launch {
-                    // 今日 token 合计（§4.1）：输入 / 输出（SUM 返回 Long，无数据为 0）
-                    val tokens = withContext(Dispatchers.IO) {
-                        val since = startOfToday()
-                        val dao = container.database.llmCallDao()
-                        dao.inputTokensSince(since) to dao.outputTokensSince(since)
-                    }
-                    binding.tokenLine.text = getString(
-                        R.string.debug_tokens, tokens.first, tokens.second,
-                    )
-                }
+                // 汇总行 + token 行：首次进入算一次；重新可见时由 onPageShown 重算（列表是 Flow，不动）。
+                launch { refreshStats() }
             }
         }
 
@@ -148,9 +130,65 @@ class DebugFragment : Fragment() {
         return "%.1fs".format(list[idx] / 1000.0)
     }
 
+    /**
+     * 重算「今日汇总行」（调用次数 / 失败数 / P95）与「今日 token 行」（输入 / 输出）。
+     *
+     * 列表走 Room Flow 天然实时（**不动**）；这两行是一次性快照，故首次进入（[onViewCreated]）
+     * 与重新可见（[onPageShown]）各算一次。挂 `viewLifecycleOwner.lifecycleScope`，视图销毁即取消。
+     */
+    private suspend fun refreshStats() {
+        val container = HealixApp.from(requireContext())
+        // 汇总：今日调用次数 / 失败数 / P95 延迟
+        val stats = withContext(Dispatchers.IO) {
+            val since = startOfToday()
+            val dao = container.database.llmCallDao()
+            Triple(dao.countSince(since), dao.countFailedSince(since), p95())
+        }
+        binding.summaryLine.text = getString(
+            R.string.debug_summary, stats.first, stats.second, stats.third,
+        )
+        // 今日 token 合计（§4.1）：输入 / 输出（SUM 返回 Long，无数据为 0）
+        val tokens = withContext(Dispatchers.IO) {
+            val since = startOfToday()
+            val dao = container.database.llmCallDao()
+            dao.inputTokensSince(since) to dao.outputTokensSince(since)
+        }
+        binding.tokenLine.text = getString(
+            R.string.debug_tokens, tokens.first, tokens.second,
+        )
+    }
+
+    /**
+     * 重新可见（keep-alive 下由 [PageFragment.onHiddenChanged]`(false)` 触发）：重算汇总 + token。
+     *
+     * ⚠️ 用 `view.postDelayed` 把重算推到转场动画（180ms）**之外** —— 避免主线程重绑落进动画帧
+     *    （对齐 `StatusDetailFragment` 的 P0-1 先例，防 SLOW_MSG）。延迟回调内先判 `_binding`
+     *    防销毁后触碰；协程挂 `viewLifecycleOwner`，随视图销毁自动取消。
+     */
+    protected override fun onPageShown() {
+        view?.postDelayed({
+            if (_binding != null) {
+                viewLifecycleOwner.lifecycleScope.launch { refreshStats() }
+            }
+        }, STATS_REFRESH_DELAY_MS)
+    }
+
     override fun onDestroyView() {
         super.onDestroyView()
         _binding = null
+    }
+
+    companion object {
+        /**
+         * 重新可见后重算统计的延迟（毫秒）：> 180ms 入场动画（`in_back.xml`）留余量，
+         * 避免重绑落进动画帧（对齐 `StatusDetailFragment` 的 P0-1 先例）。
+         *
+         * ⚠️ **常量单一来源纪律**：`StatusDetailFragment` 已有**同名同值**的 private 常量
+         *    `REFRESH_AFTER_TRANSITION_MS = 200L`。本处**刻意用不同名** —— 既不触发
+         *    `check_kotlin.py:check_duplicate_constants`（判据 = 同名且同值），也**不动批外文件**
+         *    `StatusDetailFragment`（本波红线：不改既有 5 页）。两页延迟语义各自成立、互不依赖。
+         */
+        private const val STATS_REFRESH_DELAY_MS = 200L
     }
 }
 

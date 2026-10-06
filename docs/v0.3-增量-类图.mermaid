@@ -1,0 +1,75 @@
+classDiagram
+    %% Healix v0.3 增量设计（第一波 B0/B1/B3）— 类图
+    %% 生成：2026-10-06 架构师（高见远）。与 docs/v0.3-增量设计-2026-10-06.md §3.2 同源。
+    %% 注：docs/class-diagram.mermaid 已属上一份（v8 AI 数据注入）设计，故本增量另存此文件，未覆盖。
+
+    class Fragment
+    class PageFragment {
+        <<abstract>>
+        +onHiddenChanged(hidden: Boolean)
+        #onPageShown()
+    }
+    Fragment <|-- PageFragment
+
+    PageFragment <|-- PlanReviewFragment
+    PageFragment <|-- PersonalInfoFragment
+    PageFragment <|-- ResourceFragment
+    PageFragment <|-- PresetManageFragment
+    PageFragment <|-- KnowledgeBaseFragment
+    PageFragment <|-- DebugFragment
+
+    PlanReviewFragment : -_binding FragmentPlanReviewBinding
+    PlanReviewFragment : -vm PlanReviewViewModel
+    PlanReviewFragment : +onPageShown()
+    PlanReviewFragment : -renderTimeline(p)
+    PlanReviewFragment : -renderPlanHeader(p)
+
+    PersonalInfoFragment : -vm SettingsViewModel
+    PersonalInfoFragment : +onPageShown()
+    ResourceFragment : +onPageShown()
+    ResourceFragment : -reloadFields()
+    PresetManageFragment : +onPageShown()
+    KnowledgeBaseFragment : +onPageShown()
+    DebugFragment : +onPageShown()
+    DebugFragment : -refreshSummary()
+
+    class PlanReviewViewModel {
+        -_plan MutableStateFlow
+        -todayJob Job
+        -observeToday()
+        +onPageShown()
+        +reload()
+        -computeAndEmit()
+        -autoRerankIfDue()
+    }
+    class SettingsViewModel {
+        -_values MutableStateFlow
+        -reload()
+        +refresh()
+    }
+    PlanReviewFragment --> PlanReviewViewModel : vm.onPageShown()
+    PersonalInfoFragment --> SettingsViewModel : vm.refresh()
+
+    class ChatEngine {
+        <<object>>
+        +systemPrompt(ctx, date, bg, kb, mode) String
+        +reply(ctx, cfg, date, text, hist, bg, kb) Reply
+    }
+    class PromptMode {
+        <<enum>>
+        FULL
+        TOOL
+    }
+    class HealthAgent {
+        -MAX_STEPS int
+        -TOOL_TEMPERATURE double
+        +run(cfg, date, text, hist, bg, kb) AgentOutcome
+        -recordRoundTrip(cfg, result, latency)
+    }
+    class EventRepository {
+        +recordChatCall(..., promptVer)
+        +recordPlanCall(...)
+    }
+    ChatEngine ..> PromptMode : 选择说话方式段
+    HealthAgent ..> ChatEngine : systemPrompt(mode = TOOL)
+    HealthAgent ..> EventRepository : recordChatCall(promptVer = PROMPT_VER_CHAT_TOOL)

@@ -6,7 +6,6 @@ import android.view.View
 import android.view.ViewGroup
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
-import androidx.fragment.app.Fragment
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
@@ -33,8 +32,11 @@ import kotlinx.coroutines.launch
  * 2. 后台解析挂 **宿主的** `lifecycleScope` 而非 Fragment 的 —— 解析是「选中即开始」
  *    的持久任务，用户回退不该把它取消掉，否则文档会永远卡在「解析中」
  *    （Activity 时代是同一语义：那时离开即销毁 Activity，同样会丢）。
+ *
+ * v0.3 B3：改继承 [PageFragment]，但**不覆写** `onPageShown()` —— 数据为 Room Flow
+ *   （`observeAll()`），天然实时，重新可见无需手动刷新。
  */
-class KnowledgeBaseFragment : Fragment() {
+class KnowledgeBaseFragment : PageFragment() {
 
     private var _binding: FragmentKnowledgeBinding? = null
     private val binding get() = _binding!!

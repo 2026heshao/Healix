@@ -333,6 +333,16 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
+     * 二级页被重新展示时的公开刷新入口（v0.3 B3）。
+     *
+     * 只是私有 [reload] 的收口出口 —— **不**把 `reload` 直接改 public（外部只知"刷新"，
+     * 不必知道内部是否重算 / 如何重算）。纯本地读库，0 AI。
+     */
+    fun refresh() {
+        viewModelScope.launch(Dispatchers.IO) { reload() }
+    }
+
+    /**
      * 「当前体重」行（F5）：读最近一条 events(type=body) 记录。
      *
      * 复用现成的 [com.healix.app.db.EventDao.weightRowsInRange]（已过滤

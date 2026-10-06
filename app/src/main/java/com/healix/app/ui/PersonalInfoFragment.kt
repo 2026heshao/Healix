@@ -9,7 +9,6 @@ import android.view.ViewGroup
 import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
 import androidx.core.widget.doAfterTextChanged
-import androidx.fragment.app.Fragment
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
@@ -36,8 +35,11 @@ import kotlinx.coroutines.launch
  * 活动系数取值 [ACTIVITY_VALUES] 由设置页迁来（**不复制两份**）。
  *
  * v8 T03：由 `PersonalInfoActivity` 迁为宿主 [MainActivity] 内的二级页 Fragment。
+ *
+ * v0.3 B3：改继承 [PageFragment] → 重新可见时经 [onPageShown] 调 [SettingsViewModel.refresh]
+ *   重读快照（体重等外部变更兜底）。**不得用 `onResume` 替代**（keep-alive 下不触发）。
  */
-class PersonalInfoFragment : Fragment() {
+class PersonalInfoFragment : PageFragment() {
 
     private var _binding: FragmentPersonalInfoBinding? = null
     private val binding get() = _binding!!
@@ -110,6 +112,16 @@ class PersonalInfoFragment : Fragment() {
     override fun onDestroyView() {
         super.onDestroyView()
         _binding = null
+    }
+
+    /**
+     * 重新可见（keep-alive 下由 [PageFragment.onHiddenChanged]`(false)` 触发）：刷新快照。
+     *
+     * ⚠️ 回填仍走 [observe] 里 `vm.values.collect` 的既有 `editBackground.hasFocus()` 守卫
+     *    （`：365`）—— `refresh()` 只重新读库并推新值，不会绕过该守卫覆写用户正在敲的字。
+     */
+    protected override fun onPageShown() {
+        vm.refresh()
     }
 
     /** 给 include 出来的行设标签与点击。箭头只在可点行显示。 */

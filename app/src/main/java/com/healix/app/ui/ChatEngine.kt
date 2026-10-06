@@ -23,6 +23,27 @@ import com.healix.app.rules.FoodPool
 const val PROMPT_VER_CHAT: String = "v2"
 
 /**
+ * 工具（agent）路径的**独立** prompt 版本序列（v0.3 B0）。
+ *
+ * ⚠️ 这是**与单轮分离**的版本序列，**不复用** [PROMPT_VER_CHAT] —— 工具路径的系统提示
+ *    已变更（[ChatEngine.systemPrompt] 以 `mode = PromptMode.TOOL` 注入压缩版「说话方式」），
+ *    归因必须能和单轮 / 回退路径分开看。单轮 / 回退路径字节未变，仍记 [PROMPT_VER_CHAT]。
+ *    独立序列的另一好处：后续批次升 chat 单轮版本号时**不会撞号**（各自递增）。
+ *
+ * v1（2026-10-06，v0.3 B0）：工具路径首次独立记版本（提示压缩 + temperature 0.4）。
+ */
+const val PROMPT_VER_CHAT_TOOL: String = "v1"
+
+/**
+ * 系统提示的**路径模式**（v0.3 B0）。
+ *
+ * - [FULL]：单轮 / 回退路径 —— 「说话方式」用完整版，产出与改前**逐字节相同**；
+ * - [TOOL]：agent 工具路径 —— 「说话方式」用压缩版，仅精简该段，
+ *   硬边界 4 条与工具说明段（`HealthAgent.TOOLS_SECTION`）原样保留。
+ */
+enum class PromptMode { FULL, TOOL }
+
+/**
  * 对话引擎（单轮，无工具）。
  *
  * ⚠️ 范围边界（务必读）：
@@ -195,6 +216,12 @@ internal object ChatEngine {
         sessionDate: String,
         background: String,
         knowledge: String,
+        /**
+         * 路径模式（v0.3 B0）：追加在形参**末尾**。既有 4 个形参均非函数类型，
+         * 故「尾随 λ 纪律」（函数型形参必须最后）不涉及，追加安全。
+         * 默认 [PromptMode.FULL] = 单轮 / 回退路径现状字节；工具路径传 [PromptMode.TOOL]。
+         */
+        mode: PromptMode = PromptMode.FULL,
     ): String {
         val summary = TodaySummary.build(context)
         val summaryText = summary.lines.joinToString("\n")
@@ -244,6 +271,14 @@ $knowledge
             }
         }
 
+        // 说话方式段（v0.3 B0）：按路径模式选择。
+        // - FULL = 现状全文（SPEAKING_STYLE_FULL，逐字节不变）；
+        // - TOOL = 压缩版（SPEAKING_STYLE_TOOL，仅精简本段，保留"直接/有温度/有判断、
+        //   具体食物+分量 / 动作+组数×次数、不猜数直说没记录"骨干）。
+        // 硬边界 4 条、人格首句、今日数字、隐私追加项、foodPoolLine / backgroundBlock /
+        // knowledgeBlock 一律不动 —— 工具路径只是"说话方式更省 token"，不是第二套人格。
+        val speaking = if (mode == PromptMode.TOOL) SPEAKING_STYLE_TOOL else SPEAKING_STYLE_FULL
+
         return """
 ${backgroundBlock}${knowledgeBlock}你是 Healix 的健康助理。这个人当前的主要目标是${summary.primaryGoalName}，
 同时也关心运动、睡眠和身体状况。今天是 $sessionDate。
@@ -252,7 +287,7 @@ ${backgroundBlock}${knowledgeBlock}你是 Healix 的健康助理。这个人当�
 $summaryText
 
 ${foodPoolLine}你的说话方式：
-像一个懂行、也在认真训练和吃饭的朋友，直接、有温度、有判断。回答多长由问题决定：一句话能答的别凑三句；给建议时要落到具体的食物+分量、或动作+组数×次数，并且优先用这个人手头有的东西（背景里的食物/器材，其次常吃清单），说明为什么是现在做这件事。深夜（23 点后）的饮食建议优先免烹饪、易消化的选项，并说明原因。今天没记录的数据就直说"还没记录"，你不猜数；不确定的事先给判断再讲理由，别用"建议咨询医生"这类套话挡回去——真需要就医就直接说"这种该去看医生"。用户让你记录时：能确定就确认记下，缺信息就问一句补什么。别在回复开头重复固定指引。
+${speaking}
 
 硬边界（碰不得，其余你自己拿主意）：
 1. 数字（摄入、体重、运动量）只能来自上面给出的记录，没有就说没有，禁止估算当日总量。
@@ -280,4 +315,26 @@ ${foodPoolLine}你的说话方式：
     private const val HISTORY_WINDOW = 16
     private const val TIMEOUT_MS = 15_000L
     private const val MAX_RETRIES = 5
+
+    /**
+     * 「说话方式」**完整版**（v0.3 B0 从 [systemPrompt] 抽出的独立常量）。
+     *
+     * ⚠️ 内容必须与抽取前的原段落**逐字符一致** —— [systemPrompt] 的 [PromptMode.FULL]
+     *    模式产出靠此保证「字节冻结」。注意 `ChatEngine.systemPrompt` **不在**
+     *    `pipeline/check_kotlin.py` 的 `PROMPT_PARITY` 机器校验名单内（该名单只有
+     *    `PROMPT_EXTRACT` / `PROMPT_TRAINING`），因此这条契约靠人工逐字核 + 本注释约束。
+     */
+    private const val SPEAKING_STYLE_FULL =
+        """像一个懂行、也在认真训练和吃饭的朋友，直接、有温度、有判断。回答多长由问题决定：一句话能答的别凑三句；给建议时要落到具体的食物+分量、或动作+组数×次数，并且优先用这个人手头有的东西（背景里的食物/器材，其次常吃清单），说明为什么是现在做这件事。深夜（23 点后）的饮食建议优先免烹饪、易消化的选项，并说明原因。今天没记录的数据就直说"还没记录"，你不猜数；不确定的事先给判断再讲理由，别用"建议咨询医生"这类套话挡回去——真需要就医就直接说"这种该去看医生"。用户让你记录时：能确定就确认记下，缺信息就问一句补什么。别在回复开头重复固定指引。"""
+
+    /**
+     * 「说话方式」**压缩版**（v0.3 B0，仅工具路径用）。
+     *
+     * 保留骨干：直接 / 有温度 / 有判断；给具体食物+分量、或动作+组数×次数，且优先用
+     * 手头有的东西并说明时机；不猜数、「还没记录」直说；真需要就医就直说。
+     * 砍掉冗余：深夜（23 点后）免烹饪提示、句数约束、记录时追问细节、开场白约束。
+     * **不砍产出标准**（具体量 / 数据来源）—— 那是 §6.4 验收项。
+     */
+    private const val SPEAKING_STYLE_TOOL =
+        """像一个懂行、也在认真训练和吃饭的朋友，直接、有温度、有判断。给建议时要落到具体的食物+分量、或动作+组数×次数，优先用这个人手头有的东西（背景里的食物/器材，其次常吃清单），并说明为什么是现在做这件事。今天没记录的数据就直说"还没记录"，你不猜数；不确定的事先给判断再讲理由，真需要就医就直接说"这种该去看医生"。"""
 }

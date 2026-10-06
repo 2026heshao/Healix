@@ -5,7 +5,6 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.EditText
-import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.healix.app.HealixApp
 import com.healix.app.R
@@ -32,8 +31,12 @@ import kotlinx.coroutines.launch
  *
  * 保存时机与个人信息页背景项一致：**失焦** + **onPause 兜底**，
  * 内容没变不写库。不做 TextWatcher 实时写 —— 每键一次 SQLite 是无谓 IO。
+ *
+ * v0.3 B3：改继承 [PageFragment] → 重新可见时经 [onPageShown] 重读并**逐框守卫**回填
+ *   （本页是一次性读库，不随 Room Flow 实时刷新，属"真陈旧页"）。
+ *   **不得用 `onResume` 替代**（keep-alive 下不触发）。
  */
-internal class ResourceFragment : Fragment() {
+internal class ResourceFragment : PageFragment() {
 
     private var _binding: FragmentResourceBinding? = null
     private val binding get() = _binding!!
@@ -90,6 +93,36 @@ internal class ResourceFragment : Fragment() {
         lastSaved[edit] = value
     }
 
+    /**
+     * 重新可见时重读 [ResourceStore] 并**逐框守卫**回填（v0.3 B3，仅 [onPageShown] 调用）。
+     *
+     * ⚠️ **逐框守卫**：仅当 `!edit.hasFocus() && edit.text.toString() == lastSaved[edit]`
+     *    （输入框未获焦，且当前文本 == 最近一次已落库基线 → 无未落库草稿）才回填；
+     *    否则**跳过该框** —— 避免覆盖用户正在编辑 / 已改但尚未失焦保存的内容。
+     *    口径对齐 [PersonalInfoFragment] 背景框的 `hasFocus()` 守卫。
+     */
+    private fun reloadFields() {
+        val db = HealixApp.from(requireContext()).database
+        viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
+            val foods = ResourceStore.foods(db)
+            val meds = ResourceStore.meds(db)
+            val sport = ResourceStore.sport(db)
+            launch(Dispatchers.Main) {
+                refill(binding.editFoods, foods)
+                refill(binding.editMeds, meds)
+                refill(binding.editSport, sport)
+            }
+        }
+    }
+
+    /** 单框守卫回填：带未落库草稿（获焦 / 文本 ≠ 基线）则跳过该框。 */
+    private fun refill(edit: EditText, value: String) {
+        if (edit.hasFocus()) return
+        if (edit.text.toString() != lastSaved[edit]) return
+        edit.setText(value)
+        lastSaved[edit] = value
+    }
+
     private fun save(edit: EditText) {
         val key = when (edit.id) {
             R.id.editFoods -> ResourceKeys.FOODS
@@ -118,6 +151,11 @@ internal class ResourceFragment : Fragment() {
         save(b.editFoods)
         save(b.editMeds)
         save(b.editSport)
+    }
+
+    /** 重新可见（keep-alive 下由 [PageFragment.onHiddenChanged]`(false)` 触发）：重读 + 逐框守卫回填。 */
+    protected override fun onPageShown() {
+        reloadFields()
     }
 
     override fun onDestroyView() {

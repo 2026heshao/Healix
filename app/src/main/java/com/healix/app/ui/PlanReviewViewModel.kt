@@ -12,6 +12,7 @@ import com.healix.app.net.NetworkStatus
 import com.healix.app.parse.dayKeyOf
 import com.healix.app.parse.dayStartHourOf
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -127,6 +128,12 @@ class PlanReviewViewModel(app: Application) : AndroidViewModel(app) {
     private val _undo = MutableSharedFlow<UndoPayload>(extraBufferCapacity = 4)
     val undo: SharedFlow<UndoPayload> = _undo.asSharedFlow()
 
+    /**
+     * 今日记录数订阅的 Job（v0.3 B3）：[observeToday] 改为**可重订阅** —— 每次进入
+     * 重新可见时先取消旧订阅再起新的，避免双重订阅导致 `computeAndEmit` 抖动/重复。
+     */
+    private var todayJob: Job? = null
+
     init {
         reload()
         observeToday()
@@ -174,14 +181,30 @@ class PlanReviewViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
+     * 二级页被重新展示（keep-alive 下由 `PageFragment.onPageShown()` 触发）。
+     *
+     * 本页被上层页覆盖过，期间数据可能已在别处变化，且**可能已跨零点** → 重算 + 重订阅
+     * 今日键。纯本地（0 AI）。
+     *
+     * ⚠️ **不**触发 [autoRerankIfDue] —— 它只在 `init` 跑一次（日节流由
+     *    `PLAN_AUTO_RERANK_DAY` 标记守住），若在此重复触发会破坏「打开页面 0 AI」成本纪律。
+     */
+    fun onPageShown() {
+        reload()
+        observeToday()
+    }
+
+    /**
      * 今日记录数 Room Flow → 数据一变就**本地**重算（0 AI）。
      *
      * 训练日的「已记录」态、缺口行、复盘统计都靠这条触发刷新；用户无需任何手动刷新。
-     * ⚠️ 只观察**今日** day_key；跨零点后本 Flow 的键会过期，由 [reload]（页面重建 /
-     *    回前台）兜住 —— 计划页是二级页，每次进入都会重建并重新订阅。
+     * ⚠️ 只观察**今日** day_key；跨零点后本 Flow 的键会过期 —— 由 [onPageShown]（重新可见）
+     *    重订阅兜住（keep-alive 下不会重走 `onViewCreated`，故不能靠"每次进入重建/订阅"）。
+     * ⚠️ **可重订阅**：先 `cancel()` 旧 Job 再起新的，防双重订阅 → `computeAndEmit` 抖动/重复。
      */
     private fun observeToday() {
-        viewModelScope.launch(Dispatchers.IO) {
+        todayJob?.cancel()
+        todayJob = viewModelScope.launch(Dispatchers.IO) {
             val key = runCatching { generator.todayKey() }.getOrNull() ?: return@launch
             runCatching {
                 db.eventDao().observeCountByDay(key).collect { computeAndEmit() }
