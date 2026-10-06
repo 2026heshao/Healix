@@ -2,6 +2,7 @@ package com.healix.app.perf
 
 import android.content.Context
 import android.hardware.display.DisplayManager
+import android.os.Bundle
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
@@ -9,10 +10,14 @@ import android.os.SystemClock
 import android.util.Printer
 import android.view.Choreographer
 import android.view.Display
+import android.view.View
+import androidx.fragment.app.Fragment
+import androidx.fragment.app.FragmentManager
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.WeakHashMap
 
 /**
  * Dispatch 行解析。系统 printer 原始串形如：
@@ -23,7 +28,8 @@ import java.util.Locale
  * - group(1) = handler 全类名（`Handler (...)` 括号内内容）；
  * - group(2) = callback token（**含尾随 `:`**，调用端用 [String.removeSuffix] 去掉）；
  * - group(3) = msg.what。
- * 格式不符不匹配（调用端兜底 unknown / null / -1，绝不抛异常）。
+ * 格式不符不匹配（调用端兜底 unknown / null / -1，绝不抛异常；v3 起未命中时还会把
+ * 原始行截断暂存并随 `SLOW_MSG` 落盘 `raw="…"`，用于定位解析失败的真实串）。
  */
 private val DISPATCH_RE =
     Regex("""Dispatching to Handler \(([^)]*)\) \{[^}]*\} (\S+) (\d+)""")
@@ -36,8 +42,11 @@ private val DISPATCH_RE =
  * ══════════════════════════════════════════════════════════════════════════
  * - 非用户功能：不上设置页、无用户可见业务入口。开关/生命周期接线 = [com.healix.app.HealixApp]
  *   （onCreate 链尾 init，默认关闭）与 [com.healix.app.ui.DebugFragment]（手动开关 + 导出）；
- *   另有**只读观测接线** = [com.healix.app.ui.NavHost]（在 open/back 前后调用 [mark] 打导航锚点）。
- *   [mark] 是纯观测点：探针关闭时**零开销**直接返回（不写盘、不打日志、不开线程），
+ *   另有**只读观测接线** = [com.healix.app.ui.NavHost]（在 open/back 前后调用 [mark] 打导航锚点，
+ *   并调用 [ensureLifecycleMarks] 打生命周期锚点）。
+ *   [mark] / [ensureLifecycleMarks] 都是纯观测点：探针关闭时**零开销**
+ *   （[mark] 只读一次开关直接返回；[ensureLifecycleMarks] 未开启时**不注册回调**，
+ *   且 [stop] 会注销已注册的回调并清表），
  *   **禁止在此写业务状态**（观测点保持单向只读）。
  * - **绝无任何模型调用**：纯被动观察，不依赖网络栈，与 QuotaGuard / provider 零交集
  *   （`llm_calls` 零新增行的埋点不变式）。
@@ -55,14 +64,21 @@ private val DISPATCH_RE =
  *    `<<<<< Finished to` 前缀配对，起止差 ≥ [MSG_SLOW_THRESHOLD_MS] 记
  *    `SLOW_MSG h=<handler简单类名> c=<callback简单类名> what=<what> <耗时>ms`
  *    （h / c 分别取 dispatch 行括号内 handler 全名与 callback token 的简单类名：
- *    数字型消息 callback 为字面 `null`；解析失败回退 unknown / null / -1，不抛异常）；
+ *    数字型消息 callback 为字面 `null`；解析失败回退 unknown / null / -1，不抛异常）。
+ *    v3 起：解析失败（h 回退 unknown）时把原始 printer 行截断 200 字符随行落
+ *    `raw="<截断后的原始行>"`，用于定位 `what=unknown` 这类归因盲区的真实来源。
  *    [stop] 时 `setMessageLogging(null)` 还原。
- * 3. **导航锚点**：[mark] 在探针开启时经同一条落盘通道写一行 `MARK <tag>`，把
- *    `LONG_FRAME` / `SLOW_MSG` 对齐到「具体哪次导航」（[com.healix.app.ui.NavHost]
- *    在 open/back 前后各调一次）；关闭态零开销，探测点只读不写业务状态。
+ * 3. **导航 / 生命周期锚点**：[mark] 在探针开启时经同一条落盘通道写一行 `MARK <tag>`，
+ *    把 `LONG_FRAME` / `SLOW_MSG` 对齐到「具体哪次导航」——[com.healix.app.ui.NavHost]
+ *    在 open/back 前后各调一次写 `MARK nav.*`；[ensureLifecycleMarks] 另对 `pageContainer`
+ *    内的页在生命周期节点写 `MARK frag.*`，把单笔事务消息的几十 ms 拆成
+ *    「inflate + onCreateView」「onViewCreated + onStart + onResume」等子阶段。
+ *    关闭态零开销，探测点只读不写业务状态。
  * 4. **落盘**：专用 `HandlerThread("perf-probe")` 单线程顺序写（主线程零 I/O，压低
- *    观察者效应）；行格式 `<HH:mm:ss.SSS> <TAG> <detail>`；文件
- *    `filesDir/perf/perf_probe_YYYYMMDD.log`，单文件 > [LOG_MAX_BYTES] 轮转覆写。
+ *    观察者效应）；行格式 `<HH:mm:ss.SSS> <TAG> <detail> @<uptimeMs>`——`@<uptimeMs>`
+ *    是 [write] 在**主线程调用点**采样的 `SystemClock.uptimeMillis()`（**绝不在落盘
+ *    线程取**），落盘线程只负责 I/O，从而能复原同一笔消息内部的子阶段先后；
+ *    文件 `filesDir/perf/perf_probe_YYYYMMDD.log`，单文件 > [LOG_MAX_BYTES] 轮转覆写。
  */
 object PerfProbe {
 
@@ -81,6 +97,9 @@ object PerfProbe {
     /** 主线程消息耗时阈值（ms）：≥ 16ms 记一条 SLOW_MSG（PRD R4 推荐口径）。 */
     private const val MSG_SLOW_THRESHOLD_MS = 16L
 
+    /** 解析失败时随 SLOW_MSG 落盘的原始 printer 行**截断长度上限**（字符，防日志膨胀）。 */
+    private const val RAW_LINE_MAX_CHARS = 200
+
     /** 违例行写入缓冲：一次 write() 太碎，凑一行直接投递即可（HandlerThread 顺序写）。 */
     private const val LINE_FEED = '\n'
 
@@ -96,6 +115,16 @@ object PerfProbe {
     @Volatile
     private var appContext: Context? = null
 
+    /**
+     * 已注册「生命周期打点」回调的 FragmentManager（**弱键**）→ 该 FM 上已注册的回调实例。
+     * 用弱键而非强引用：[PerfProbe] 是进程级单例，强引用被销毁的 FM 会经
+     * `FM -> Activity` 泄漏宿主；弱键随 FM 回收自动清理。保存回调**实例**是为了
+     * [stop] 时能用 [FragmentManager.unregisterFragmentLifecycleCallbacks] 精确注销；
+     * [ensureLifecycleMarks] 靠 `containsKey` 保证「同一 FM 不重复注册」。
+     */
+    private val lifecycleHookedFms =
+        WeakHashMap<FragmentManager, FragmentManager.FragmentLifecycleCallbacks>()
+
     // ── 采集状态（只在主线程触碰：Choreographer 回调与 Printer 都在主线程）────
     private var lastFrameNanos: Long = 0L
     private var dispatchStartUptimeMs: Long = 0L
@@ -104,6 +133,12 @@ object PerfProbe {
     /** callback token（已去尾随 `:`，**保留全名**）；数字型消息 = 字面 "null"。 */
     private var dispatchCallback: String = "null"
     private var dispatchWhat: Int = -1
+    /**
+     * [DISPATCH_RE] 未命中时暂存的原始 printer 行（截断至 [RAW_LINE_MAX_CHARS] 字符）；
+     * 命中时清空。仅用于「解析失败时随 SLOW_MSG 落盘原始串」，**不对 what=… 做任何
+     * 来源断言**（那是待日志证实的事，代码里只如实记录）。
+     */
+    private var dispatchRawLine: String = ""
 
     /**
      * 长帧自循环回调。间隔 > 2×vsync 记 `LONG_FRAME`，随后无条件续订自己
@@ -128,13 +163,17 @@ object PerfProbe {
     /**
      * 主线程消息配对 Printer。`>>>>> Dispatching to Handler (<handler全类名>) {..} <callback>: <what> ..`
      * 用正则取 handler 全名 / callback token / what（防御性解析：格式不符回退
-     * unknown / null / -1，不抛异常）。
+     * unknown / null / -1，不抛异常；未命中时把原始行截断暂存，随 SLOW_MSG 落盘）。
      */
     private val printer = object : Printer {
         override fun println(x: String?) {
             if (!running || x == null) return
             if (x.startsWith(">>>>> Dispatching to")) {
-                val groups = DISPATCH_RE.find(x)?.groupValues
+                val match = DISPATCH_RE.find(x)
+                // 解析失败时暂存原始行（截断），随 SLOW_MSG 落盘以定位不明来源的消息；
+                // 命中时清空。此处只如实记录原始串，不对其含义做断言。
+                dispatchRawLine = if (match == null) x.take(RAW_LINE_MAX_CHARS) else ""
+                val groups = match?.groupValues
                 dispatchHandler =
                     groups?.getOrNull(1)?.takeIf { it.isNotBlank() } ?: "unknown"
                 // callback token 的尾随冒号来自 printer 串的 `callback + ": "`，去掉后再取简单类名。
@@ -147,10 +186,13 @@ object PerfProbe {
                 val elapsedMs = SystemClock.uptimeMillis() - dispatchStartUptimeMs
                 dispatchStartUptimeMs = 0L
                 if (elapsedMs >= MSG_SLOW_THRESHOLD_MS) {
+                    // 解析失败（h=unknown）时把原始行随行落盘，解开归因盲区。
+                    val rawSuffix =
+                        if (dispatchRawLine.isNotEmpty()) " raw=\"$dispatchRawLine\"" else ""
                     write(
                         "SLOW_MSG h=${dispatchHandler.substringAfterLast('.')} " +
                             "c=${dispatchCallback.substringAfterLast('.')} " +
-                            "what=$dispatchWhat ${elapsedMs}ms",
+                            "what=$dispatchWhat ${elapsedMs}ms$rawSuffix",
                     )
                 }
             }
@@ -214,15 +256,101 @@ object PerfProbe {
      * ——零开销、零写盘、零日志；开启时经既有落盘通道写一行 `MARK <tag>`
      * （沿用 [write]，不新开线程、不新开文件）。
      *
-     * 用途：把日志里的 `LONG_FRAME` / `SLOW_MSG` 对齐到「哪一次导航」——
-     * [com.healix.app.ui.NavHost] 在 open/back 前后各调一次，判读时看违例落在
-     * 哪两条 MARK 之间即可。
+     * 用途：把日志里的 `LONG_FRAME` / `SLOW_MSG` 对齐到「哪一次导航 / 哪个生命周期节点」——
+     * [com.healix.app.ui.NavHost] 在 open/back 前后各调一次写 `MARK nav.*`；
+     * [ensureLifecycleMarks] 的生命周期回调复用本函数写 `MARK frag.*`。
+     * 判读时看违例落在哪两条 MARK 之间即可。
      *
      * ⚠️ 红线：本函数是**纯观测接线**，**禁止在此写业务状态**（保持单向只读）。
      */
     fun mark(tag: String) {
         if (!running) return
         write("MARK $tag")
+    }
+
+    /**
+     * 生命周期打点（只读观测接线）：探针开启时给 [fm] 注册一个
+     * [FragmentManager.FragmentLifecycleCallbacks]，对 [containerId] 容器内的二级页在
+     * 各生命周期节点各写一行 `MARK frag.<state>`，把单笔事务消息里的几十 ms
+     * **拆成可对齐的子阶段**：
+     * - `frag.created → frag.viewCreated` = inflate + onCreateView 成本；
+     * - `frag.viewCreated → frag.resumed` = onViewCreated + onStart + onResume 成本；
+     * - `MARK nav.open… → frag.resumed` = 整笔事务 + 排队延迟。
+     * 三者都带 `@<uptimeMs>`（[write] 主线程调用点采样），故子阶段可精确相减。
+     *
+     * **为什么按调用点采样 uptime**：wall-clock 前缀在落盘线程生成、只到「哪次导航」，
+     * 而复原子阶段必须用「回调真正发生的时刻」——生命周期回调本就在主线程，
+     * 由 [write] 在入口取 `SystemClock.uptimeMillis()` 即天然满足。
+     *
+     * **为什么关闭态零开销**：钩子只在探针开启时挂上（未开启时**一个回调都不注册**，
+     * 而非注册后在回调体里 early-return）；且 [stop] 会**注销**已注册的回调并清表 ——
+     * 故「曾开启 → 关闭」后 FM 上不再残留回调，连每个生命周期事件的一次方法分发与
+     * `f.id == containerId` 比较都不会发生。这是 [com.healix.app.ui.NavHost]
+     * KDoc 里「探针关闭时零开销」承诺的兑现前提。
+     *
+     * **为什么是纯只读观测**：回调全部只调用 [mark] 落一行锚点，不读不写任何业务状态、
+     * 不改变事务、不改变可见性；接线方（[com.healix.app.ui.NavHost]）只在事务提交前
+     * 调一次本函数，除此之外与探针无耦合。
+     *
+     * **容器 id 由调用方注入**（[containerId] 参数，而非探针内硬编码资源 id）：探针模块
+     * 不感知任何 UI 资源 id，维持本模块「零业务耦合」的红线；仅对落在该容器里的页打点。
+     *
+     * 幂等：[lifecycleHookedFms]（弱键）保证同一 FM 只注册一次；recursive=false ——
+     * 二级页无子 FragmentManager，无需递归注册（避免误伤子 fragment 的视图）。
+     *
+     * 回调签名与 **androidx.fragment 1.5.4 sources** 逐字核对（本机无 JDK，写错必在
+     * CI 报 `overrides nothing`）：`onFragmentCreated` / `onFragmentViewCreated` 末参为
+     * `@Nullable Bundle savedInstanceState`，`onFragmentViewCreated` 另有 `@NonNull View v`，
+     * 其余 `onFragmentXxx(fm, f)` 两参。
+     */
+    fun ensureLifecycleMarks(fm: FragmentManager, containerId: Int) {
+        // 硬要求：探针关闭时**不注册任何回调** —— 真零开销，而非注册后在回调体里早退。
+        if (!running) return
+        if (lifecycleHookedFms.containsKey(fm)) return
+        val callback = object : FragmentManager.FragmentLifecycleCallbacks() {
+            override fun onFragmentCreated(
+                fm: FragmentManager,
+                f: Fragment,
+                savedInstanceState: Bundle?,
+            ) {
+                if (f.id == containerId) mark("frag.created")
+            }
+
+            override fun onFragmentViewCreated(
+                fm: FragmentManager,
+                f: Fragment,
+                v: View,
+                savedInstanceState: Bundle?,
+            ) {
+                if (f.id == containerId) mark("frag.viewCreated")
+            }
+
+            override fun onFragmentStarted(fm: FragmentManager, f: Fragment) {
+                if (f.id == containerId) mark("frag.started")
+            }
+
+            override fun onFragmentResumed(fm: FragmentManager, f: Fragment) {
+                if (f.id == containerId) mark("frag.resumed")
+            }
+
+            override fun onFragmentPaused(fm: FragmentManager, f: Fragment) {
+                if (f.id == containerId) mark("frag.paused")
+            }
+
+            override fun onFragmentStopped(fm: FragmentManager, f: Fragment) {
+                if (f.id == containerId) mark("frag.stopped")
+            }
+
+            override fun onFragmentViewDestroyed(fm: FragmentManager, f: Fragment) {
+                if (f.id == containerId) mark("frag.viewDestroyed")
+            }
+
+            override fun onFragmentDestroyed(fm: FragmentManager, f: Fragment) {
+                if (f.id == containerId) mark("frag.destroyed")
+            }
+        }
+        fm.registerFragmentLifecycleCallbacks(callback, false)
+        lifecycleHookedFms[fm] = callback
     }
 
     // ── 内部实现 ──────────────────────────────────────────────────
@@ -246,6 +374,13 @@ object PerfProbe {
         Choreographer.getInstance().removeFrameCallback(frameCallback)
         // 还原主线程消息日志（探针自身的观察者效应一并撤除）
         Looper.getMainLooper().setMessageLogging(null)
+        // 注销已注册的 Fragment 生命周期回调并清表：关闭态连「事件分发 + id 比较」都不再发生。
+        // 先对 entries 取快照再遍历（避免边遍历边改 map）；FM 若已销毁，unregister 为无副作用
+        // 调用，整体 runCatching 兜底 —— 探针绝不因自身故障影响宿主（与 CrashCatcher 同哲学）。
+        for ((fm, callback) in lifecycleHookedFms.entries.toList()) {
+            runCatching { fm.unregisterFragmentLifecycleCallbacks(callback) }
+        }
+        lifecycleHookedFms.clear()
     }
 
     /**
@@ -271,21 +406,29 @@ object PerfProbe {
         }
     }
 
-    /** 投递一行违例记录到落盘线程（主线程零 I/O）。未 start 时静默丢弃。 */
+    /**
+     * 投递一行违例记录到落盘线程（主线程零 I/O）。未 start 时静默丢弃。
+     *
+     * `uptimeMs` 必须在此刻（**主线程调用点**）采样：这是 v3 统一时钟的落点 ——
+     * 三个写入来源（[frameCallback] / [printer] / [mark]）都在主线程，采到的即
+     * 「违例真正发生」的 `SystemClock.uptimeMillis()`；**绝不在落盘线程里取**，
+     * 否则跨行对比会退化成只能对齐到「哪次导航」。
+     */
     private fun write(detail: String) {
         val handler = writerHandler ?: return
-        handler.post { appendToLog(detail) }
+        val uptimeMs = SystemClock.uptimeMillis()
+        handler.post { appendToLog(detail, uptimeMs) }
     }
 
-    /** 追加一行 `<HH:mm:ss.SSS> <detail>`；先按大小轮转，再顺序写。 */
-    private fun appendToLog(detail: String) {
+    /** 追加一行 `<HH:mm:ss.SSS> <detail> @<uptimeMs>`；先按大小轮转，再顺序写。 */
+    private fun appendToLog(detail: String, uptimeMs: Long) {
         val ctx = appContext ?: return
         val file = logFilePath(ctx)
         runCatching {
             rotateIfNeeded(file)
             val time = SimpleDateFormat(LOG_TIME_FMT, Locale.US).format(Date())
             java.io.FileOutputStream(file, true).use { out ->
-                out.write("$time $detail".toByteArray(Charsets.UTF_8))
+                out.write("$time $detail @$uptimeMs".toByteArray(Charsets.UTF_8))
                 out.write(LINE_FEED.code)
             }
         }
