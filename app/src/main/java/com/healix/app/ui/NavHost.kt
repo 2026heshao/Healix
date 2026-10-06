@@ -8,6 +8,7 @@ import androidx.fragment.app.Fragment
 import androidx.fragment.app.FragmentActivity
 import androidx.fragment.app.FragmentManager
 import com.healix.app.R
+import com.healix.app.perf.PerfProbe
 import java.util.WeakHashMap
 
 /**
@@ -136,6 +137,9 @@ internal object NavHost {
         // fm.fragments 按 add 序排列，last() 才是确定性的"栈顶"。
         val current = fm.fragments.lastOrNull { it.id == R.id.pageContainer }
         current?.view?.clearFocus()
+        // 探针锚点（只读观测）：转场启动前打一行 MARK，供判读时把 LONG_FRAME / SLOW_MSG
+        // 对齐到「这次 open」。探针关闭时 PerfProbe.mark 直接 return，零开销。
+        PerfProbe.mark("nav.open:" + fragment::class.java.simpleName)
         // P1（H1 方案）：转场前给移动中的页面根 view 挂硬件层，动画后还原。
         applyTransitionLayerHook(fm)
         fm.beginTransaction()
@@ -175,6 +179,8 @@ internal object NavHost {
         val host = activityOf(context) ?: return false
         val fm = host.supportFragmentManager
         if (fm.backStackEntryCount == 0) return false
+        // 探针锚点（只读观测）：弹栈前打一行 MARK（探针关闭时 PerfProbe.mark 零开销）。
+        PerfProbe.mark("nav.back")
         // P1（H1 方案）：弹栈两侧（被弹出的顶层 + 归位的下层）同样挂硬件层。
         applyTransitionLayerHook(fm)
         fm.popBackStack()

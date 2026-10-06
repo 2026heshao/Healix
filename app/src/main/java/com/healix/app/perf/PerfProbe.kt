@@ -15,11 +15,18 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * Dispatch 行解析：`>>>>> Dispatching to Handler (main) {abcd} android.view.ViewRootImpl$H 0 100`
- * → group(1)=target 类全名、group(2)=msg.what。格式不符不匹配（调用端兜底 unknown）。
+ * Dispatch 行解析。系统 printer 原始串形如：
+ * `>>>>> Dispatching to Handler (<handler全类名>) {<hash>} <callback>: <what>`
+ * —— `<msg.target>` 的 toString 即 `Handler (全类名) {hash}`，`<callback>` 是
+ * `msg.callback`（数字型消息时为字面 `null`），其后紧跟 `": "` 故 token 带尾随冒号。
+ * 分组：
+ * - group(1) = handler 全类名（`Handler (...)` 括号内内容）；
+ * - group(2) = callback token（**含尾随 `:`**，调用端用 [String.removeSuffix] 去掉）；
+ * - group(3) = msg.what。
+ * 格式不符不匹配（调用端兜底 unknown / null / -1，绝不抛异常）。
  */
 private val DISPATCH_RE =
-    Regex("""Dispatching to Handler \([^)]*\) \{[^}]*\} (\S+) (\d+)""")
+    Regex("""Dispatching to Handler \(([^)]*)\) \{[^}]*\} (\S+) (\d+)""")
 
 /**
  * 帧率探针（清单3 R4）：**独立诊断模块，零业务耦合**。
@@ -27,8 +34,11 @@ private val DISPATCH_RE =
  * ══════════════════════════════════════════════════════════════════════════
  * 定位与红线
  * ══════════════════════════════════════════════════════════════════════════
- * - 非用户功能：不上设置页、无用户可见业务入口，唯一接线 = [com.healix.app.HealixApp]
- *   （onCreate 链尾 init，默认关闭）与 [com.healix.app.ui.DebugFragment]（手动开关 + 导出）。
+ * - 非用户功能：不上设置页、无用户可见业务入口。开关/生命周期接线 = [com.healix.app.HealixApp]
+ *   （onCreate 链尾 init，默认关闭）与 [com.healix.app.ui.DebugFragment]（手动开关 + 导出）；
+ *   另有**只读观测接线** = [com.healix.app.ui.NavHost]（在 open/back 前后调用 [mark] 打导航锚点）。
+ *   [mark] 是纯观测点：探针关闭时**零开销**直接返回（不写盘、不打日志、不开线程），
+ *   **禁止在此写业务状态**（观测点保持单向只读）。
  * - **绝无任何模型调用**：纯被动观察，不依赖网络栈，与 QuotaGuard / provider 零交集
  *   （`llm_calls` 零新增行的埋点不变式）。
  * - **默认关闭**：关闭状态零采集、零写盘；开关态落 **filesDir 标志文件**而非 settings 键
@@ -43,8 +53,14 @@ private val DISPATCH_RE =
  *    `LONG_FRAME <耗时>ms`。
  * 2. **主线程消息耗时**：[Looper.setMessageLogging]，按 `>>>>> Dispatching to` /
  *    `<<<<< Finished to` 前缀配对，起止差 ≥ [MSG_SLOW_THRESHOLD_MS] 记
- *    `SLOW_MSG <target类名> what=<what> <耗时>ms`；[stop] 时 `setMessageLogging(null)` 还原。
- * 3. **落盘**：专用 `HandlerThread("perf-probe")` 单线程顺序写（主线程零 I/O，压低
+ *    `SLOW_MSG h=<handler简单类名> c=<callback简单类名> what=<what> <耗时>ms`
+ *    （h / c 分别取 dispatch 行括号内 handler 全名与 callback token 的简单类名：
+ *    数字型消息 callback 为字面 `null`；解析失败回退 unknown / null / -1，不抛异常）；
+ *    [stop] 时 `setMessageLogging(null)` 还原。
+ * 3. **导航锚点**：[mark] 在探针开启时经同一条落盘通道写一行 `MARK <tag>`，把
+ *    `LONG_FRAME` / `SLOW_MSG` 对齐到「具体哪次导航」（[com.healix.app.ui.NavHost]
+ *    在 open/back 前后各调一次）；关闭态零开销，探测点只读不写业务状态。
+ * 4. **落盘**：专用 `HandlerThread("perf-probe")` 单线程顺序写（主线程零 I/O，压低
  *    观察者效应）；行格式 `<HH:mm:ss.SSS> <TAG> <detail>`；文件
  *    `filesDir/perf/perf_probe_YYYYMMDD.log`，单文件 > [LOG_MAX_BYTES] 轮转覆写。
  */
@@ -83,7 +99,10 @@ object PerfProbe {
     // ── 采集状态（只在主线程触碰：Choreographer 回调与 Printer 都在主线程）────
     private var lastFrameNanos: Long = 0L
     private var dispatchStartUptimeMs: Long = 0L
-    private var dispatchTarget: String = "unknown"
+    /** dispatch 行括号内 handler **全类名**（简单类名在落盘时再取）；解析失败 = "unknown"。 */
+    private var dispatchHandler: String = "unknown"
+    /** callback token（已去尾随 `:`，**保留全名**）；数字型消息 = 字面 "null"。 */
+    private var dispatchCallback: String = "null"
     private var dispatchWhat: Int = -1
 
     /**
@@ -107,29 +126,38 @@ object PerfProbe {
     }
 
     /**
-     * 主线程消息配对 Printer。`>>>>> Dispatching to Handler (main) {..} <target类> <what> ..`
-     * 用正则取 target 类名与 what（防御性解析：格式不符按 unknown 处理，不抛异常）。
+     * 主线程消息配对 Printer。`>>>>> Dispatching to Handler (<handler全类名>) {..} <callback>: <what> ..`
+     * 用正则取 handler 全名 / callback token / what（防御性解析：格式不符回退
+     * unknown / null / -1，不抛异常）。
      */
     private val printer = object : Printer {
         override fun println(x: String?) {
             if (!running || x == null) return
             if (x.startsWith(">>>>> Dispatching to")) {
-                val m = DISPATCH_RE.find(x)
-                dispatchTarget = m?.groupValues?.getOrNull(1)?.substringAfterLast('.') ?: "unknown"
-                dispatchWhat = m?.groupValues?.getOrNull(2)?.toIntOrNull() ?: -1
+                val groups = DISPATCH_RE.find(x)?.groupValues
+                dispatchHandler =
+                    groups?.getOrNull(1)?.takeIf { it.isNotBlank() } ?: "unknown"
+                // callback token 的尾随冒号来自 printer 串的 `callback + ": "`，去掉后再取简单类名。
+                dispatchCallback =
+                    groups?.getOrNull(2)?.removeSuffix(":")?.takeIf { it.isNotBlank() } ?: "null"
+                dispatchWhat = groups?.getOrNull(3)?.toIntOrNull() ?: -1
                 dispatchStartUptimeMs = SystemClock.uptimeMillis()
             } else if (x.startsWith("<<<<< Finished to")) {
                 if (dispatchStartUptimeMs <= 0L) return
                 val elapsedMs = SystemClock.uptimeMillis() - dispatchStartUptimeMs
                 dispatchStartUptimeMs = 0L
                 if (elapsedMs >= MSG_SLOW_THRESHOLD_MS) {
-                    write("SLOW_MSG $dispatchTarget what=$dispatchWhat ${elapsedMs}ms")
+                    write(
+                        "SLOW_MSG h=${dispatchHandler.substringAfterLast('.')} " +
+                            "c=${dispatchCallback.substringAfterLast('.')} " +
+                            "what=$dispatchWhat ${elapsedMs}ms",
+                    )
                 }
             }
         }
     }
 
-    // ── 公开接口（DebugFragment / HealixApp 唯二调用方）───────────────
+    // ── 公开接口（HealixApp / DebugFragment / NavHost 调用方）──────────
 
     /**
      * 进程启动时调用（[com.healix.app.HealixApp.onCreate] 链尾）：
@@ -169,7 +197,9 @@ object PerfProbe {
     fun logFilePath(context: Context): File =
         File(ensurePerfDir(context), LOG_PREFIX + today() + LOG_SUFFIX)
 
-    /** 读全部探针日志（按文件名升序拼接，DebugFragment 导出用）。空 = 空串。 */
+    /**
+     * 读全部探针日志（按文件名升序拼接，DebugFragment 导出用）。空 = 空串。
+     */
     fun readLog(context: Context): String {
         val dir = File(context.filesDir, DIR_NAME)
         val files = dir.listFiles { f -> f.isFile && f.name.startsWith(LOG_PREFIX) }
@@ -177,6 +207,22 @@ object PerfProbe {
         return files.joinToString(LINE_FEED.toString()) { f ->
             runCatching { f.readText() }.getOrDefault("")
         }.trim()
+    }
+
+    /**
+     * 轻量标记锚点（只读观测点）：探针**未开启时只读一次 [running] 直接返回**
+     * ——零开销、零写盘、零日志；开启时经既有落盘通道写一行 `MARK <tag>`
+     * （沿用 [write]，不新开线程、不新开文件）。
+     *
+     * 用途：把日志里的 `LONG_FRAME` / `SLOW_MSG` 对齐到「哪一次导航」——
+     * [com.healix.app.ui.NavHost] 在 open/back 前后各调一次，判读时看违例落在
+     * 哪两条 MARK 之间即可。
+     *
+     * ⚠️ 红线：本函数是**纯观测接线**，**禁止在此写业务状态**（保持单向只读）。
+     */
+    fun mark(tag: String) {
+        if (!running) return
+        write("MARK $tag")
     }
 
     // ── 内部实现 ──────────────────────────────────────────────────
