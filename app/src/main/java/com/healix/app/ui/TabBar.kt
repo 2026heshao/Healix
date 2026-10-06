@@ -29,8 +29,8 @@ import com.healix.app.R
  * **按下即高亮**：`ACTION_DOWN` 时立即 [select] 新 Tab 的文字色，
  * 内容切换由抬起后的 `onTab` 回调完成 —— 与微信底部 Tab 的手感一致。
  *
- * - 二级页（状态详情/设置/计划/个人信息/知识库/资源/预设/调试）：
- *   v8 T03 起**八页全部**改为宿主 [MainActivity] 内 `pageContainer` 上的 Fragment，
+ * - 二级页（状态详情/设置/计划/个人信息/知识库/资源/预设/调试/就医材料）：
+ *   v8 T03 起**九页全部**改为宿主 [MainActivity] 内 `pageContainer` 上的 Fragment，
  *   统一经 [NavHost.open] 进入（零窗口转场）；`tabbar` 被二级页整体覆盖后自然"隐藏"。
  *   本对象**不再承担"开新页"职责**（原 `openSecondary` 已随最后一批迁移删除）。
  *

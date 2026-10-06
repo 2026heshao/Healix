@@ -47,9 +47,10 @@
         <!--
             v8 T03：**全部二级页已迁为宿主 MainActivity 内的 Fragment**（NavHost +
             activity_main 的 pageContainer）—— 计划 / 设置 / 个人信息 / 状态详情 /
-            知识库 / 资源清单 / 预设管理 / 调试，八者的 <activity> 声明均已同帧删除。
+            知识库 / 资源清单 / 预设管理 / 调试 / 就医准备材料，九者的 <activity> 声明均已同帧删除。
             v8 后除 MainActivity 外**不存在其他 Activity**（助理页亦为常驻 Fragment）；
-            进出二级页不再有窗口转场，返回走 FragmentManager 回退栈。
+            进出二级页不再有窗口转场，返回由 `NavHost` 自持的页面栈处理（**不走
+            FragmentManager 回退栈** —— 见 `ui/NavHost.kt` 的结构改造说明）。
         -->
 
         <!--

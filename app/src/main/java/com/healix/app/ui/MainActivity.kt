@@ -22,7 +22,7 @@ import com.healix.app.databinding.ActivityMainBinding
  *   挂在 `tabContainer` 上：`add` 一次 + `show/hide` 切换 —— Tab 互切**零窗口转场、
  *   零 Activity 重建**，这是需求 2「点 Tab 即响应」的根治。三页同为 Fragment，
  *   导航范式唯一（此前「助理」是 Fragment、「记录 / 我的」是 View 容器 = 半迁移）。
- * - **八个二级页**（状态详情/设置/计划/个人信息/知识库/资源/预设/调试）是
+ * - **九个二级页**（状态详情/设置/计划/个人信息/知识库/资源/预设/调试/就医材料）是
  *   `pageContainer` 上的 Fragment，经 [NavHost] 路由（`add` + `hide/show` 保活，
  *   页面栈由 [NavHost] 自持、**不再用 FragmentManager 回退栈**），
  *   这是需求 1「二级页前进/后退卡顿」的根治。
@@ -118,6 +118,15 @@ class MainActivity : AppCompatActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         NavHost.saveState(outState)
+    }
+
+    /**
+     * 解引用栈变化钩子：钩子由宿主注册、[NavHost] 是**进程级** object —— 不在销毁时清掉
+     * 就会在进程内悬着一个已销毁的 Activity（重建时由新的 `onCreate` 覆盖注册）。
+     */
+    override fun onDestroy() {
+        NavHost.onPageStackChanged = null
+        super.onDestroy()
     }
 
     /**

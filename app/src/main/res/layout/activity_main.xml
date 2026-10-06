@@ -11,10 +11,11 @@
     - `tabbar`：全局底部导航，绝对定位盖底，不占 flex 流；
       排在 tabContainer 之后（z 序更高），输入条抬升由各 Fragment 自带的
       `inputBar`（`marginBottom=@dimen/tab_raise`）承担。
-    - `pageContainer`：**八个二级页**（状态详情/设置/计划/个人信息/知识库/资源/
-      预设/调试）的 Fragment 容器，排在 tabbar 之后 = z 序最高 → 二级页天然
+    - `pageContainer`：**九个二级页**（状态详情/设置/计划/个人信息/知识库/资源/
+      预设/调试/就医材料）的 Fragment 容器，排在 tabbar 之后 = z 序最高 → 二级页天然
       盖住底部导航，无需显式隐藏。
-      ⚠️ 空容器**不进命中测试**：`isClickable` 由宿主按「回退栈非空」维护，
+      ⚠️ 容器**无可见二级页时不进命中测试**：`isClickable` 由宿主按 `NavHost.isOpen`
+      （是否有**可见**页）维护 —— keep-alive 下退出的页仍留在容器里但已不可见，
       否则一个透明的 match_parent 容器会把 Tab 页的点击全吞掉。
 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"

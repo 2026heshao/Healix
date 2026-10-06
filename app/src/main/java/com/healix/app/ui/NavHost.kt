@@ -172,7 +172,8 @@ internal object NavHost {
 
         val current = visiblePage(fm)
         val existing = fm.findFragmentByTag(full)
-        // 目标页已在栈顶（双击 / 重复触发）：不做任何事务。
+        // 目标页已在栈顶（双击 / 重复触发）：不做任何事务 —— 含 arguments 变化的情形
+        // （同页重入不换参）；当前无此可达路径，标注在此以免后人误以为漏了一个分支。
         if (existing != null && existing === current) return
 
         // 探针锚点（只读观测）：转场启动前打一行 MARK，供判读时把 LONG_FRAME / SLOW_MSG
@@ -189,7 +190,7 @@ internal object NavHost {
 
         val reused = existing?.takeIf { sameArguments(it, fragment) }
         val tx = fm.beginTransaction()
-            // 与 Tab 页 applyTab（MainActivity.kt:252）同范式，置 true 后 FragmentManager
+            // 与 Tab 页 applyTab（MainActivity.kt:268）同范式，置 true 后 FragmentManager
             // 可重排/合并本事务的操作。保留此写法与 Tab 范式形式统一；本事务只做
             // hide + add/show，不存在「同一 Fragment 先 add 后 remove」这类会被重排改变
             // 语义的组合，故不改变最终可见性结果。
@@ -239,6 +240,10 @@ internal object NavHost {
         PerfProbe.mark("nav.back")
         // 探针生命周期打点（只读观测）：同 open，探针关闭态零注册、零开销。
         PerfProbe.ensureLifecycleMarks(fm, R.id.pageContainer)
+
+        // 与 open 对称：退出的页视图会**存活**（只 hide 不 remove），焦点必须显式清掉，
+        // 否则光标 / 输入法会残留在已不可见的页上，下次复用时不刷新就得面对错位的光标。
+        top.view?.clearFocus()
 
         stack.removeAt(stack.size - 1)
         val prev = stack.lastOrNull()?.let { fm.findFragmentByTag(it) }
@@ -334,7 +339,7 @@ internal object NavHost {
      *
      * 为什么不用 `Bundle.equals`：其相等语义依赖实现细节，一旦退化为 Object 同一性，
      * 复用会**静默失效**（每次都走 remove + add，白付 inflate）。这里按
-     * 「键集合 + 各值字符串形式」逐项比较，取值只可能是 Int / String / null（见各页
+     * 「键集合 + 各值字符串形式」逐项比较，取值只可能是 Int / String / Boolean / null（见各页
      * `newInstance`），字符串形式足以区分。
      */
     private fun sameArguments(a: Fragment, b: Fragment): Boolean {

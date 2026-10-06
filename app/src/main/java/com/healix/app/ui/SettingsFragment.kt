@@ -180,13 +180,29 @@ class SettingsFragment : Fragment() {
         observe()
 
         // 「个人信息页 → 我的目标」跳转进入时，自动滚到「目标」栏（focus_goal 参数）。
-        // post：等首次布局完成后再取 goalContainer 的纵向位置。
-        if (arguments?.getBoolean(ARG_FOCUS_GOAL, false) == true) {
-            binding.settingsScroll.post {
-                val target = offsetWithin(binding.settingsScroll, binding.goalSectionHeader)
-                if (target > 0) binding.settingsScroll.smoothScrollTo(0, target)
-            }
+        if (arguments?.getBoolean(ARG_FOCUS_GOAL, false) == true) scrollToGoal()
+    }
+
+    /** 滚到「目标」栏。post：等首次布局完成后再取 goalContainer 的纵向位置。 */
+    private fun scrollToGoal() {
+        binding.settingsScroll.post {
+            val target = offsetWithin(binding.settingsScroll, binding.goalSectionHeader)
+            if (target > 0) binding.settingsScroll.smoothScrollTo(0, target)
         }
+    }
+
+    /**
+     * 重新可见时补做「跳到目标栏」。
+     *
+     * 为什么需要：keep-alive 结构改造后，被复用的页**不会重走 onViewCreated**（见 [NavHost]）
+     * ——「个人信息页 → 我的目标」这条入口若命中复用（arguments 相同），滚动意图会被静默丢掉，
+     * 用户落在目标栏之外（而 `focus_goal` 的全部意义就是"一步到位"）。
+     * `view == null` 守卫：视图未建时不得触碰 `binding`。
+     */
+    override fun onHiddenChanged(hidden: Boolean) {
+        super.onHiddenChanged(hidden)
+        if (hidden || view == null) return
+        if (arguments?.getBoolean(ARG_FOCUS_GOAL, false) == true) scrollToGoal()
     }
 
     override fun onDestroyView() {
