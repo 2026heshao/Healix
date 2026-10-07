@@ -19,6 +19,8 @@
   9. settings 键名不得写裸字符串，必须引用 SettingsKeys
  10. 游戏化词汇（streak / 打卡 / 归零 / 勋章 …）
  11. pipeline/contract.py ↔ Kotlin 的 prompt 必须**字节一致**
+     另：ChatEngine.systemPrompt 冻结面 ↔ pipeline/prompt_golden.py 金样本
+     逐字节一致（设计 PV-2，2026-10-07；金样本由 build/_golden_gen.py 生成）
  12. `object` / `companion object` 成员的作用域 —— 出了宿主就必须限定引用
      （2026-10-03 新增：CI #21 的 4 个错误里 3 个是这条，而前 11 条一条没报，
       因为它们全是「单行正则」，不做作用域分析）
@@ -993,6 +995,68 @@ def check_prompt_parity() -> None:
             )
 
 
+GOLDEN_KT_REL = "com/healix/app/ui/ChatEngine.kt"
+
+
+def check_system_prompt_golden() -> None:
+    """ChatEngine.systemPrompt 字节冻结面 ↔ 金样本逐字节一致（设计 PV-2，2026-10-07）。
+
+    背景：`PROMPT_PARITY` 只枚举 `PROMPT_EXTRACT` / `PROMPT_TRAINING`；
+    `ChatEngine.systemPrompt` 长期**无机器守卫**，全靠人工逐字 diff ——
+    项目最大静默腐坏面（2026-10-06 查证在案）。金样本 =
+    pipeline/prompt_golden.py，由 build/_golden_gen.py 从代码**自动提取**生成。
+
+    覆盖面：systemPrompt 模板原文（含 ${...} 占位符的字节形态）+
+    SPEAKING_STYLE_FULL / SPEAKING_STYLE_TOOL + 隐私开关两条追加行。
+
+    ⚠️ 已知边界（写进 KDoc 防误信）：本检查守的是**模板字节**，不执行 Kotlin ——
+    占位符的**拼接逻辑**（if 分支、trimStart、字符串模板之外的运行时行为）改动守不到，
+    那部分仍靠编译 + 真机回归。
+    """
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    try:
+        import prompt_golden  # noqa: PLC0415
+    except Exception as e:  # 防止金样本文件自身语法错误把整个检查搞挂
+        errors.append(f"无法导入 pipeline/prompt_golden.py（金样本检查跳过）：{e}")
+        return
+
+    kt_file = JAVA / GOLDEN_KT_REL
+    if not kt_file.exists():
+        errors.append(f"{GOLDEN_KT_REL} 不存在，但 prompt_golden.py 已存在")
+        return
+    text = kt_file.read_text(encoding="utf-8")
+
+    surfaces: list[tuple[str, object, re.Pattern]] = [
+        ("SYSTEM_PROMPT_TEMPLATE", getattr(prompt_golden, "SYSTEM_PROMPT_TEMPLATE", None),
+         re.compile(r'return\s+"""(.*?)"""\s*\.trim\(\)', re.S)),
+        ("SPEAKING_STYLE_FULL", getattr(prompt_golden, "SPEAKING_STYLE_FULL", None),
+         re.compile(r'SPEAKING_STYLE_FULL\s*=\s*"""(.*?)"""', re.S)),
+        ("SPEAKING_STYLE_TOOL", getattr(prompt_golden, "SPEAKING_STYLE_TOOL", None),
+         re.compile(r'SPEAKING_STYLE_TOOL\s*=\s*"""(.*?)"""', re.S)),
+        ("PRIVACY_KCAL_LINE", getattr(prompt_golden, "PRIVACY_KCAL_LINE", None),
+         re.compile(r'append\("(\\n5\..*?)"\)')),
+        ("PRIVACY_WEIGHT_LINE", getattr(prompt_golden, "PRIVACY_WEIGHT_LINE", None),
+         re.compile(r'append\("(\\n6\..*?)"\)')),
+    ]
+    for name, golden, rx in surfaces:
+        if golden is None:
+            errors.append(f"pipeline/prompt_golden.py 缺少 {name}")
+            continue
+        m = rx.search(text)
+        if not m:
+            errors.append(
+                f"{GOLDEN_KT_REL}: 找不到 {name} 的代码侧提取点"
+                f"（正则失配 = 代码结构变了，须同步改 _golden_gen.py 与本处）"
+            )
+            continue
+        if m.group(1) != golden:
+            errors.append(
+                f"{GOLDEN_KT_REL}: {name} 与 pipeline/prompt_golden.py 金样本**不一致** —— "
+                f"systemPrompt 属字节冻结区：若是刻意改动，先递增对应 PROMPT_VER_CHAT / "
+                f"PROMPT_VER_CHAT_TOOL，再重跑 build/_golden_gen.py 重新生成金样本"
+            )
+
+
 # ── object / companion 作用域 ────────────────────────────────────────────
 # ══════════════════════════════════════════════════════════════════════════
 # 为什么需要「作用域分析」这一类检查（2026-10-03，CI #21 实况）
@@ -1566,6 +1630,7 @@ def main() -> int:
     check_settings_keys_consistency()
     check_no_gamification()
     check_prompt_parity()
+    check_system_prompt_golden()
     check_object_scope()
     check_duplicate_constants()
     check_missing_coroutine_imports()

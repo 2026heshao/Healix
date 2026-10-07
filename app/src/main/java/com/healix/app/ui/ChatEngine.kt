@@ -364,9 +364,12 @@ ${userRulesBlock}硬边界（碰不得，其余你自己拿主意）：
      * 「说话方式」**完整版**（v0.3 B0 从 [systemPrompt] 抽出的独立常量）。
      *
      * ⚠️ 内容必须与抽取前的原段落**逐字符一致** —— [systemPrompt] 的 [PromptMode.FULL]
-     *    模式产出靠此保证「字节冻结」。注意 `ChatEngine.systemPrompt` **不在**
-     *    `pipeline/check_kotlin.py` 的 `PROMPT_PARITY` 机器校验名单内（该名单只有
-     *    `PROMPT_EXTRACT` / `PROMPT_TRAINING`），因此这条契约靠人工逐字核 + 本注释约束。
+     *    模式产出靠此保证「字节冻结」。`ChatEngine.systemPrompt` 不在
+     *    `pipeline/check_kotlin.py` 的 `PROMPT_PARITY` 名单内（那只有
+     *    `PROMPT_EXTRACT` / `PROMPT_TRAINING`），但**已有独立机器守卫**（设计 PV-2，
+     *    2026-10-07）：本文件冻结面 ↔ `pipeline/prompt_golden.py` 金样本逐字节比对
+     *    （`check_system_prompt_golden`）；金样本由 `build/_golden_gen.py` 从代码
+     *    自动提取。刻意改动流程：改这里 → 递增对应版本号 → 重跑生成脚本 → 金样本入库。
      */
     private const val SPEAKING_STYLE_FULL =
         """像一个懂行、也在认真训练和吃饭的朋友，直接、有温度、有判断。回答多长由问题决定：一句话能答的别凑三句；给建议时要落到具体的食物+分量、或动作+组数×次数，并且优先用这个人手头有的东西（背景里的食物/器材，其次常吃清单），说明为什么是现在做这件事。深夜（23 点后）的饮食建议优先免烹饪、易消化的选项，并说明原因。今天没记录的数据就直说"还没记录"，你不猜数；不确定的事先给判断再讲理由，别用"建议咨询医生"这类套话挡回去——真需要就医就直接说"这种该去看医生"。用户让你记录时：能确定就确认记下，缺信息就问一句补什么。别在回复开头重复固定指引。"""

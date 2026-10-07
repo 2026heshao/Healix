@@ -1843,7 +1843,11 @@ internal class HealthAgent(
          * （即这条 assistant 消息的 createdAt 口径）。文案随 [AgentOutcome.ProposalPending]
          * 落库一次，之后重进页面读库渲染，**同一条消息的文案必然稳定**；进程级
          * `lastNoteIdx` 去重只保证"连续两条不撞同一句"，不引入任何随机源。
+         *
+         * `@Synchronized`（QA P2-1，2026-10-07）：read-compare-write 三步非原子，
+         * 并发两条拟稿时最坏 = 连续两条撞同一句。锁 companion 实例，代价可忽略。
          */
+        @Synchronized
         fun proposalNote(context: Context): String {
             var idx = (System.currentTimeMillis() % PROPOSAL_NOTE_POOL.size).toInt()
             if (idx == lastNoteIdx) idx = (idx + 1) % PROPOSAL_NOTE_POOL.size
