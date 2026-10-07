@@ -84,6 +84,19 @@ interface BodySignalDao {
     fun observeUnread(sinceDay: String, limit: Int): Flow<List<BodySignalEntity>>
     @Query("SELECT * FROM body_signals WHERE acknowledged = 0 AND day_key >= :sinceDay ORDER BY id DESC LIMIT :limit")
     suspend fun listUnread(sinceDay: String, limit: Int): List<BodySignalEntity>
+
+    /**
+     * 取某一日区间内的全部身体提示（2026-10-07 P0，`query_warnings` 工具用）。
+     *
+     * 与 [listUnread] 的差别：**含已确认**的提示（已确认只代表用户看过，事实仍在），
+     * 且带 `day_to` 上界 —— 工具是「查某段历史」而不是「看今天的红点」。
+     * `day_key` 格式 `yyyy-MM-dd`，区间比较即字典序比较；按日期倒序、同日按 id 倒序。
+     */
+    @Query(
+        "SELECT * FROM body_signals WHERE day_key BETWEEN :dayFrom AND :dayTo " +
+            "ORDER BY day_key DESC, id DESC LIMIT :limit",
+    )
+    suspend fun listInRange(dayFrom: String, dayTo: String, limit: Int): List<BodySignalEntity>
     @Query("UPDATE body_signals SET acknowledged = 1 WHERE id = :id") suspend fun acknowledge(id: Long)
     @Query("SELECT COUNT(*) FROM body_signals WHERE rule_id = :ruleId AND day_key = :dayKey")
     suspend fun countFor(ruleId: String, dayKey: String): Int

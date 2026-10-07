@@ -128,6 +128,13 @@ interface PlanDao {
     @Query("SELECT * FROM daily_reviews WHERE date = :date LIMIT 1")
     fun observeReview(date: String): Flow<DailyReviewEntity?>
 
+    /**
+     * 取某一日区间内的全部每日复盘（2026-10-07 P0，`query_review` 工具用）。
+     * 按日期升序；`date` 是主键且格式为 `yyyy-MM-dd`，区间比较即字典序比较。
+     */
+    @Query("SELECT * FROM daily_reviews WHERE date BETWEEN :dayFrom AND :dayTo ORDER BY date ASC")
+    suspend fun listReviewsInRange(dayFrom: String, dayTo: String): List<DailyReviewEntity>
+
     /** 导出备份用（G4）：一次拿全部今日计划，按日期升序。 */
     @Query("SELECT * FROM daily_plans ORDER BY date ASC")
     suspend fun listAllPlans(): List<DailyPlanEntity>

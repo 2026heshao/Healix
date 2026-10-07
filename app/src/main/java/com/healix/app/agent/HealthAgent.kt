@@ -16,15 +16,21 @@ import com.healix.app.net.ProviderConfig
 import com.healix.app.net.ToolCall
 import com.healix.app.net.ToolDef
 import com.healix.app.net.ToolFunctionDef
+import com.healix.app.parse.dayStartHourOf
 import com.healix.app.parse.loadsLenient
 import com.healix.app.repo.EventRepository
+import com.healix.app.repo.QuotaGuard
 import com.healix.app.ui.ChatEngine
+import com.healix.app.ui.HealixDate
 import com.healix.app.ui.PROMPT_VER_CHAT_TOOL
 import com.healix.app.ui.PlanChangeWriter
+import com.healix.app.ui.PlanGenerator
 import com.healix.app.ui.PromptMode
 import com.healix.app.ui.TodaySummary
 import com.healix.app.ui.TrainingPlanner
 import com.healix.app.ui.dowLabel
+import java.time.Instant
+import java.time.ZoneId
 import java.util.UUID
 import org.json.JSONObject
 
@@ -165,13 +171,17 @@ internal data class ToolExecResult(
 )
 
 /**
- * 工具注册表（S3–S4；v0.3 B5 加 3 只读 + B6 加 3 写）。
+ * 工具注册表（S3–S4；v0.3 B5 加 3 只读 + B6 加 3 写；2026-10-07 P0 再补 4 只读）。
  *
  * 设计取舍：
  * - **只读为主**：query_events / query_stats / query_plan / query_goal /
- *   query_training_week 只查不写；写入口（propose_log / propose_plan_change /
+ *   query_training_week / query_review / query_warnings / query_reminders /
+ *   query_settings 只查不写；写入口（propose_log / propose_plan_change /
  *   propose_goal_change / propose_record_delete）**只产草稿**（见 [AgentProposal]）
  *   —— 有界自主的边界在这里划死。
+ * - **只读工具只补"prompt 里没有的数据"**：画像 / 体格 / 目标 / 今日数字 / 隐私开关
+ *   已经由 `ChatEngine.systemPrompt`（含 `ProfileContext.build`）注入，再挂一个
+ *   `query_profile` 只会让同一段文本说两遍、白烧 token。判据写在此处，新增只读前先自问。
  * - 工具结果一律转成**中文紧凑文本**回给模型：省 token，且「来源标注」规则天然成立。
  * - 参数解析失败 / 未知名 / **无权限** 一律**不抛异常**，返回一句错误说明 ——
  *   模型能看到错误就有机会自纠，循环也不至于断。
@@ -183,6 +193,17 @@ internal object ToolRegistry {
     const val NAME_QUERY_PLAN = "query_plan"
     const val NAME_QUERY_GOAL = "query_goal"
     const val NAME_QUERY_TRAINING_WEEK = "query_training_week"
+
+    // ── P0 只读补齐（2026-10-07，用户需求「全面提高 AI 能力」）────────────
+    // 这 4 个工具填的是**真实盲区**：这些数据表此前对模型完全不可见，模型被问到
+    // 只能答"我不知道"或凭记忆编。判定依据是"该数据是否已经出现在 system prompt 里"
+    // —— 已经注入的（画像 / 体格 / 目标 / 今日数字 / 隐私开关）**不再补只读工具**，
+    // 补了也只是把同一段文本说第二遍（见 [toolsSection] 的权限声明同理）。
+    const val NAME_QUERY_REVIEW = "query_review"
+    const val NAME_QUERY_WARNINGS = "query_warnings"
+    const val NAME_QUERY_REMINDERS = "query_reminders"
+    const val NAME_QUERY_SETTINGS = "query_settings"
+
     const val NAME_PROPOSE_LOG = "propose_log"
     const val NAME_PROPOSE_PLAN_CHANGE = "propose_plan_change"
     const val NAME_PROPOSE_GOAL_CHANGE = "propose_goal_change"
@@ -211,8 +232,26 @@ internal object ToolRegistry {
      */
     private const val MAX_PLAN_NOTE_LEN = 200
 
-    /** `query_plan` 单次最多回多少条计划行（token 预算）。 */
-    private const val MAX_PLAN_ROWS = 14
+    /**
+     * `query_plan` 单次最多回多少条计划行（token 预算）。
+     *
+     * 2026-10-07 从 14 收到 7：`query_plan` 改为回**条目明细**后单行膨胀（每条计划最多
+     * 6 条今日条目 + 一行明天摘要 + 备注 ≈ 8 行），14 天能到上百行、把上下文灌满。
+     * 7 行正好覆盖「最近一周」这一最常见问法。
+     */
+    private const val MAX_PLAN_ROWS = 7
+
+    /** `query_review` 单次最多回几条复盘行（同比 `query_plan` 的 token 预算）。 */
+    private const val MAX_REVIEW_ROWS = 7
+
+    /** `query_review` 单条复盘正文的截断长度。 */
+    private const val MAX_REVIEW_CHARS = 200
+
+    /** `query_warnings` 单次最多回几条身体提示。 */
+    private const val MAX_WARNINGS = 20
+
+    /** `query_reminders` 单次最多回几条提醒。 */
+    private const val MAX_REMINDERS = 15
 
     /** 交给模型的工具 schema（OpenAI function calling 格式）。 */
     val defs: List<ToolDef> = listOf(
@@ -255,8 +294,10 @@ internal object ToolRegistry {
         ToolDef(
             function = ToolFunctionDef(
                 name = NAME_QUERY_PLAN,
-                description = "查询某日期区间内已生成的今日计划（备注 / 来源）。" +
-                    "回答“我的计划是什么/某天安排了什么”用它查证。",
+                description = "查询某日期区间内已生成的今日计划，返回**逐条明细**" +
+                    "（时间 / 类型 / 标题 / 具体做法 / 时长 / 热量，另附备注与来源）。" +
+                    "回答“我的计划是什么 / 某天安排了什么 / 几点该吃什么”必须用它查证，" +
+                    "禁止凭对话记忆编造。",
                 parameters = mapOf(
                     "type" to "object",
                     "properties" to mapOf(
@@ -289,6 +330,73 @@ internal object ToolRegistry {
                 name = NAME_QUERY_TRAINING_WEEK,
                 description = "查询本周训练计划（每天安排 + 已完成情况 + 每周目标）。" +
                     "回答“这周练什么/练了几次”用它查证。",
+                parameters = mapOf(
+                    "type" to "object",
+                    "properties" to mapOf<String, Any?>(),
+                ),
+            ),
+        ),
+        ToolDef(
+            function = ToolFunctionDef(
+                name = NAME_QUERY_REVIEW,
+                description = "查询某日期区间内已生成的**每日复盘**（App 对那天的表现做的分析" +
+                    "与建议，含模型名）。回答“我的复盘说了什么 / 上次建议我怎么做”用它查证，禁止凭记忆编。",
+                parameters = mapOf(
+                    "type" to "object",
+                    "properties" to mapOf(
+                        "day_from" to mapOf(
+                            "type" to "string",
+                            "description" to "开始日期，yyyy-MM-dd",
+                        ),
+                        "day_to" to mapOf(
+                            "type" to "string",
+                            "description" to "结束日期，yyyy-MM-dd",
+                        ),
+                    ),
+                    "required" to listOf("day_from", "day_to"),
+                ),
+            ),
+        ),
+        ToolDef(
+            function = ToolFunctionDef(
+                name = NAME_QUERY_WARNINGS,
+                description = "查询某日期区间内 App 自动给出的**身体提示**（如连续睡眠不足、" +
+                    "体重异动、生病频次偏高等，分 提示/注意/警告 三档）。" +
+                    "回答“我最近身体有什么异常 / 有没有被提醒过”用它查证，禁止凭记忆编。",
+                parameters = mapOf(
+                    "type" to "object",
+                    "properties" to mapOf(
+                        "day_from" to mapOf(
+                            "type" to "string",
+                            "description" to "开始日期，yyyy-MM-dd",
+                        ),
+                        "day_to" to mapOf(
+                            "type" to "string",
+                            "description" to "结束日期，yyyy-MM-dd",
+                        ),
+                    ),
+                    "required" to listOf("day_from", "day_to"),
+                ),
+            ),
+        ),
+        ToolDef(
+            function = ToolFunctionDef(
+                name = NAME_QUERY_REMINDERS,
+                description = "查询用户设置的**周期性提醒**（体检 / 洗牙 / 配镜 / 疫苗等）" +
+                    "及其下次到期时间。回答“我下次该体检了吗 / 我设了哪些提醒”用它查证。",
+                parameters = mapOf(
+                    "type" to "object",
+                    "properties" to mapOf<String, Any?>(),
+                ),
+            ),
+        ),
+        ToolDef(
+            function = ToolFunctionDef(
+                name = NAME_QUERY_SETTINGS,
+                description = "查询 App 的**运行设置与额度**：日界线（几点算新的一天）、" +
+                    "隐私开关（是否隐藏热量 / 体重）、AI 可见资料范围、今日 AI 调用额度余量。" +
+                    "只在用户明确问起这些时调用（如“我还能问几次 / 我的日界线是几点 / " +
+                    "我把热量隐藏了吗”），不要主动播报额度。",
                 parameters = mapOf(
                     "type" to "object",
                     "properties" to mapOf<String, Any?>(),
@@ -445,6 +553,11 @@ internal object ToolRegistry {
             NAME_QUERY_GOAL -> ok(uid, queryGoal(context))
             NAME_QUERY_TRAINING_WEEK -> ok(uid, queryTrainingWeek(context))
 
+            NAME_QUERY_REVIEW -> ok(uid, queryReview(context, args))
+            NAME_QUERY_WARNINGS -> ok(uid, queryWarnings(context, args))
+            NAME_QUERY_REMINDERS -> ok(uid, queryReminders(context))
+            NAME_QUERY_SETTINGS -> ok(uid, querySettings(context))
+
             NAME_PROPOSE_LOG -> if (!perms.writeRecord) {
                 denied(uid)
             } else {
@@ -528,6 +641,17 @@ internal object ToolRegistry {
         return TodaySummary.build(context).lines.joinToString("\n")
     }
 
+    /**
+     * 查今日计划 —— **回条目明细**（2026-10-07 P0 修掉的硬伤）。
+     *
+     * 旧版只回 `planNoteOf` 的一句备注：模型拿不到任何条目，「我 12 点该吃什么」只能凭
+     * 对话记忆编 —— 与「回答里引用的数字只能来自记录原文或工具返回」直接冲突。
+     * 明细由 [PlanGenerator.itemsDigest] 产出（`plan_json` 的 schema 只在那里定义，
+     * 摘要必须同源，理由见该方法 KDoc）。
+     *
+     * 三级回落（旧数据 / 纯兜底文本也仍要答得出来）：
+     * 条目明细 → `note` 一句话 → `content` 纯文本前 60 字 → "无备注"。
+     */
     private suspend fun queryPlan(context: Context, args: JSONObject): String {
         val from = args.optString("day_from").trim()
         val to = args.optString("day_to").trim()
@@ -542,9 +666,12 @@ internal object ToolRegistry {
         }
         if (rows.isEmpty()) return "该区间没有生成过今日计划。"
         val shown = rows.takeLast(MAX_PLAN_ROWS)
+        // 摘要产出器：构造失败也不出声，直接走下面的回落链（防御式，与全文件同风格）
+        val digest = runCatching { PlanGenerator(context) }.getOrNull()
         val lines = shown.map { p ->
             val src = if (p.source == TrainingPlanner.SOURCE_AI) "AI" else "本地"
-            val detail = planNoteOf(p.planJson)
+            val detail = runCatching { digest?.itemsDigest(p.planJson) }.getOrNull()
+                ?: planNoteOf(p.planJson)
                 ?: p.content?.replace('\n', ' ')?.take(60)?.ifBlank { null }
                 ?: "无备注"
             "• ${p.date}（$src）：$detail"
@@ -583,6 +710,121 @@ internal object ToolRegistry {
         }
         sb.append("已完成 ${done.size}/$goal 次")
         return sb.toString().trim()
+    }
+
+    /**
+     * 查每日复盘（`daily_reviews`）—— 2026-10-07 P0 新增，此前该表对模型**完全不可见**。
+     *
+     * 复盘是 App 对"那天为什么没达标 / 哪里做得好"的成篇分析，用户回问"你上次建议我
+     * 怎样来着"是最常见的追问之一；不给工具就只能答"我看不到"。
+     */
+    private suspend fun queryReview(context: Context, args: JSONObject): String {
+        val from = args.optString("day_from").trim()
+        val to = args.optString("day_to").trim()
+        if (!DATE_PATTERN.matches(from) || !DATE_PATTERN.matches(to)) {
+            return "day_from / day_to 必须是 yyyy-MM-dd 格式。"
+        }
+        val db = HealixApp.from(context).database
+        val rows = try {
+            db.planDao().listReviewsInRange(from, to)
+        } catch (_: Exception) {
+            return "查询失败，请稍后再试。"
+        }
+        if (rows.isEmpty()) return "该区间还没有生成过复盘。"
+        val shown = rows.takeLast(MAX_REVIEW_ROWS)
+        val lines = shown.map { r ->
+            val text = r.content.orEmpty().replace('\n', ' ').trim()
+            val body = if (text.length > MAX_REVIEW_CHARS) {
+                text.take(MAX_REVIEW_CHARS) + "…"
+            } else {
+                text.ifEmpty { "（空）" }
+            }
+            "• ${r.date}：$body"
+        }
+        val truncated = if (rows.size > shown.size) {
+            "\n（仅显示最近 ${shown.size} 条，共 ${rows.size} 条）"
+        } else {
+            ""
+        }
+        return lines.joinToString("\n") + truncated
+    }
+
+    /**
+     * 查身体提示（`body_signals`）—— 2026-10-07 P0 新增，此前该表对模型**完全不可见**。
+     *
+     * ⚠️ 工具只**复述**规则算出来的提示，不做任何医学判断 —— 措辞与 App 内一致
+     * （"App 给你的提示"），避免模型把这些提示当成诊断结论往外说。
+     */
+    private suspend fun queryWarnings(context: Context, args: JSONObject): String {
+        val from = args.optString("day_from").trim()
+        val to = args.optString("day_to").trim()
+        if (!DATE_PATTERN.matches(from) || !DATE_PATTERN.matches(to)) {
+            return "day_from / day_to 必须是 yyyy-MM-dd 格式。"
+        }
+        val db = HealixApp.from(context).database
+        val rows = try {
+            db.bodySignalDao().listInRange(from, to, MAX_WARNINGS)
+        } catch (_: Exception) {
+            return "查询失败，请稍后再试。"
+        }
+        if (rows.isEmpty()) return "该区间没有身体提示记录。"
+        return rows.joinToString("\n") { s ->
+            val level = signalLevelName(s.level)
+            val ack = if (s.acknowledged == 1) "，用户已看过" else ""
+            val detail = s.detail.orEmpty().replace('\n', ' ').trim()
+            val body = if (detail.isEmpty()) s.title else "${s.title}：$detail"
+            "• ${s.dayKey} [$level$ack] $body"
+        }
+    }
+
+    /** 查周期性提醒（`reminders`）—— 2026-10-07 P0 新增，此前该表对模型**完全不可见**。 */
+    private suspend fun queryReminders(context: Context): String {
+        val db = HealixApp.from(context).database
+        val rows = try {
+            db.reminderDao().listEnabled()
+        } catch (_: Exception) {
+            return "查询失败，请稍后再试。"
+        }
+        if (rows.isEmpty()) return "还没有设置周期性提醒。"
+        val now = System.currentTimeMillis()
+        return rows.take(MAX_REMINDERS).joinToString("\n") { r ->
+            val name = r.name.trim().ifEmpty { "（未命名）" }
+            "• $name（每 ${r.intervalDays} 天，下次 ${reminderDueText(r.nextDueAt, now)}）"
+        }
+    }
+
+    /**
+     * 查运行设置与额度（`settings` + [QuotaGuard]）—— 2026-10-07 P0 新增。
+     *
+     * 刻意**只回非敏感项**：apiKey 根本不落 `settings` 表（`SecretStore` 存
+     * EncryptedSharedPreferences），故这里逐键读也不会带出密钥。新增键前先自问
+     * "这条会不会随导出/回显泄露"（同 [SettingsKeys] 的导出纪律）。
+     */
+    private suspend fun querySettings(context: Context): String {
+        val db = HealixApp.from(context).database
+        val dao = db.settingsDao()
+        val lines = mutableListOf<String>()
+        val dayStart = runCatching {
+            dayStartHourOf(dao.get(EventRepository.KEY_DAY_START_HOUR))
+        }.getOrDefault(0)
+        lines += "• 日界线：每天 $dayStart:00 之后才算新的一天（此前记的算前一天）"
+        lines += "• 隐藏热量数字：${boolText(dao.get(SettingsKeys.HIDE_KCAL) == "true")}"
+        lines += "• 隐藏体重数字：${boolText(dao.get(SettingsKeys.HIDE_WEIGHT) == "true")}"
+        lines += "• AI 可见资料范围（画像 / 体格 / 目标）：" +
+            boolText(dao.get(SettingsKeys.AI_DATA_FULL) != "false")
+        lines += "• AI 工具总开关：${boolText(dao.get(SettingsKeys.AI_TOOLS_ENABLED) != "false")}"
+        val quota = runCatching { QuotaGuard(context) }.getOrNull()
+        if (quota != null) {
+            val chatUsed = runCatching { quota.usedChatToday() }.getOrDefault(0)
+            val chatLeft = (QuotaGuard.DEFAULT_DAILY_CHAT_LIMIT - chatUsed).coerceAtLeast(0)
+            val extractUsed = runCatching { quota.usedExtractToday() }.getOrDefault(0)
+            val left = (QuotaGuard.DEFAULT_DAILY_CALL_LIMIT - extractUsed).coerceAtLeast(0)
+            lines += "• 今日对话额度：已用 $chatUsed/${QuotaGuard.DEFAULT_DAILY_CHAT_LIMIT}" +
+                "，还剩 $chatLeft 次"
+            lines += "• 今日计划 / 记录识别额度：已用 $extractUsed/" +
+                "${QuotaGuard.DEFAULT_DAILY_CALL_LIMIT}，还剩 $left 次"
+        }
+        return lines.joinToString("\n")
     }
 
     // ── 拟稿工具（只产 draft）────────────────────────────────────────
@@ -732,6 +974,39 @@ internal object ToolRegistry {
     }
 
     // ── 辅助 ────────────────────────────────────────────────────────
+
+    /** `body_signals.level` 的中文档位名（取值域 `info` / `notice` / `alert`）。 */
+    private fun signalLevelName(level: String): String = when (level) {
+        "info" -> "提示"
+        "notice" -> "注意"
+        "alert" -> "警告"
+        else -> "提示"
+    }
+
+    /**
+     * 提醒到期文案（`query_reminders` 用）。
+     *
+     * ⚠️ **刻意按时间戳算、不按 day_key** —— 与设置页 / 状态页的既有口径一致
+     * （`SettingsFragment` 的临期判定是 `nextDueAt - now <= 7 天`，标签用系统时区日历日）。
+     * 提醒的"到期"是**时刻**概念、不是**记录日**概念；套日界线会让"凌晨 2 点创建的提醒"
+     * 比 UI 上显示的日期差一天（两条口径打架，且只在凌晨窗口暴露）。
+     *
+     * 一天的毫秒数取 [HealixDate.DAY_MS]（全仓唯一来源，不得再写 `86_400_000` 字面量）。
+     */
+    private fun reminderDueText(nextDueAt: Long, now: Long): String {
+        val date = runCatching {
+            Instant.ofEpochMilli(nextDueAt).atZone(ZoneId.systemDefault()).toLocalDate().toString()
+        }.getOrDefault("")
+        val diff = nextDueAt - now
+        if (diff <= 0L) return if (date.isEmpty()) "已到期" else "$date（已到期）"
+        // 向上取整：还有 1 小时也算 1 天，不显示"还有 0 天"
+        val days = (diff + HealixDate.DAY_MS - 1) / HealixDate.DAY_MS
+        val tail = if (days <= 1L) "即将到期" else "还有 $days 天"
+        return if (date.isEmpty()) tail else "$date（$tail）"
+    }
+
+    /** 布尔设置 → 「开」/「关」（回给模型时省字数、不留 `true/false` 的歧义）。 */
+    private fun boolText(on: Boolean): String = if (on) "开" else "关"
 
     private fun planNoteOf(json: String?): String? = runCatching {
         if (json.isNullOrBlank()) return@runCatching null
@@ -1073,7 +1348,12 @@ internal class HealthAgent(
          * 其余问题不回答 → 原版缺**意图判据**（「提到记录 ≠ 要记东西」「提问/建议/
          * 闲聊不调工具」「混合意图须在正文完整回答其余问题」），且 propose_log 的
          * 「用户让你记东西时调用」被模型泛化成「提到记录就调用」。
-         * 现版在工具清单前插入意图判据段；9 个工具条目与收尾硬措辞逐字保留。
+         * 现版在工具清单前插入意图判据段。
+         *
+         * 2026-10-07 P0 补齐（用户需求「全面提高 AI 能力」）：新增
+         * query_review / query_warnings / query_reminders / query_settings 四个只读工具，
+         * 并把 query_plan 一条改写为"逐条明细"。**意图判据段与收尾硬措辞逐字未动**
+         * —— 新增的仍是"查用户自己的数据"，落在既有第 4 条查证义务的射程内，无需改判据。
          * 末尾由 [toolsSection] 追加一行动态权限声明。
          */
         private const val TOOLS_SECTION = """
@@ -1087,9 +1367,13 @@ internal class HealthAgent(
 可用工具（不必每轮都用，已有信息足够就直接回答）：
 - query_events：查某日期区间的记录原文。回答"我那天吃了什么/练了什么"必须先查证，禁止凭对话记忆编。
 - query_stats：重新取今日摘要数字。今日数字**不再**注入背景，需要当日摄入/消耗等数字时调它。
-- query_plan：查某日期区间已生成的今日计划（备注 / 来源）。
+- query_plan：查某日期区间已生成的今日计划 —— **逐条明细**（时间 / 类型 / 标题 / 具体做法 / 时长 / 热量，另附备注与来源）。回答"我几点该吃什么 / 计划安排了什么"必须先查证。
 - query_goal：查当前生效的目标。
 - query_training_week：查本周训练安排与完成情况。
+- query_review：查某日期区间的每日复盘内容（App 对那天的分析与建议）。
+- query_warnings：查某日期区间 App 给出的身体提示（睡眠 / 体重 / 生病等异常，分 提示 / 注意 / 警告 三档）。只复述 App 的提示，不作医学判断。
+- query_reminders：查周期性提醒（体检 / 洗牙 / 配镜 / 疫苗）与下次到期时间。
+- query_settings：查运行设置与额度（日界线 / 隐私开关 / AI 可见资料范围 / 今日调用额度余量）。只在用户明确问起时调，不要主动播报额度。
 - propose_log：用户让你记东西时，用用户原话拟一条草稿。草稿经用户确认后才会写入，你无权直接写入记录。
 - propose_plan_change：拟改计划（date + action）：把某条目改成休息 / 按字段改某条目 / 改或清备注 / 把本周某天设为休息日。草稿经用户确认后才生效。
 - propose_goal_change：拟改某项目标值（metric + value）。草稿经用户确认后才生效。
