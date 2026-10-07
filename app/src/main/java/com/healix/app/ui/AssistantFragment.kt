@@ -292,16 +292,18 @@ class AssistantFragment : Fragment() {
                     }
                 }
 
-                // v0.3 B6：记录软删确认后弹内联撤销条（5 秒可退回），复用 [UndoBar]。
+                // v0.3 B6 / 2026-10-07 P2：可撤销的写入确认后弹内联撤销条（5 秒可退回）。
+                // 文案由载荷自带（[UndoAction.label]）—— 这里不再按写入类型取字符串，
+                // 新增一种可撤销写入时不需要再回来改这个 Fragment。
                 launch {
-                    vm.undo.collect { proposal ->
+                    vm.undo.collect { action ->
                         UndoBar.bind(
                             binding.undoBar,
                             binding.undoLeft,
                             binding.undoAction,
-                            getString(R.string.undo_record_deleted),
-                            getString(R.string.undo_record_deleted),
-                        ) { vm.restoreDeleted(proposal) }
+                            action.label,
+                            action.label,
+                        ) { vm.revert(action) }
                     }
                 }
 

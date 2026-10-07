@@ -37,8 +37,9 @@ import org.json.JSONObject
  *   且 `TimelineEntry` 的 `canLog = type∈{meal,exercise}` → 休息条目天然不可「记一笔」。
  *   故 [OP_SET_REST] 的固定补丁把 `type` 归一到 `sleep`。
  *
- * 周训练（`training_plans`，`op = set_training_rest`）结构（亲读 `TrainingPlanner.kt`
- * `serialize`/`parsePlan` 核实）：`{ focus, days:[{ dow(1..7), title, items:[{name,sets,reps}] }], note }`；
+ * 周训练（`training_plans`，`op = set_training_rest` / `replace_training_week`）结构（亲读
+ * `TrainingPlanner.kt` `serialize`/`parsePlan` 核实）：`{ focus, days:[{ dow(1..7), title,
+ * items:[{name,sets,reps}] }], note }`；
  * 休息日判据 = `items` 为空 **或** `title == "休息"`（`R.string.training_rest`）。
  *
  * ══════════════════════════════════════════════════════════════════════════
@@ -48,6 +49,8 @@ import org.json.JSONObject
  * - **定位歧义**（命中 0 条 / 多条）→ [Result.Error]，**不写库**；
  * - **补丁键 allowlist**：今日计划条目只允许改 `type/title/detail/kcal/duration/why`，
  *   越界键 / 非法 `type` / 负 `kcal` → [Result.Error]，**不写库**；
+ * - **覆盖型写入产撤销快照**：整周重排会把旧 7 天安排整体替换 → [Result.Ok.undo] 带旧
+ *   `plan_json`/`content`，由调用方在落库后置撤销条（判据见 [UndoAction]）；
  * - 单协程内读改写（无并发缝隙）。
  */
 internal object PlanChangeWriter {
@@ -73,6 +76,18 @@ internal object PlanChangeWriter {
 
     /** 周训练计划：把本周某天设为休息日。 */
     const val OP_SET_TRAINING_REST = "set_training_rest"
+
+    /**
+     * 周训练计划：**整周重排**（2026-10-07 P2 第三批）—— 用一份新的 7 天安排
+     * 整体替换本周计划（focus / days 一并写）。
+     *
+     * 与 [OP_SET_TRAINING_REST] 是同一个实体（`training_plans`）上的两个动作，故**扩
+     * `action` 域而不新建工具**（判据见 `HealthAgent.ToolRegistry` 类 KDoc 的
+     * 「扩动作域 vs 加新工具」）。
+     *
+     * ⚠️ 这是**覆盖型**写入（旧 7 天安排整体消失）→ 产撤销快照（[Result.Ok.undo]）。
+     */
+    const val OP_REPLACE_TRAINING_WEEK = "replace_training_week"
 
     /**
      * 今日计划条目**唯一允许改**的字段（allowlist）。
@@ -105,6 +120,30 @@ internal object PlanChangeWriter {
     /** `note` 截断上限（防御式；主校验在 `HealthAgent.proposePlanChange`）。 */
     private const val MAX_NOTE_CHARS = 200
 
+    // ── 整周重排（[OP_REPLACE_TRAINING_WEEK]）的输入闸门 ────────────────
+    // 全部刻意另名（不带 `TRAINING_` 前缀的撞名风险已逐个 grep 过）—— `check_kotlin.py`
+    // 的 `check_duplicate_constants` 判据是「同名**且**同值」，此处与别处同名不同值也会
+    // 被同值检查放过，但同名本身会让"改一处忘另一处"变难查，故一律另名。
+
+    /** 周重点文案上限（对应 `TrainingPlan.focus`）。 */
+    private const val MAX_FOCUS_LEN = 60
+
+    /** 单日标题上限。 */
+    private const val MAX_DAY_TITLE = 40
+
+    /** 单个动作名上限。 */
+    private const val MAX_ITEM_NAME = 40
+
+    /** 单动作组次文案上限（如 `8-12` / `力竭`）。 */
+    private const val MAX_REPS_LEN = 20
+
+    /** 单日动作数上限（防模型把一天排成 20 个动作）。 */
+    private const val MAX_ITEMS_PER_DAY = 8
+
+    /** 组数区间（闭区间）。 */
+    private const val MIN_SETS = 1
+    private const val MAX_SETS = 20
+
     /**
      * 休息条目 `duration` 的占位符（与渲染口径一致）。
      * `TimelineEntry.DASH` 是 private，无法复用 → 此处另名 `REST_DASH`，同时避开
@@ -114,7 +153,11 @@ internal object PlanChangeWriter {
 
     /** 结果：成功附人类可读摘要（供确认弹窗正文 / 回执），失败附错误文本。 */
     internal sealed interface Result {
-        data class Ok(val summary: String) : Result
+        /**
+         * [undo] 非空 = 本次写入属**覆盖型**（整周训练重排），调用方应在落库成功后置
+         * 撤销条（判据见 [UndoAction]）；条目级增量改动恒为 null。
+         */
+        data class Ok(val summary: String, val undo: UndoAction? = null) : Result
         data class Error(val message: String) : Result
     }
 
@@ -165,6 +208,7 @@ internal object PlanChangeWriter {
             OP_ADD_ITEM -> addItemOp(context, db, date, op, commit)
             OP_REMOVE_ITEM -> removeItemOp(db, date, op, commit)
             OP_SET_TRAINING_REST -> trainingRestOp(context, db, op, commit)
+            OP_REPLACE_TRAINING_WEEK -> replaceTrainingWeekOp(context, db, op, commit)
             else -> Result.Error("未知的计划修改类型。")
         }
     }
@@ -582,6 +626,138 @@ internal object PlanChangeWriter {
         return parts.joinToString(" · ")
     }
 
+    /**
+     * **整周重排**本周训练计划（[OP_REPLACE_TRAINING_WEEK]，2026-10-07 P2 第三批）。
+     *
+     * 载荷：`{"op":"replace_training_week","focus":"…","note":"…",
+     * "days":[{"dow":1,"title":"胸+三头","items":[{"name":"卧推","sets":4,"reps":"8-12"}]}]}`
+     *
+     * 纪律（模型输出永不可信）：
+     * - `dow` 必须 1..7 且**不重复** —— 重复即 [Result.Error]：静默"后一个覆盖前一个"
+     *   会让模型以为两天都排上了，用户看到却少一天；
+     * - 每天动作数 / 动作名 / 组数 / 组次 都有闸门（见文件顶部常量组）；
+     * - **缺失的天补成休息日**（与 `TrainingPlanner.parsePlan` 的「补齐缺失的天为休息日」
+     *   同口径）—— 保证写进去的 `days` 恒为 7 天，`renderTrainingText` 的等价性前提不被破坏；
+     * - 空值守卫：`"title": null` 经 `optString` 会读成字面串 `"null"`（[sanitizePatch]
+     *   已踩过），故走 [textOf] 归一。
+     *
+     * 写回走**读改写**：只覆盖 `focus` / `days`（`note` 仅在模型显式给出时覆盖），
+     * 根对象其余字段原样保留 —— 与其它 op 同一条纪律。
+     */
+    private suspend fun replaceTrainingWeekOp(
+        context: Context,
+        db: AppDatabase,
+        op: JSONObject,
+        commit: Boolean,
+    ): Result {
+        val rawDays = op.optJSONArray("days")
+            ?: return Result.Error("整周重排需要给出 days 数组（周一至周日）。")
+        val byDow = LinkedHashMap<Int, JSONObject>()
+        for (i in 0 until rawDays.length()) {
+            val dayObj = rawDays.optJSONObject(i)
+                ?: return Result.Error("days 里第 ${i + 1} 项不是对象。")
+            val dow = dayObj.optInt("dow", 0)
+            if (dow !in 1..7) return Result.Error("days 里的 dow 必须是 1..7（1 = 周一）。")
+            if (byDow.containsKey(dow)) return Result.Error("第 $dow 天给了两次，请合并成一条。")
+            val title = (textOf(dayObj, "title")
+                ?: return Result.Error("第 $dow 天的 title 不能为空。"))
+                .trim().take(MAX_DAY_TITLE)
+            if (title.isEmpty()) return Result.Error("第 $dow 天的 title 不能为空。")
+
+            val rawItems = dayObj.optJSONArray("items")
+            if (rawItems != null && rawItems.length() > MAX_ITEMS_PER_DAY) {
+                return Result.Error("每天最多 $MAX_ITEMS_PER_DAY 个动作（第 $dow 天超了）。")
+            }
+            val items = JSONArray()
+            if (rawItems != null) {
+                for (j in 0 until rawItems.length()) {
+                    val itemObj = rawItems.optJSONObject(j) ?: continue
+                    val name = (textOf(itemObj, "name")
+                        ?: return Result.Error("第 $dow 天有个动作没写名字。"))
+                        .trim().take(MAX_ITEM_NAME)
+                    if (name.isEmpty()) return Result.Error("第 $dow 天有个动作没写名字。")
+                    val sets = itemObj.optInt("sets", 0)
+                    if (sets !in MIN_SETS..MAX_SETS) {
+                        return Result.Error("「$name」的组数要在 $MIN_SETS–$MAX_SETS 之间。")
+                    }
+                    val reps = (textOf(itemObj, "reps")
+                        ?: return Result.Error("「$name」没写每组次数。"))
+                        .trim().take(MAX_REPS_LEN)
+                    if (reps.isEmpty()) return Result.Error("「$name」没写每组次数。")
+                    items.put(
+                        JSONObject().apply {
+                            put("name", name)
+                            put("sets", sets)
+                            put("reps", reps)
+                        },
+                    )
+                }
+            }
+            byDow[dow] = JSONObject().apply {
+                put("dow", dow)
+                put("title", title)
+                put("items", items)
+            }
+        }
+        if (byDow.isEmpty()) return Result.Error("days 至少要给一天。")
+
+        val weekKey = weekKeyOf(LocalDate.now())
+        val row = db.trainingPlanDao().getWeek(weekKey)
+            ?: return Result.Error("本周还没有训练计划，无法重排。")
+        val root = parseRoot(row.planJson)
+            ?: return Result.Error("本周训练计划数据无法解析，未做修改。")
+
+        // 铺满 7 天：模型没给的天一律成休息日（否则 renderTrainingText 会把那天当休息
+        // 渲染、两条口径看似一致，实则 `plan_json` 里少了条目 —— 下次读回来就丢）
+        val restTitle = context.getString(R.string.training_rest)
+        val days = JSONArray()
+        for (dow in 1..7) {
+            days.put(
+                byDow[dow] ?: JSONObject().apply {
+                    put("dow", dow)
+                    put("title", restTitle)
+                    put("items", JSONArray())
+                },
+            )
+        }
+        root.put("focus", (textOf(op, "focus") ?: "").trim().take(MAX_FOCUS_LEN))
+        root.put("days", days)
+        // note 只在模型显式给出时覆盖 —— 「没提备注」不等于「要清空备注」
+        if (op.has("note")) {
+            root.put("note", (textOf(op, "note") ?: "").trim().take(MAX_NOTE_CHARS))
+        }
+
+        val trainingDays = byDow.values.filter { (it.optJSONArray("items")?.length() ?: 0) > 0 }
+        val summary = if (trainingDays.isEmpty()) {
+            "把本周训练全部改成休息"
+        } else {
+            "把本周训练重排为：" + trainingDays.joinToString("、") { d ->
+                val dow = d.optInt("dow", 0)
+                "${dowLabel(dow)} ${d.optString("title")}"
+            } + "（共 ${trainingDays.size} 个训练日）"
+        }
+
+        if (commit) {
+            db.trainingPlanDao().upsert(
+                row.copy(planJson = root.toString(), content = renderTrainingText(context, root)),
+            )
+        }
+        return Result.Ok(
+            summary = summary,
+            undo = if (commit) {
+                SnapshotRestore(
+                    kind = UndoWriter.KIND_TRAINING_WEEK,
+                    key = weekKey,
+                    oldValue = row.planJson,
+                    oldContent = row.content,
+                    label = context.getString(R.string.undo_training_week_replaced),
+                )
+            } else {
+                null
+            },
+        )
+    }
+
     // ------------------------------------------------------------------
     // 定位 / 校验（纯函数，describe 与 apply 共用 = 单一事实来源）
     // ------------------------------------------------------------------
@@ -666,6 +842,20 @@ internal object PlanChangeWriter {
             if (k < 0) return "kcal 必须是不小于 0 的整数。"
         }
         return null
+    }
+
+    /**
+     * 读一个**可能被模型写成 JSON `null`** 的字符串字段（[replaceTrainingWeekOp] 用）。
+     *
+     * `JSONObject.optString` 把 JSON `null` 读成**字面串 `"null"`**（[sanitizePatch] 已踩过
+     * 同一个坑），不设守卫就会把"动作名叫 null"这种脏数据写进 `plan_json`。
+     *
+     * @return 键不存在 → 空串（视为未给）；值为 JSON `null` → **null**（调用方按非法报错）；
+     *         否则 `toString()`（**不 trim**，截断与 trim 由调用方按字段口径处理）
+     */
+    private fun textOf(o: JSONObject, key: String): String? {
+        val v = o.opt(key) ?: return ""
+        return if (v == JSONObject.NULL) null else v.toString()
     }
 
     /**

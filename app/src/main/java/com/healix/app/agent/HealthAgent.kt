@@ -76,10 +76,11 @@ data class LogProposal(
 /**
  * 拟改计划（`propose_plan_change`）：今日计划**条目级**改动 / 备注，或周训练设休息日。
  *
- * @property date 目标日期 `yyyy-MM-dd`（今日计划类；`set_training_rest` 落到本周）
+ * @property date 目标日期 `yyyy-MM-dd`（今日计划类；周训练类忽略）
  * @property op   机器可应用的改动载荷（**规范化 JSON 串**）。取值域见
  *                [PlanChangeWriter]：`op` ∈ {`add_item` / `remove_item` / `set_rest` /
- *                `patch_item` / `set_note` / `clear_note` / `set_training_rest`}
+ *                `patch_item` / `set_note` / `clear_note` / `set_training_rest` /
+ *                `replace_training_week`}
  */
 data class PlanChangeProposal(
     val date: String,
@@ -105,10 +106,15 @@ data class RecordDeleteProposal(
 
 /**
  * 拟改**画像 / 资源清单**（`propose_profile_update`，2026-10-07 P1）：
- * 忌口过敏 / 疼痛部位 / 就餐场景 / 手头食物 / 常备药物 / 运动条件 / 作息时刻。
+ * 忌口过敏 / 疼痛部位 / 就餐场景 / 手头食物 / 常备药物 / 运动条件 / 作息时刻 /
+ * 「我的情况」整段自述。
  *
  * 「我以后不吃辣」这类最高频诉求的落点 —— 改完写进 `settings` 的 `profile_*` 键，
  * 下一轮对话与下次生成的计划都会读到。
+ *
+ * ⚠️ `background`（整段自述）是唯一**覆盖型**字段：旧文本被一次性替换，故它是本工具
+ * 里唯一带撤销快照的字段（[ProfileWriter.Result.Ok.undo]）。确认弹窗/回执里只报旧值
+ * **字数**、不回吐旧值内容 —— 回执会落进对话历史，内容回吐等于绕过 `ai_data_full`。
  *
  * @property op 机器可应用的改动载荷（**规范化 JSON 串**，已过拟稿期校验）。取值域见
  *                [ProfileWriter]：`{"op":"add"|"remove"|"set","field":"…","value":"…"}`
@@ -243,8 +249,11 @@ internal data class ToolExecResult(
  *   枚举即可，不新建工具名 —— 多一个工具名就多一处 `NAME_*` / `defs` / `execute` /
  *   `TOOLS_SECTION` 四处同步点，且模型也更难在多工具间选对。
  * - **写工具 = 一条工具 + 一个权限开关 + 一个执行器 + 一处埋点**，四件同轮齐。
- *   新增写工具前先自问：**这条写路径能否被用户撤销 / 覆盖？** 不可逆的（如整段
- *   覆盖自由文本）先不要开，见 [ProfileWriter] 类 KDoc 对 `user_background` 的处理。
+ *   新增写工具前先自问：**这条写路径能否被用户撤销 / 覆盖？** 覆盖型的（整段替换旧内容）
+ *   必须挂撤销快照（[AgentProposal] 的写路径 → `Result.Ok.undo` → [com.healix.app.ui.UndoAction]）
+ *   —— `user_background`（整段自述）与整周训练重排就是这么开的（2026-10-07 P2 第三批：
+ *   先把撤销通路泛化，再开覆盖型写入）。判据与边界见 `ProfileWriter` / `PlanChangeWriter`
+ *   类 KDoc 与 `UndoAction`。
  * - **只读工具只补"prompt 里没有的数据"**：画像 / 体格 / 目标 / 今日数字 / 隐私开关
  *   已经由 `ChatEngine.systemPrompt`（含 `ProfileContext.build`）注入，再挂一个
  *   `query_profile` 只会让同一段文本说两遍、白烧 token。判据写在此处，新增只读前先自问。
@@ -512,7 +521,7 @@ internal object ToolRegistry {
                 name = NAME_PROPOSE_PLAN_CHANGE,
                 description = "拟修改计划（草稿，需用户确认）：新增 / 删除计划条目、" +
                     "把某个条目改成休息、按字段修改某个条目、改或清空当日计划备注，" +
-                    "也可把本周某天设为休息日。" +
+                    "把本周某天设为休息日，或**整周重排训练计划**（replace_training_week）。" +
                     "定位已有条目用 match_title（可加 match_time 消歧，命中必须唯一）。" +
                     "你无权直接修改计划。",
                 parameters = mapOf(
@@ -527,7 +536,8 @@ internal object ToolRegistry {
                             "description" to "动作：add_item=新增一条条目；remove_item=删除一条条目；" +
                                 "set_rest=把某条目改成休息；patch_item=按字段改某条目；" +
                                 "set_note=改当日备注；clear_note=清空备注；" +
-                                "set_training_rest=把本周某天设为休息日",
+                                "set_training_rest=把本周某天设为休息日；" +
+                                "replace_training_week=整周重排训练计划（给 days，整周覆盖）",
                         ),
                         "match_title" to mapOf(
                             "type" to "string",
@@ -570,6 +580,41 @@ internal object ToolRegistry {
                         "weekday" to mapOf(
                             "type" to "integer",
                             "description" to "set_training_rest 的星期几 1..7（1 = 周一）",
+                        ),
+                        "focus" to mapOf(
+                            "type" to "string",
+                            "description" to "replace_training_week 用：本周训练重点（一句话）",
+                        ),
+                        "days" to mapOf(
+                            "type" to "array",
+                            "description" to "replace_training_week 用：整周安排（可只给有训练的天，" +
+                                "没给的天按休息）。每天最多 8 个动作，组数 1-20，每组次数写成 8-12 / 力竭 这类文本",
+                            "items" to mapOf(
+                                "type" to "object",
+                                "properties" to mapOf(
+                                    "dow" to mapOf(
+                                        "type" to "integer",
+                                        "description" to "星期几 1..7（1 = 周一）",
+                                    ),
+                                    "title" to mapOf(
+                                        "type" to "string",
+                                        "description" to "当天主题，如「胸 + 三头」",
+                                    ),
+                                    "items" to mapOf(
+                                        "type" to "array",
+                                        "items" to mapOf(
+                                            "type" to "object",
+                                            "properties" to mapOf(
+                                                "name" to mapOf("type" to "string"),
+                                                "sets" to mapOf("type" to "integer"),
+                                                "reps" to mapOf("type" to "string"),
+                                            ),
+                                            "required" to listOf("name", "sets", "reps"),
+                                        ),
+                                    ),
+                                ),
+                                "required" to listOf("dow", "title"),
+                            ),
                         ),
                     ),
                     "required" to listOf("date", "action"),
@@ -629,9 +674,13 @@ internal object ToolRegistry {
                     "foods=手头现成的食物（set，自由文本）；" +
                     "meds=常备药物（set，自由文本）；" +
                     "sport=运动条件（set，自由文本，器材 + 场地 + 可用时段）；" +
-                    "sleep_bed=就寝时间（set，HH:mm）；sleep_wake=起床时间（set，HH:mm）。" +
+                    "sleep_bed=就寝时间（set，HH:mm）；sleep_wake=起床时间（set，HH:mm）；" +
+                    "**background=「我的情况」整段自述（set，整段覆盖，最多 2000 字）**。" +
                     "仅当用户明确要求改这些偏好 / 条件时调用（如「我以后不吃辣」「我只有一副哑铃」" +
                     "「我一般 1 点睡」）；用户只是提到相关事实、并未要求改的，不要调用。" +
+                    "background 更是**只在用户明确要求写 / 改自述时**才用（如「把我的情况改成…」" +
+                    "「帮我补一句：最近在备赛」）—— 它会**整段替换**原有自述，不是追加；" +
+                    "要追加内容时，先把它现有内容和新内容合成一整段再 set。" +
                     "草稿经用户确认后才生效，你无权直接修改。",
                 parameters = mapOf(
                     "type" to "object",
@@ -639,17 +688,18 @@ internal object ToolRegistry {
                         "field" to mapOf(
                             "type" to "string",
                             "description" to "要改的字段：allergens / pain / scene / foods / " +
-                                "meds / sport / sleep_bed / sleep_wake",
+                                "meds / sport / sleep_bed / sleep_wake / background",
                         ),
                         "op" to mapOf(
                             "type" to "string",
                             "description" to "动作：add=加入一项；remove=移除一项；" +
-                                "set=整体覆盖（scene / foods / meds / sport / sleep_bed / sleep_wake 用 set）",
+                                "set=整体覆盖（scene / foods / meds / sport / sleep_bed / " +
+                                "sleep_wake / background 用 set）",
                         ),
                         "value" to mapOf(
                             "type" to "string",
                             "description" to "值：数组类字段填单个条目（如「不吃辣」）；" +
-                                "sleep_* 填 HH:mm（如 00:30）；其余填文本",
+                                "sleep_* 填 HH:mm（如 00:30）；background 填**整段**自述全文；其余填文本",
                         ),
                     ),
                     "required" to listOf("field", "op", "value"),
@@ -1133,9 +1183,24 @@ internal object ToolRegistry {
                 op.put("weekday", args.optInt("weekday", 0))
             }
 
+            PlanChangeWriter.OP_REPLACE_TRAINING_WEEK -> {
+                op.put("op", PlanChangeWriter.OP_REPLACE_TRAINING_WEEK)
+                op.put("focus", strArg(args, "focus"))
+                // days 逐条透传：字段级校验（dow 唯一 / 条数 / 组次）在 writer 里 —— 这里
+                // 只把"模型给的是不是数组"这件事拦下，避免把校验分叉成两处
+                op.put(
+                    "days",
+                    args.optJSONArray("days")
+                        ?: return ToolExecResult(
+                            "replace_training_week 需要给出 days 数组。", null, uid, true,
+                        ),
+                )
+                if (args.has("note")) op.put("note", strArg(args, "note"))
+            }
+
             else -> return ToolExecResult(
                 "action 不合法，可选：add_item / remove_item / set_rest / patch_item / " +
-                    "set_note / clear_note / set_training_rest。",
+                    "set_note / clear_note / set_training_rest / replace_training_week。",
                 null, uid, true,
             )
         }
@@ -1721,6 +1786,10 @@ internal class HealthAgent(
          * （加 `add_item` / `remove_item`），并新增 `propose_reminder_change` 一条拟稿工具。
          * 前者仍是**同一条工具**（只改条目清单那一行与工具 schema）；后者是独立工具
          * （提醒是增删改三态，与字段 allowlist 型 writer 不同构）。意图判据段依旧逐字未动。
+         * 2026-10-07 P2 第三批（可回退机制）：`propose_plan_change` 再扩一个
+         * `replace_training_week`（仍不改工具数）；`propose_profile_update` 补
+         * `background`（整段自述）。两条都是**覆盖型**写入，与撤销条（5 秒）配套上线。
+         * 判据段仍逐字未动 —— "覆盖型写入"落在既有第 1 条「要改数据」的射程内。
          * 末尾由 [toolsSection] 追加一行动态权限声明。
          */
         private const val TOOLS_SECTION = """
@@ -1742,10 +1811,10 @@ internal class HealthAgent(
 - query_reminders：查周期性提醒（体检 / 洗牙 / 配镜 / 疫苗）与下次到期时间。
 - query_settings：查运行设置与额度（日界线 / 隐私开关 / AI 可见资料范围 / 今日调用额度余量）。只在用户明确问起时调，不要主动播报额度。
 - propose_log：用户让你记东西时，用用户原话拟一条草稿。草稿经用户确认后才会写入，你无权直接写入记录。
-- propose_plan_change：拟改计划（date + action）：新增条目（add_item，day=today 给 time、day=tomorrow 给 slot）/ 删除条目（remove_item）/ 把某条目改成休息（set_rest）/ 按字段改某条目（patch_item）/ 改或清备注（set_note、clear_note）/ 把本周某天设为休息日（set_training_rest）。定位已有条目用 match_title（必要时加 match_time，命中须唯一）。草稿经用户确认后才生效。
+- propose_plan_change：拟改计划（date + action）：新增条目（add_item，day=today 给 time、day=tomorrow 给 slot）/ 删除条目（remove_item）/ 把某条目改成休息（set_rest）/ 按字段改某条目（patch_item）/ 改或清备注（set_note、clear_note）/ 把本周某天设为休息日（set_training_rest）/ 整周重排训练（replace_training_week，给 days：每天 dow 1..7 + title + items[name/sets/reps]，没给的天按休息；这是**整周覆盖**，用户可在 5 秒内撤销）。定位已有条目用 match_title（必要时加 match_time，命中须唯一）。草稿经用户确认后才生效。
 - propose_goal_change：拟改某项目标值（metric + value）。草稿经用户确认后才生效。
 - propose_record_delete：拟删一条记录（day + keyword，命中须唯一）。草稿经用户确认后才删除。
-- propose_profile_update：拟改画像 / 资源清单。field 取 allergens（忌口过敏，op=add/remove）/ pain（疼痛部位，op=add/remove）/ scene（就餐场景，op=set）/ foods（手头食物，op=set）/ meds（常备药物，op=set）/ sport（运动条件，op=set）/ sleep_bed、sleep_wake（作息时刻，op=set 且值写 HH:mm）。用户明确要求改这些偏好 / 条件时才调。草稿经用户确认后才生效。
+- propose_profile_update：拟改画像 / 资源清单。field 取 allergens（忌口过敏，op=add/remove）/ pain（疼痛部位，op=add/remove）/ scene（就餐场景，op=set）/ foods（手头食物，op=set）/ meds（常备药物，op=set）/ sport（运动条件，op=set）/ sleep_bed、sleep_wake（作息时刻，op=set 且值写 HH:mm）/ background（「我的情况」整段自述，op=set 且 value 写**整段全文**——它会整段替换原有自述，不是追加；只在用户明确要求写 / 改自述时才用）。用户明确要求改这些偏好 / 条件时才调。草稿经用户确认后才生效。
 - propose_settings_update：拟改体格与运行设置。field 取 height（cm 整数）/ weight（kg）/ age（整数岁）/ activity（只能 1.2 / 1.375 / 1.55 / 1.725）/ day_start（0-23 整数小时）/ hide_kcal、hide_weight（true / false）。用户明确要求改时才调。草稿经用户确认后才生效。
 - propose_reminder_change：拟增 / 改 / 删一条周期性提醒（体检 / 洗牙 / 配镜 / 疫苗）。action=add 给 name + interval_days（可选 last_done）；action=update / delete 先给 match_name 定位（名字子串，命中须唯一），update 再给要改的 name / interval_days / last_done。用户明确要求加 / 改 / 删提醒时才调。草稿经用户确认后才生效。
 回答里引用的数字只能来自记录原文或工具返回。

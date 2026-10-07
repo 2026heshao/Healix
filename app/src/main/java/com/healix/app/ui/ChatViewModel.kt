@@ -147,11 +147,16 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     val proposal: SharedFlow<AgentProposal> = _proposal.asSharedFlow()
 
     /**
-     * 记录软删成功后置位（v0.3 B6）：UI 收到后弹 [UndoBar] 提供 5 秒退回机会。
-     * 只在「删除」这一路发；其它草案成功用回执消息，不给撤销位。
+     * 写入成功且**可撤销**时置位：UI 收到后弹 [UndoBar] 提供 5 秒退回机会。
+     *
+     * 2026-10-07 P2 第三批：载荷从 `RecordDeleteProposal` 泛化为 [UndoAction] ——
+     * 记录软删（[RecordRestore]）与两条覆盖型写入（[SnapshotRestore]：整段自述、
+     * 整周训练重排）共用同一条撤销通路。判据（什么写入该产快照）见 [UndoAction]。
+     * 增量型写入（加一条忌口 / 改身高）**不发** —— 撤销条只有一条、5 秒，别把真正
+     * 需要退回的那次挤掉。
      */
-    private val _undo = MutableSharedFlow<RecordDeleteProposal>(extraBufferCapacity = 4)
-    val undo: SharedFlow<RecordDeleteProposal> = _undo.asSharedFlow()
+    private val _undo = MutableSharedFlow<UndoAction>(extraBufferCapacity = 4)
+    val undo: SharedFlow<UndoAction> = _undo.asSharedFlow()
 
     /** 拟稿确认后的落库结果 Toast（复用预设同一组文案资源）。 */
     private val _proposalToast = MutableSharedFlow<String>(extraBufferCapacity = 4)
@@ -463,6 +468,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
      * - [ReminderChangeProposal]：`reminders` 表增 / 改 / 删（[ReminderWriter]）。
      *
      * 成功一律由本地模板回一条助理消息（零 token，避免双反馈）；失败经 [proposalToast] 提示。
+     * **覆盖型写入**（记录软删 / 整段自述 / 整周训练重排）成功后额外置 [undo]（[UndoAction]）。
      */
     fun confirmProposal(proposal: AgentProposal) {
         viewModelScope.launch(Dispatchers.IO) {
@@ -488,10 +494,26 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** 撤回一次记录软删（[undo] 的 UndoBar 落点）：清 `deleted_at` 让记录回到原位。 */
-    fun restoreDeleted(proposal: RecordDeleteProposal) {
+    /**
+     * 撤销一次写入（[undo] 的 UndoBar 落点）：按载荷类型回到写入之前的样子。
+     *
+     * - [RecordRestore]：清 `deleted_at`，记录回到原位（[EventRepository.restore]）；
+     * - [SnapshotRestore]：把某处数据整体写回旧值（[UndoWriter]）——
+     *   整段自述还原旧文本、整周训练还原旧 7 天安排。
+     *
+     * 失败一律静默（撤销是"本就没写成"的兜底动作，失败也不该崩）。
+     */
+    fun revert(action: UndoAction) {
         viewModelScope.launch(Dispatchers.IO) {
-            runCatching { repo.restore(proposal.clientEventId) }
+            when (action) {
+                is RecordRestore -> {
+                    runCatching { repo.restore(action.clientEventId) }
+                }
+
+                is SnapshotRestore -> {
+                    runCatching { UndoWriter.revert(db, action) }
+                }
+            }
         }
     }
 
@@ -544,6 +566,8 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             is PlanChangeWriter.Result.Ok -> {
                 markApproved(proposal.callUid, 1)
                 persistAssistant(app.getString(R.string.receipt_plan_applied, proposal.date))
+                // 整周重排属覆盖型 → 结果自带撤销快照；条目级改动 / 备注恒为 null
+                result.undo?.let { _undo.emit(it) }
             }
 
             is PlanChangeWriter.Result.Error -> _proposalToast.emit(result.message)
@@ -579,7 +603,12 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         if (deleted) {
             markApproved(proposal.callUid, 1)
             persistAssistant(app.getString(R.string.receipt_record_deleted, proposal.summary))
-            _undo.emit(proposal)
+            _undo.emit(
+                RecordRestore(
+                    clientEventId = proposal.clientEventId,
+                    label = app.getString(R.string.undo_record_deleted),
+                ),
+            )
         } else {
             _proposalToast.emit(app.getString(R.string.receipt_apply_failed))
         }
@@ -598,6 +627,8 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             is ProfileWriter.Result.Ok -> {
                 markApproved(proposal.callUid, 1)
                 persistAssistant(app.getString(R.string.receipt_profile_applied, result.summary))
+                // 「我的情况」整段自述属覆盖型 → 自带撤销快照；其余画像字段恒为 null
+                result.undo?.let { _undo.emit(it) }
             }
 
             is ProfileWriter.Result.Error -> _proposalToast.emit(result.message)

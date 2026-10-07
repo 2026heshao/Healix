@@ -727,6 +727,10 @@
     <string name="receipt_apply_failed">操作没成功，请重试</string>
     <!-- 记录软删后的内联撤销条文案（B6 复用 UndoBar；summary 过长不宜嵌「」，故单列一条） -->
     <string name="undo_record_deleted">已删除 1 条记录，5 秒内可撤销</string>
+    <!-- 「我的情况」整段自述被覆盖后的撤销条文案（P2 第三批；label 自带，UI 不再按类型取串） -->
+    <string name="undo_background_updated">已更新「我的情况」，5 秒内可撤销</string>
+    <!-- 整周训练重排后的撤销条文案（P2 第三批） -->
+    <string name="undo_training_week_replaced">已重排本周训练，5 秒内可撤销</string>
 
     <!-- ── 计划条目改为「休息」的固定文案（v0.3 B6 返工；PlanChangeWriter.restPatch 用）── -->
     <!-- 休息条目 detail（口径与 type=sleep 的「恢复」档一致：不排训练、做低强度活动） -->

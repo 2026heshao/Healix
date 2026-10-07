@@ -35,8 +35,19 @@ import org.json.JSONObject
  *   把事实回给模型（它可据此改口），而不是静默产一条什么都不改的草稿；
  * - 单协程内读改写（无并发缝隙）。
  *
- * ⚠️ 刻意**不含** `user_background`（「我的情况」整段自述）：那是全文覆盖、
- * 不可逆且没有 UndoBar —— 要等一个可回退机制再说，见 P2。
+ * ══════════════════════════════════════════════════════════════════════════
+ * `user_background`（「我的情况」整段自述）—— 2026-10-07 起纳入，带撤销
+ * ══════════════════════════════════════════════════════════════════════════
+ * 它曾是本类唯一的刻意例外：**全文覆盖、不可逆**，而当时只有"记录软删"能撤销，
+ * 于是留到有可回退机制再说（见 `docs/v0.3-增量设计-W2-2026-10-06.md` §11.2 挂起项）。
+ * 现在 [UndoAction] / [UndoWriter] 把撤销通路泛化了，本字段随之上线：
+ * 写入前快照旧值，成功后由 ChatViewModel 置 [ChatViewModel.undo] → UI 弹 5 秒撤销条。
+ *
+ * 覆盖型写入的**风险面**（与增量型字段的差别）在这里写死：
+ * - 摘要里**报出旧值的字数**（"原有 320 字将被替换"）—— 用户点确认前就知道这一下
+ *   会盖掉多少东西，而字数不是隐私（回执会落进对话历史、进下一轮上下文，
+ *   所以旧值**内容**一个字都不许出现在摘要里）；
+ * - 因此旧值只进 [SnapshotRestore] 快照（内存对象，不落库、不进 prompt）。
  *
  * ⚠️ 字段**短名**（如「忌口/过敏」）只用于确认弹窗 / 回执文案，与
  * [com.healix.app.repo.ProfileContext] 注入 prompt 时的完整段标题
@@ -55,6 +66,9 @@ internal object ProfileWriter {
     const val FIELD_SLEEP_BED = "sleep_bed"
     const val FIELD_SLEEP_WAKE = "sleep_wake"
 
+    /** 「我的情况」整段自述（`user_background`）：**全文覆盖**，唯一带撤销的画像字段。 */
+    const val FIELD_BACKGROUND = "background"
+
     /**
      * 全部可写字段（**供 `HealthAgent` 的 `defs` / 错误提示共用**，避免两处列同一份名单）。
      * 顺序 = 工具描述里的展示顺序。
@@ -63,6 +77,7 @@ internal object ProfileWriter {
         FIELD_ALLERGENS, FIELD_PAIN, FIELD_SCENE,
         FIELD_FOODS, FIELD_MEDS, FIELD_SPORT,
         FIELD_SLEEP_BED, FIELD_SLEEP_WAKE,
+        FIELD_BACKGROUND,
     )
 
     // ── op 取值域 ─────────────────────────────────────────────────────
@@ -84,12 +99,20 @@ internal object ProfileWriter {
     /** 自由文本类字段（手头食物 / 常备药物 / 运动条件）长度上限。 */
     private const val MAX_FREE_TEXT_CHARS = 500
 
+    /** 摘要里回显新值的截断长度（只用于确认弹窗/回执，**不回显旧值内容**）。 */
+    private const val SUMMARY_TAKE_CHARS = 20
+
     /** `HH:mm` / `H:mm`（UI 的输入口径允许单位数小时，见 `PersonalInfoFragment.TIME_RE`）。 */
     private val CLOCK_RE = Regex("""^(\d{1,2}):(\d{2})$""")
 
-    /** 结果：成功附人类可读摘要（供确认弹窗正文 / 回执），失败附错误文本。 */
+    /**
+     * 结果：成功附人类可读摘要（供确认弹窗正文 / 回执），失败附错误文本。
+     *
+     * [Ok.undo] 非空 = 本次写入属**覆盖型**，调用方应在落库成功后置撤销条
+     * （见 [UndoAction] 的判据）。增量型字段恒为 null。
+     */
     internal sealed interface Result {
-        data class Ok(val summary: String) : Result
+        data class Ok(val summary: String, val undo: UndoAction? = null) : Result
         data class Error(val message: String) : Result
     }
 
@@ -165,6 +188,8 @@ internal object ProfileWriter {
                 db, action, value, commit,
                 key = SettingsKeys.PROFILE_SLEEP_WAKE, label = "起床时间",
             )
+
+            FIELD_BACKGROUND -> backgroundField(context, db, action, value, commit)
 
             else -> Result.Error("未知的画像字段「$field」，可选：${FIELDS.joinToString(" / ")}。")
         }
@@ -251,6 +276,56 @@ internal object ProfileWriter {
         }
         if (commit) putOrRemove(db.settingsDao(), key, value)
         return Result.Ok("把$label 设为「${value.ifEmpty { "（空）" }}」")
+    }
+
+    /**
+     * 「我的情况」整段自述（`user_background`）：**全文覆盖**，产撤销快照。
+     *
+     * - 上限复用设置页的 `InputFilter` 长度（[PersonalInfoFragment.BACKGROUND_MAX]）
+     *   —— 这是本字段的**唯一来源**：两边各写一个数，AI 侧就能写进一段设置页显示不下
+     *   的文本（用户点进设置页看到被截断的内容，却不知道是 AI 写的还是自己写的）。
+     * - 空值 = 删键（与 [putOrRemove] / `SettingsViewModel.put` 同口径）：用户可以让
+     *   AI "把我的情况清空"，此时撤销快照里带的是旧文本。
+     * - 摘要里**只报新值前 [SUMMARY_TAKE_CHARS] 字与旧值字数**，不回吐旧值内容 ——
+     *   摘要会经回执消息落进对话历史，旧自述不该借这条路绕过 `ai_data_full` 门控
+     *   （与 [arrayField] 的 `remove` 不回吐列表是同一条纪律）。
+     */
+    private suspend fun backgroundField(
+        context: Context,
+        db: AppDatabase,
+        action: String,
+        value: String,
+        commit: Boolean,
+    ): Result {
+        if (action != OP_SET) return Result.Error("「我的情况」只支持 set（整段覆盖）。")
+        if (value.length > PersonalInfoFragment.BACKGROUND_MAX) {
+            return Result.Error("「我的情况」最长 ${PersonalInfoFragment.BACKGROUND_MAX} 字。")
+        }
+        val dao = db.settingsDao()
+        val old = dao.get(SettingsKeys.BACKGROUND)
+        val oldLen = old.orEmpty().trim().length
+        if (commit) putOrRemove(dao, SettingsKeys.BACKGROUND, value)
+        val shown = if (value.length > SUMMARY_TAKE_CHARS) {
+            value.take(SUMMARY_TAKE_CHARS) + "…"
+        } else {
+            value
+        }
+        val head = if (value.isEmpty()) "清空「我的情况」自述" else "把「我的情况」自述改为：$shown"
+        val replaceNote = if (oldLen > 0) "（原有 $oldLen 字将被替换）" else "（原本没有自述）"
+        return Result.Ok(
+            summary = head + replaceNote,
+            undo = if (commit) {
+                SnapshotRestore(
+                    kind = UndoWriter.KIND_SETTING,
+                    key = SettingsKeys.BACKGROUND,
+                    oldValue = old,
+                    oldContent = null,
+                    label = context.getString(R.string.undo_background_updated),
+                )
+            } else {
+                null
+            },
+        )
     }
 
     /** 时刻类（就寝 / 起床）：`HH:mm`（小时允许 1..2 位，与设置页输入口径一致）。 */
