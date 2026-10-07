@@ -6,7 +6,6 @@ import androidx.lifecycle.viewModelScope
 import com.healix.app.HealixApp
 import com.healix.app.R
 import com.healix.app.db.EventEntity
-import com.healix.app.db.GoalDefaults
 import com.healix.app.db.GoalEntity
 import com.healix.app.db.GoalMetrics
 import com.healix.app.db.GoalSlots
@@ -14,6 +13,7 @@ import com.healix.app.db.GoalTypes
 import com.healix.app.db.ReminderEntity
 import com.healix.app.db.SettingEntity
 import com.healix.app.db.SettingsKeys
+import com.healix.app.db.ensureActiveGoal
 import com.healix.app.net.ChatMessage
 import com.healix.app.net.ChatRequest
 import com.healix.app.net.ChatResult
@@ -217,10 +217,9 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
             val legacy = settings.get(SettingsKeys.TARGET_KCAL)?.toIntOrNull() ?: return@withContext
             if (legacy <= 0) return@withContext
             val now = System.currentTimeMillis()
-            // 复用 defaultGoal 的 type 映射，只把值换成老用户已设的数。
-            db.goalDao().upsert(
-                defaultGoal(GoalMetrics.KCAL_DAILY, 0.0, now).copy(targetValue = legacy.toDouble()),
-            )
+            // 补行（含 type 映射）走唯一来源 [ensureActiveGoal]，再把值换成老用户已设的数。
+            ensureActiveGoal(db, GoalMetrics.KCAL_DAILY, now)
+            db.goalDao().setTarget(GoalMetrics.KCAL_DAILY, legacy.toDouble(), now)
             // 数据已落到 goals 行 → **删除旧键**：从此 kcal 目标只有一个来源。
             //（`kcalTargetOf` 的"读旧键"分支只为覆盖本协程跑完之前的窗口期。）
             settings.remove(SettingsKeys.TARGET_KCAL)
@@ -240,76 +239,10 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
     //    `PRIMARY` 分支；`HealthAggregator` 读 `getByMetric(PRIMARY).targetValue.toInt()`
     //    判 `isWeightLossGoal`。
 
-    /**
-     * 某个 metric 的**默认目标行**（唯一构造入口，供「添加目标」与 kcal 迁移共用）。
-     *
-     * 默认值全部来自《中国居民膳食指南(2022)》与 [GoalDefaults]（不是拍脑袋）：
-     * 每周训练 `3 次 / 150 分钟`、睡眠 `7.5 小时`、饮水 `1700 ml`、
-     * 每日摄入 `2500 kcal`（[GoalDefaults.TARGET_KCAL]）、体重取 settings 里已有的 `WEIGHT`。
-     *
-     * `created_at`/`updated_at` 由调用方传入 `now`，保证一次操作内所有行的
-     * 时间戳一致（列表按 `id ASC` 排序时才不会因毫秒差抖动）。
-     */
-    private fun defaultGoal(metric: String, weightTarget: Double, now: Long): GoalEntity = when (metric) {
-        GoalMetrics.PRIMARY -> GoalEntity(
-            type = GoalTypes.GOAL_MODE,
-            metric = metric,
-            targetValue = GOAL_MODE_GAIN.toDouble(),
-            isPrimary = 1,
-            createdAt = now,
-            updatedAt = now,
-        )
-
-        GoalMetrics.KCAL_DAILY -> GoalEntity(
-            type = GoalTypes.HABIT,
-            metric = metric,
-            targetValue = GoalDefaults.TARGET_KCAL.toDouble(),
-            createdAt = now,
-            updatedAt = now,
-        )
-
-        GoalMetrics.WEIGHT_KG -> GoalEntity(
-            type = GoalTypes.WEIGHT,
-            metric = metric,
-            targetValue = weightTarget,
-            createdAt = now,
-            updatedAt = now,
-        )
-
-        GoalMetrics.SESSIONS_PER_WEEK -> GoalEntity(
-            type = GoalTypes.TRAINING,
-            metric = metric,
-            targetValue = GoalDefaults.TRAIN_SESSIONS_PER_WEEK.toDouble(),
-            createdAt = now,
-            updatedAt = now,
-        )
-
-        GoalMetrics.TRAIN_MINUTES_PER_WEEK -> GoalEntity(
-            type = GoalTypes.TRAINING,
-            metric = metric,
-            targetValue = GoalDefaults.TRAIN_MINUTES_PER_WEEK.toDouble(),
-            createdAt = now,
-            updatedAt = now,
-        )
-
-        GoalMetrics.SLEEP_H -> GoalEntity(
-            type = GoalTypes.SLEEP,
-            metric = metric,
-            targetValue = GoalDefaults.SLEEP_H,
-            createdAt = now,
-            updatedAt = now,
-        )
-
-        GoalMetrics.WATER_ML -> GoalEntity(
-            type = GoalTypes.HABIT,
-            metric = metric,
-            targetValue = GoalDefaults.WATER_ML.toDouble(),
-            createdAt = now,
-            updatedAt = now,
-        )
-
-        else -> error("未登记的 goal.metric: $metric —— 请在 GoalMetrics/GoalSlots 补全")
-    }
+    // ⚠️ 原 `defaultGoal(metric, weightTarget, now)`（本文件私有）已**整体上移**到
+    //    `db/GoalEntities.kt` 的 file-private `defaultGoalRow(...)` —— 与「缺行补偿」
+    //    [ensureActiveGoal] 同处一地（缺行补偿要在 MainViewModel / ChatViewModel 也用到，
+    //    放在任何一个 ViewModel 里都会造成"第二份补行逻辑"）。
 
     private suspend fun reload() {
         val all = settings.listAll().associate { it.key to it.value }
@@ -458,10 +391,13 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
      * `metric = GoalMetrics.PRIMARY` 这一行同时承载"主目标是哪个模式"，
      * `setPrimary` 把 is_primary=1 落到它、其余清 0。两步都要做：
      * setPrimary 管排序，setTarget 管取值，缺一会让首页大数字与训练处方不一致。
+     *
+     * ⚠️ 两个 DAO 都是 **UPDATE**（缺行静默 no-op）→ 先 [ensureActiveGoal] 补行。
      */
     fun setPrimaryGoal(modeIndex: Int) {
         viewModelScope.launch(Dispatchers.IO) {
             val now = System.currentTimeMillis()
+            ensureActiveGoal(db, GoalMetrics.PRIMARY, now)
             db.goalDao().setPrimary(GoalMetrics.PRIMARY, now)
             db.goalDao().setTarget(GoalMetrics.PRIMARY, modeIndex.toDouble(), now)
         }
@@ -471,22 +407,35 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
      * 设置自定义主目标（`GOAL_MODE_CUSTOM`）：mode 落 `goals` 表，
      * 文本落 [SettingsKeys.GOAL_STATEMENT]（唯一自由文本目标键，AI prompt 同源读取）。
      * 空白文本拒写（无内容的自定义没有意义，调用端已先校验，这里兜底）。
+     *
+     * ⚠️ 同上：先 [ensureActiveGoal] 补行再写（缺行时 `setPrimary`/`setTarget` 是 no-op）。
      */
     fun setPrimaryGoalCustom(text: String) {
         val trimmed = text.trim()
         if (trimmed.isEmpty()) return
         viewModelScope.launch(Dispatchers.IO) {
             val now = System.currentTimeMillis()
+            ensureActiveGoal(db, GoalMetrics.PRIMARY, now)
             db.goalDao().setPrimary(GoalMetrics.PRIMARY, now)
             db.goalDao().setTarget(GoalMetrics.PRIMARY, GOAL_MODE_CUSTOM.toDouble(), now)
             db.settingsDao().put(SettingEntity(SettingsKeys.GOAL_STATEMENT, trimmed))
         }
     }
 
-    /** 改某个目标值（体重 / 训练次数 / 训练分钟 / 睡眠 / 饮水）。 */
+    /**
+     * 改某个目标值（热量 / 体重 / 训练次数 / 训练分钟 / 睡眠 / 饮水）。
+     *
+     * ⚠️ 2026-10-07 真机 bug 的修复点：`setTarget` 是 **UPDATE**，
+     * `WHERE metric = ? AND status = 'active'` 匹配不到行时**静默 no-op** ——
+     * 而设置页「热量摄入」栏的 kcal 行是**固定行**（恒可见/恒可点），
+     * v8 问题 2b 之后新装机 `goals` 表却是空的 → 用户改热量目标"点了确认没反应"。
+     * 因此写之前必须先 [ensureActiveGoal] 补行（缺则建 / 曾归档则恢复）。
+     */
     fun setGoalTarget(metric: String, value: Double) {
         viewModelScope.launch(Dispatchers.IO) {
-            db.goalDao().setTarget(metric, value, System.currentTimeMillis())
+            val now = System.currentTimeMillis()
+            ensureActiveGoal(db, metric, now)
+            db.goalDao().setTarget(metric, value, now)
         }
     }
 
@@ -540,15 +489,9 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
     fun ensureSlotActive(slot: GoalSlots.Slot) {
         viewModelScope.launch(Dispatchers.IO) {
             val now = System.currentTimeMillis()
-            // 体重槽位的默认值取用户已填的 WEIGHT（与首次预置同口径）
-            val weightTarget = settings.get(SettingsKeys.WEIGHT)?.toDoubleOrNull() ?: 0.0
-            slot.metrics.forEach { metric ->
-                if (db.goalDao().getByMetricAny(metric) != null) {
-                    db.goalDao().restoreGoal(metric, now)
-                } else {
-                    db.goalDao().upsert(defaultGoal(metric, weightTarget, now))
-                }
-            }
+            // 逐 metric 的「缺行补偿」收敛到唯一来源 [ensureActiveGoal]（体重槽位默认值取
+            // 用户已填 WEIGHT 的口径也在那里）。一次操作内所有行共用同一个 now。
+            slot.metrics.forEach { ensureActiveGoal(db, it, now) }
         }
     }
 
@@ -904,12 +847,15 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
         /** 主目标行（`metric = PRIMARY`）的 `type`。 */
 
         /**
-         * 主目标编码：0=增重 / 1=减重 / 2=保持。
-         * 与 `HealthAggregator` 的 `PRIMARY_GOAL_LOSS = 1` 必须一致。
+         * 主目标编码：0=增重 / 1=减重 / 2=保持 / 3=自定义。
+         *
+         * ⚠️ 值的**唯一来源**是 [GoalTypes.MODE_*]（db 层）—— 这里只做转发，
+         * 与 `SettingsFragment.KEY_*` 转发 `SettingsKeys` 同款。db 层的
+         * `defaultGoalRow` 要造主目标默认行，而 db 不得反向引用 ui（分层倒挂）。
          */
-        const val GOAL_MODE_GAIN = 0
-        const val GOAL_MODE_LOSS = 1
-        const val GOAL_MODE_KEEP = 2
+        const val GOAL_MODE_GAIN = GoalTypes.MODE_GAIN
+        const val GOAL_MODE_LOSS = GoalTypes.MODE_LOSS
+        const val GOAL_MODE_KEEP = GoalTypes.MODE_KEEP
 
         /**
          * 主目标第 4 态：自定义（`target_value = 3`）。
@@ -919,7 +865,7 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
          * 与首页目标流（MainViewModel.homeGoal.statement），合并后三处同源同值，
          * 不新增第二个自由文本键。
          */
-        const val GOAL_MODE_CUSTOM = 3
+        const val GOAL_MODE_CUSTOM = GoalTypes.MODE_CUSTOM
 
         // ⚠️ 默认目标值（膳食指南推荐量）不在本文件定义 —— 唯一来源是
         //    `com.healix.app.db.GoalDefaults`。这里曾有一份私有副本

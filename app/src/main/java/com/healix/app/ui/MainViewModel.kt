@@ -8,12 +8,11 @@ import com.healix.app.R
 import com.healix.app.db.BodySignalEntity
 import com.healix.app.db.EventEntity
 import com.healix.app.db.GoalDefaults
-import com.healix.app.db.GoalEntity
 import com.healix.app.db.GoalMetrics
-import com.healix.app.db.GoalTypes
 import com.healix.app.db.PresetEntity
 import com.healix.app.db.SettingEntity
 import com.healix.app.db.SettingsKeys
+import com.healix.app.db.ensureActiveGoal
 import com.healix.app.notify.EventText
 import com.healix.app.notify.QuickInputService
 import com.healix.app.net.NetworkStatus
@@ -819,12 +818,17 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      * 都是 **UPDATE**：表里没有该行时静默 no-op。v8 问题 2b 删掉默认种子后，全新安装的
      * goals 可能是空表 → 这里必须**先 ensure 行存在**，
      * 否则用户走完引导却什么都没设上（"点了保存没反应"的静默 bug）。
+     *
+     * 补行统一走 [ensureActiveGoal]（唯一来源，`db/GoalEntities.kt`）——
+     * 本类原有一份私有 `ensureGoalRow`，与设置页那三个写入入口各写各的，
+     * 已收敛（那个函数对"曾归档"的行会再插一行 active，与 `getByMetric` 的
+     * `LIMIT 1` 口径相冲）。
      */
     fun completeGoalSetup(modeIndex: Int?, weightKg: Double?, customText: String? = null) {
         viewModelScope.launch(Dispatchers.IO) {
             val now = System.currentTimeMillis()
             if (modeIndex != null) {
-                ensureGoalRow(GoalMetrics.PRIMARY, GoalTypes.GOAL_MODE, modeIndex.toDouble(), true, now)
+                ensureActiveGoal(db, GoalMetrics.PRIMARY, now)
                 db.goalDao().setPrimary(GoalMetrics.PRIMARY, now)
                 db.goalDao().setTarget(GoalMetrics.PRIMARY, modeIndex.toDouble(), now)
             }
@@ -835,33 +839,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 }
             }
             if (weightKg != null && weightKg > 0) {
-                ensureGoalRow(GoalMetrics.WEIGHT_KG, GoalTypes.WEIGHT, weightKg, false, now)
+                ensureActiveGoal(db, GoalMetrics.WEIGHT_KG, now)
                 db.goalDao().setTarget(GoalMetrics.WEIGHT_KG, weightKg, now)
             }
             db.settingsDao().put(SettingEntity(SettingsKeys.GOAL_SETUP_DONE, "true"))
         }
-    }
-
-    /** `goals` 里没有该 metric 的 active 行时才插入（UPDATE 类接口对缺行是 no-op）。 */
-    private suspend fun ensureGoalRow(
-        metric: String,
-        type: String,
-        value: Double,
-        primary: Boolean,
-        now: Long,
-    ) {
-        if (db.goalDao().getByMetric(metric) != null) return
-        db.goalDao().upsert(
-            GoalEntity(
-                type = type,
-                metric = metric,
-                targetValue = value,
-                isPrimary = if (primary) 1 else 0,
-                status = "active",
-                createdAt = now,
-                updatedAt = now,
-            ),
-        )
     }
 
     companion object {

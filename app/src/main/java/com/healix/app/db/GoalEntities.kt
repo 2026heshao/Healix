@@ -105,12 +105,27 @@ object GoalMetrics {
  * 已收敛到此 —— 与 2026-10-03 键名分裂事故同类，改一处漏一处是最贵的 bug。
  */
 object GoalTypes {
-    /** 主目标行（`metric = PRIMARY`）的 `type`：`target_value` 编码 0/1/2。 */
+    /** 主目标行（`metric = PRIMARY`）的 `type`：`target_value` 编码 0/1/2/3。 */
     const val GOAL_MODE = "goal_mode"
     const val WEIGHT = "weight"
     const val TRAINING = "training"
     const val SLEEP = "sleep"
     const val HABIT = "habit"
+
+    /**
+     * 主目标 `target_value` 的**编码**（0=增重 / 1=减重 / 2=保持 / 3=自定义）。
+     *
+     * 唯一事实来源。`SettingsViewModel.GOAL_MODE_*` 是**转发常量**（与
+     * `SettingsFragment.KEY_*` 转发 `SettingsKeys` 同款），值不再各写一份 ——
+     * 这里曾是"同值不同名的私有副本"温床（见 [GoalDefaults] 头注释记录的 CI #21）。
+     *
+     * 为什么下沉到 db 层：`defaultGoalRow`（本文件）要造主目标默认行，而 db **不能**
+     * 反向引用 ui 层（分层倒挂）。编码属于数据结构语义，本就在这里最合适。
+     */
+    const val MODE_GAIN = 0
+    const val MODE_LOSS = 1
+    const val MODE_KEEP = 2
+    const val MODE_CUSTOM = 3
 }
 
 /**
@@ -235,4 +250,121 @@ suspend fun kcalTargetOf(db: AppDatabase): Int {
         ?.targetValue?.toInt()?.takeIf { it > 0 }
         ?: db.settingsDao().get(SettingsKeys.TARGET_KCAL)?.toIntOrNull()?.takeIf { it > 0 }
         ?: GoalDefaults.TARGET_KCAL
+}
+
+/**
+ * 某个 metric 的**默认目标行**（唯一构造入口）。
+ *
+ * 默认值全部来自《中国居民膳食指南(2022)》与 [GoalDefaults]（不是拍脑袋）：
+ * 每周训练 `3 次 / 150 分钟`、睡眠 `7.5 小时`、饮水 `1700 ml`、
+ * 每日摄入 `2500 kcal`（[GoalDefaults.TARGET_KCAL]）、体重取入参 `weightTarget`
+ * （唯一调用方 [ensureActiveGoal] 从 settings 的 `WEIGHT` 取）。
+ *
+ * `created_at`/`updated_at` 由调用方传入 `now`，保证一次操作内所有行的
+ * 时间戳一致（列表按 `id ASC` 排序时才不会因毫秒差抖动）。
+ *
+ * ⚠️ 未登记的 metric 直接 `error()`（宁可崩在开发期，也不静默落一行错误的 `type`）。
+ */
+private fun defaultGoalRow(metric: String, weightTarget: Double, now: Long): GoalEntity = when (metric) {
+    GoalMetrics.PRIMARY -> GoalEntity(
+        type = GoalTypes.GOAL_MODE,
+        metric = metric,
+        targetValue = GoalTypes.MODE_GAIN.toDouble(),
+        isPrimary = 1,
+        createdAt = now,
+        updatedAt = now,
+    )
+
+    GoalMetrics.KCAL_DAILY -> GoalEntity(
+        type = GoalTypes.HABIT,
+        metric = metric,
+        targetValue = GoalDefaults.TARGET_KCAL.toDouble(),
+        createdAt = now,
+        updatedAt = now,
+    )
+
+    GoalMetrics.WEIGHT_KG -> GoalEntity(
+        type = GoalTypes.WEIGHT,
+        metric = metric,
+        targetValue = weightTarget,
+        createdAt = now,
+        updatedAt = now,
+    )
+
+    GoalMetrics.SESSIONS_PER_WEEK -> GoalEntity(
+        type = GoalTypes.TRAINING,
+        metric = metric,
+        targetValue = GoalDefaults.TRAIN_SESSIONS_PER_WEEK.toDouble(),
+        createdAt = now,
+        updatedAt = now,
+    )
+
+    GoalMetrics.TRAIN_MINUTES_PER_WEEK -> GoalEntity(
+        type = GoalTypes.TRAINING,
+        metric = metric,
+        targetValue = GoalDefaults.TRAIN_MINUTES_PER_WEEK.toDouble(),
+        createdAt = now,
+        updatedAt = now,
+    )
+
+    GoalMetrics.SLEEP_H -> GoalEntity(
+        type = GoalTypes.SLEEP,
+        metric = metric,
+        targetValue = GoalDefaults.SLEEP_H,
+        createdAt = now,
+        updatedAt = now,
+    )
+
+    GoalMetrics.WATER_ML -> GoalEntity(
+        type = GoalTypes.HABIT,
+        metric = metric,
+        targetValue = GoalDefaults.WATER_ML.toDouble(),
+        createdAt = now,
+        updatedAt = now,
+    )
+
+    else -> error("未登记的 goal.metric: $metric —— 请在 GoalMetrics/GoalSlots 补全")
+}
+
+/**
+ * 确保 `goals` 里 `metric` 有一行 **active** 行：缺则按默认值创建、曾归档则原值恢复。
+ *
+ * ══════════════════════════════════════════════════════════════════════════
+ * 为什么必须有这个函数（2026-10-07 真机 bug：热量目标改了没反应，一直是 2500）
+ * ══════════════════════════════════════════════════════════════════════════
+ * [GoalDao.setTarget] / [GoalDao.setPrimary] 都是 **UPDATE**：
+ * `WHERE metric = ? AND status = 'active'` 匹配不到行时**静默 no-op，不报错**。
+ *
+ * v8 问题 2b 删掉了"全新安装静默灌默认目标"之后，新装机的 `goals` 表可以是**空表**；
+ * 而 `GoalSlots.ADDABLE` 又把 kcal 移出了「添加目标」（它的 UI 归属是设置页
+ * 「热量摄入」栏的**固定行** `rowKcalGoal` —— 恒可见、恒可点，却没有任何 UI 路径
+ * 能创建它的数据行）。两条叠加 → 用户点「热量目标」改数、确认，`UPDATE` 匹配 0 行，
+ * 界面照旧回落 [GoalDefaults.TARGET_KCAL]，看起来就是"改了没反应"。
+ *
+ * 因此：**任何写 `goals` 数值/主目标的路径，写之前都必须先过这里。**
+ * 现有 8 个调用点：`SettingsViewModel`（`setGoalTarget` / `setPrimaryGoal` /
+ * `setPrimaryGoalCustom` / `ensureSlotActive` / `migrateLegacyKcalTarget`）、
+ * `MainViewModel.completeGoalSetup`、`ChatViewModel.confirmGoalChange`。
+ * 此前这些路径各写各的"补行"逻辑（其中一个私有 `ensureGoalRow` 对"曾归档"的行
+ * 会再插一行 active，与 `getByMetric` 的 `LIMIT 1` 口径相冲）—— 缺行补偿散成 N 份，
+ * 正是"改一处漏一处"的温床。
+ *
+ * 语义（与 [GoalSlots] 「添加目标」同口径）：
+ * 1. 已有 active 行 → 什么都不做（**绝不覆盖用户已设的值**）；
+ * 2. 只有归档行 → [GoalDao.restoreGoal] 恢复（**保留原值、不新增行**）；否则会出现
+ *    「同一 metric 一行 archived + 一行 active」，而 `getByMetric` 是 `LIMIT 1`；
+ * 3. 一行都没有 → [defaultGoalRow] 补一行默认值（调用方随后用 `setTarget` 写目标值）。
+ *
+ * @param now 调用方传入的时间戳，保证"补行 + 写值"落到同一时刻（列表按 `id ASC` 排序）。
+ */
+suspend fun ensureActiveGoal(db: AppDatabase, metric: String, now: Long) {
+    val dao = db.goalDao()
+    if (dao.getByMetric(metric) != null) return
+    if (dao.getByMetricAny(metric) != null) {
+        dao.restoreGoal(metric, now)
+        return
+    }
+    // 体重槽位的默认值取用户已填的体重（与首启预置同口径）
+    val weightTarget = db.settingsDao().get(SettingsKeys.WEIGHT)?.toDoubleOrNull() ?: 0.0
+    dao.upsert(defaultGoalRow(metric, weightTarget, now))
 }

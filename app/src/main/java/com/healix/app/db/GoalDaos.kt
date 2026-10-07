@@ -17,8 +17,25 @@ interface GoalDao {
     suspend fun getByMetric(metric: String): GoalEntity?
     @Query("SELECT * FROM goals WHERE metric = :metric AND status = 'active' LIMIT 1")
     fun observeByMetric(metric: String): Flow<GoalEntity?>
+    /**
+     * 改某个 metric 的目标值。
+     *
+     * ⚠️⚠️ **UPDATE 型：`status='active'` 的行不存在时静默 no-op（不报错、返回 void）**。
+     * 调用前**必须**先 `ensureActiveGoal(db, metric, now)`（`db/GoalEntities.kt`）——
+     * 2026-10-07 的真机 bug「热量目标改成什么都没反应、一直显示 2500」就是漏了这一步：
+     * v8 问题 2b 删掉默认目标预置后新装机 `goals` 是空表，而 kcal 的 UI 入口是
+     * **固定行**（没有「添加目标」路径可创建它的数据行）。
+     */
     @Query("UPDATE goals SET target_value = :value, updated_at = :now WHERE metric = :metric AND status = 'active'")
     suspend fun setTarget(metric: String, value: Double, now: Long)
+
+    /**
+     * 把 `metric` 置为主目标（其余清 0）。
+     *
+     * ⚠️⚠️ 与 [setTarget] 同款：**UPDATE 型，缺行静默 no-op**。写前必须先
+     * `ensureActiveGoal(db, metric, now)`（`db/GoalEntities.kt`）—— 否则用户跳过首启引导
+     * （新装机 `goals` 是空表）后在设置页选「主目标 = 减重」会什么都没发生。
+     */
     @Query("UPDATE goals SET is_primary = CASE WHEN metric = :metric THEN 1 ELSE 0 END, updated_at = :now WHERE status = 'active'")
     suspend fun setPrimary(metric: String, now: Long)
     @Query("SELECT COUNT(*) FROM goals WHERE status = 'active'") suspend fun countActive(): Int

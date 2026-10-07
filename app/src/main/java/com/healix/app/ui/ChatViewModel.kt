@@ -19,6 +19,7 @@ import com.healix.app.db.ChatMessageEntity
 import com.healix.app.db.EventEntity
 import com.healix.app.db.PresetEntity
 import com.healix.app.db.SettingsKeys
+import com.healix.app.db.ensureActiveGoal
 import com.healix.app.net.NetworkStatus
 import com.healix.app.net.ProviderConfig
 import com.healix.app.parse.loadsLenient
@@ -577,16 +578,25 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** 目标修改确认：更新既有 active 目标值（没有该目标行 → 失败）。 */
+    /**
+     * 目标修改确认：更新目标值（**缺行先补**）。
+     *
+     * ⚠️ 2026-10-07 与设置页同款修复：`setTarget` 是 **UPDATE**，缺行时静默 no-op。
+     * 原实现在缺行时**直接判失败**，但"缺行"在 v8 问题 2b 之后是新装机的常态
+     * （kcal 尤其：它没有「添加目标」入口）→ AI 明明按用户确认的值写入却报失败，
+     * 与设置页「改热量目标」表现为两套行为。
+     *
+     * metric 域由 `HealthAgent.WRITABLE_GOAL_METRICS` 封闭（不含 `primary`），
+     * 所以 [ensureActiveGoal] 里 `defaultGoalRow` 的 `error()` 分支不可达；
+     * 仍包在 `runCatching` 里——`error()` 抛的是 `IllegalStateException`，兜得住。
+     */
     private suspend fun confirmGoalChange(proposal: GoalChangeProposal) {
         val app = getApplication<Application>()
         val applied = runCatching {
-            if (db.goalDao().getByMetric(proposal.metric) == null) {
-                false
-            } else {
-                db.goalDao().setTarget(proposal.metric, proposal.value, System.currentTimeMillis())
-                true
-            }
+            val now = System.currentTimeMillis()
+            ensureActiveGoal(db, proposal.metric, now)
+            db.goalDao().setTarget(proposal.metric, proposal.value, now)
+            true
         }.getOrDefault(false)
         if (applied) {
             markApproved(proposal.callUid, 1)
