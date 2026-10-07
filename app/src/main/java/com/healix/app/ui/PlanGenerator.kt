@@ -179,8 +179,14 @@ class PlanGenerator(context: Context) {
         /** 明天锚点的统一「为什么」：说清这是占位、当天会按真实数据细化（不冒充精确）。 */
         private const val TOMORROW_WHY = "明天的占位锚点，当天会按你的实际数据细化"
 
-        /** 「今天」条目上限（prompt 约定）。 */
-        private const val MAX_TODAY_ITEMS = 6
+        /**
+         * 「今天」条目上限（prompt 约定）。
+         *
+         * ⚠️ **`internal` 而非 `private`**：`PlanChangeWriter.add_item` 必须按同一上限拦截
+         * —— 否则模型加第 7 条时 writer 报「已加上」，而 [itemsOf] 解析期把第 7 条**静默丢弃**
+         * （今天 ≤ 本值），用户看到的是「说加了却没加」。上限必须**唯一来源**。
+         */
+        internal const val MAX_TODAY_ITEMS = 6
 
         /** 喂给模型的「今天已记录的其他事项」条数上限（防啰嗦 / prompt 被灌爆）。 */
         private const val MAX_OCCUPIED_ITEMS = 5
@@ -188,8 +194,13 @@ class PlanGenerator(context: Context) {
         /** 单条占用事项的原文截断长度。 */
         private const val MAX_OCCUPIED_LEN = 60
 
-        /** 「明天」锚点上限（早 / 午 / 晚 / 训练，共 4 条）。 */
-        private const val MAX_TOMORROW_ITEMS = 4
+        /**
+         * 「明天」锚点上限（早 / 午 / 晚 / 训练，共 4 条）。
+         *
+         * ⚠️ `internal` 的理由同 [MAX_TODAY_ITEMS]：`PlanChangeWriter.add_item` 同口径拦截，
+         * 否则多出的锚点会在 [itemsOf] 解析期被静默丢弃。
+         */
+        internal const val MAX_TOMORROW_ITEMS = 4
 
         /**
          * 「缺口大」的分界（kcal）：≥ 此值 → 运动降为低强度短时（见 [exerciseItem]）。

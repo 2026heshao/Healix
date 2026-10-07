@@ -210,7 +210,7 @@ internal data class ToolExecResult(
 
 /**
  * 工具注册表（S3–S4；v0.3 B5 加 3 只读 + B6 加 3 写；2026-10-07 P0 再补 4 只读 +
- * P1 再补 2 写）。
+ * P1 再补 2 写 + P2 扩 `propose_plan_change` 动作域到 7 个）。
  *
  * 设计取舍：
  * - **只读为主**：query_events / query_stats / query_plan / query_goal /
@@ -219,6 +219,9 @@ internal data class ToolExecResult(
  *   propose_goal_change / propose_record_delete / propose_profile_update /
  *   propose_settings_update）**只产草稿**（见 [AgentProposal]）
  *   —— 有界自主的边界在这里划死。
+ * - **扩动作域 vs 加新工具**：同一实体上的新增动作（如计划条目的增删）扩 `action`
+ *   枚举即可，不新建工具名 —— 多一个工具名就多一处 `NAME_*` / `defs` / `execute` /
+ *   `TOOLS_SECTION` 四处同步点，且模型也更难在多工具间选对。
  * - **写工具 = 一条工具 + 一个权限开关 + 一个执行器 + 一处埋点**，四件同轮齐。
  *   新增写工具前先自问：**这条写路径能否被用户撤销 / 覆盖？** 不可逆的（如整段
  *   覆盖自由文本）先不要开，见 [ProfileWriter] 类 KDoc 对 `user_background` 的处理。
@@ -475,9 +478,11 @@ internal object ToolRegistry {
         ToolDef(
             function = ToolFunctionDef(
                 name = NAME_PROPOSE_PLAN_CHANGE,
-                description = "拟修改计划（草稿，需用户确认）：把某个计划条目改成休息、" +
-                    "按字段修改某个条目、改或清空当日计划备注，也可把本周某天设为休息日。" +
-                    "定位条目用 match_title（可加 match_time 消歧，命中必须唯一）。你无权直接修改计划。",
+                description = "拟修改计划（草稿，需用户确认）：新增 / 删除计划条目、" +
+                    "把某个条目改成休息、按字段修改某个条目、改或清空当日计划备注，" +
+                    "也可把本周某天设为休息日。" +
+                    "定位已有条目用 match_title（可加 match_time 消歧，命中必须唯一）。" +
+                    "你无权直接修改计划。",
                 parameters = mapOf(
                     "type" to "object",
                     "properties" to mapOf(
@@ -487,7 +492,8 @@ internal object ToolRegistry {
                         ),
                         "action" to mapOf(
                             "type" to "string",
-                            "description" to "动作：set_rest=把某条目改成休息；patch_item=按字段改某条目；" +
+                            "description" to "动作：add_item=新增一条条目；remove_item=删除一条条目；" +
+                                "set_rest=把某条目改成休息；patch_item=按字段改某条目；" +
                                 "set_note=改当日备注；clear_note=清空备注；" +
                                 "set_training_rest=把本周某天设为休息日",
                         ),
@@ -497,12 +503,25 @@ internal object ToolRegistry {
                         ),
                         "match_time" to mapOf(
                             "type" to "string",
-                            "description" to "可选：条目时间 HH:mm，同名条目消歧用。set_rest / patch_item 用",
+                            "description" to "可选：条目时间 HH:mm，同名条目消歧用。set_rest / patch_item / remove_item 用",
+                        ),
+                        "day" to mapOf(
+                            "type" to "string",
+                            "description" to "add_item 用：today=今天的细排条目（默认）；tomorrow=明天的时段锚点",
+                        ),
+                        "time" to mapOf(
+                            "type" to "string",
+                            "description" to "add_item（day=today）用：条目时刻 HH:mm 24 小时制",
+                        ),
+                        "slot" to mapOf(
+                            "type" to "string",
+                            "description" to "add_item（day=tomorrow）用：时段锚点，只能 morning / noon / evening / train",
                         ),
                         "patch" to mapOf(
                             "type" to "object",
-                            "description" to "patch_item 的改动对象，只允许含 type/title/detail/kcal/duration/why" +
-                                "（type 只能 meal/exercise/sleep/habit）",
+                            "description" to "patch_item 的改动对象 / add_item 的新条目字段，" +
+                                "只允许含 type/title/detail/kcal/duration/why" +
+                                "（type 只能 meal/exercise/sleep/habit；add_item 必给 type 与 title）",
                             "properties" to mapOf(
                                 "type" to mapOf("type" to "string"),
                                 "title" to mapOf("type" to "string"),
@@ -1016,13 +1035,30 @@ internal object ToolRegistry {
                 op.put("patch", patch)
             }
 
+            PlanChangeWriter.OP_ADD_ITEM -> {
+                op.put("op", PlanChangeWriter.OP_ADD_ITEM)
+                op.put("day", args.optString("day").trim())
+                op.put("time", args.optString("time").trim())
+                op.put("slot", args.optString("slot").trim())
+                val patch = args.optJSONObject("patch")
+                    ?: return ToolExecResult("add_item 需要给出 patch（条目字段）。", null, uid, true)
+                op.put("patch", patch)
+            }
+
+            PlanChangeWriter.OP_REMOVE_ITEM -> {
+                op.put("op", PlanChangeWriter.OP_REMOVE_ITEM)
+                op.put("match_title", args.optString("match_title").trim())
+                op.put("match_time", args.optString("match_time").trim())
+            }
+
             PlanChangeWriter.OP_SET_TRAINING_REST -> {
                 op.put("op", PlanChangeWriter.OP_SET_TRAINING_REST)
                 op.put("weekday", args.optInt("weekday", 0))
             }
 
             else -> return ToolExecResult(
-                "action 不合法，可选：set_rest / patch_item / set_note / clear_note / set_training_rest。",
+                "action 不合法，可选：add_item / remove_item / set_rest / patch_item / " +
+                    "set_note / clear_note / set_training_rest。",
                 null, uid, true,
             )
         }
@@ -1559,6 +1595,9 @@ internal class HealthAgent(
          * **拟稿**工具。它们落在既有第 1 条「要改数据」的射程内，故意图判据段仍逐字未动，
          * 只在各自条目里写清"仅当用户**明确要求改**时才调，只是提到事实不算"——
          * 这与 propose_log 条目当年的修正同因（当时的教训：提到「记录」二字就乱调）。
+         * 2026-10-07 P2 扩展：`propose_plan_change` 的 `action` 从 5 个扩到 7 个
+         * （加 `add_item` / `remove_item`）。仍是**同一条工具**、同一个权限开关、
+         * 同一个执行器 —— 只改条目清单那一行与工具 schema。意图判据段依旧逐字未动。
          * 末尾由 [toolsSection] 追加一行动态权限声明。
          */
         private const val TOOLS_SECTION = """
@@ -1580,7 +1619,7 @@ internal class HealthAgent(
 - query_reminders：查周期性提醒（体检 / 洗牙 / 配镜 / 疫苗）与下次到期时间。
 - query_settings：查运行设置与额度（日界线 / 隐私开关 / AI 可见资料范围 / 今日调用额度余量）。只在用户明确问起时调，不要主动播报额度。
 - propose_log：用户让你记东西时，用用户原话拟一条草稿。草稿经用户确认后才会写入，你无权直接写入记录。
-- propose_plan_change：拟改计划（date + action）：把某条目改成休息 / 按字段改某条目 / 改或清备注 / 把本周某天设为休息日。草稿经用户确认后才生效。
+- propose_plan_change：拟改计划（date + action）：新增条目（add_item，day=today 给 time、day=tomorrow 给 slot）/ 删除条目（remove_item）/ 把某条目改成休息（set_rest）/ 按字段改某条目（patch_item）/ 改或清备注（set_note、clear_note）/ 把本周某天设为休息日（set_training_rest）。定位已有条目用 match_title（必要时加 match_time，命中须唯一）。草稿经用户确认后才生效。
 - propose_goal_change：拟改某项目标值（metric + value）。草稿经用户确认后才生效。
 - propose_record_delete：拟删一条记录（day + keyword，命中须唯一）。草稿经用户确认后才删除。
 - propose_profile_update：拟改画像 / 资源清单。field 取 allergens（忌口过敏，op=add/remove）/ pain（疼痛部位，op=add/remove）/ scene（就餐场景，op=set）/ foods（手头食物，op=set）/ meds（常备药物，op=set）/ sport（运动条件，op=set）/ sleep_bed、sleep_wake（作息时刻，op=set 且值写 HH:mm）。用户明确要求改这些偏好 / 条件时才调。草稿经用户确认后才生效。

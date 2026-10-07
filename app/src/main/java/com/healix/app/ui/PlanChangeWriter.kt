@@ -5,6 +5,7 @@ import com.healix.app.R
 import com.healix.app.db.AppDatabase
 import com.healix.app.parse.loadsLenient
 import java.time.LocalDate
+import java.util.Locale
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -64,6 +65,12 @@ internal object PlanChangeWriter {
     /** 今日计划：清空备注。 */
     const val OP_CLEAR_NOTE = "clear_note"
 
+    /** 今日计划：**新增**一条条目（今天细排条目 或 明天的时段锚点）。 */
+    const val OP_ADD_ITEM = "add_item"
+
+    /** 今日计划：**删除**一条条目（定位须唯一）。 */
+    const val OP_REMOVE_ITEM = "remove_item"
+
     /** 周训练计划：把本周某天设为休息日。 */
     const val OP_SET_TRAINING_REST = "set_training_rest"
 
@@ -75,6 +82,16 @@ internal object PlanChangeWriter {
 
     /** `items[].type` 实际取值域（亲读 `PlanGenerator` 核实，见类 KDoc）。 */
     private val ITEM_TYPES = setOf("meal", "exercise", "sleep", "habit")
+
+    /** `add_item` 的 `day` 取值域：今天（HH:mm 细排）/ 明天（时段锚点）。 */
+    private const val DAY_TODAY = "today"
+    private const val DAY_TOMORROW = "tomorrow"
+
+    /** 「今天」条目的时刻格式（HH:mm 24 小时制，与 prompt 的 `time` 约定同口径）。 */
+    private val TIME_PATTERN = Regex("^([01]\\d|2[0-3]):[0-5]\\d$")
+
+    /** 明天锚点的时段键取值域（引用 [PlanSlot] 常量，**只用于报错文案**）。 */
+    private val SLOT_KEYS = listOf(PlanSlot.MORNING, PlanSlot.NOON, PlanSlot.EVENING, PlanSlot.TRAIN)
 
     // 补丁字段长度上限：与 `PlanGenerator` 的私有上限**同量级**，但**刻意另名**
     // （`PATCH_MAX_*`）—— `check_kotlin.py` 的 `check_duplicate_constants` 判据是
@@ -145,6 +162,8 @@ internal object PlanChangeWriter {
             OP_CLEAR_NOTE -> clearNoteOp(db, date, commit)
             OP_SET_REST -> itemOp(context, db, date, op, commit, setRest = true)
             OP_PATCH_ITEM -> itemOp(context, db, date, op, commit, setRest = false)
+            OP_ADD_ITEM -> addItemOp(context, db, date, op, commit)
+            OP_REMOVE_ITEM -> removeItemOp(db, date, op, commit)
             OP_SET_TRAINING_REST -> trainingRestOp(context, db, op, commit)
             else -> Result.Error("未知的计划修改类型。")
         }
@@ -253,6 +272,203 @@ internal object PlanChangeWriter {
 
     private fun patchKeysText(patch: JSONObject): String =
         patch.keys().asSequence().joinToString("，") { "$it=${patch.get(it)}" }
+
+    // ------------------------------------------------------------------
+    // 今日计划：新增 / 删除条目（items[]，2026-10-07 P2）
+    // ------------------------------------------------------------------
+
+    /**
+     * 新增一条计划条目。
+     *
+     * 两条**互斥**的形态（由 `day` 决定，与 `PlanGenerator.itemsOf` 的解析口径一一对应）：
+     * - `day = today`（默认）：按 `HH:mm` 细排。**必须给 `time`**，`slot` 强制空串；
+     *   条数受 [PlanGenerator.MAX_TODAY_ITEMS] 约束（超了**不写库**，见下方 ⚠️）。
+ * - `day = tomorrow`：粗颗粒时段**锚点**。**必须给 `slot`**（[PlanSlot] 之一），
+ *   `time` 强制空串、`kcal` 强制 0（锚点既定契约：明天的摄入还没发生，给数字就是编），
+ *   同一 `slot` 只允许一条（4 个时段），并**另按 `MAX_TOMORROW_ITEMS` 显式封顶**。
+     *
+     * ⚠️ **上限必须在此拦下**：解析期 `PlanGenerator.itemsOf` 会把超限条目**静默丢弃** ——
+     * 这里若放行，writer 报「已加上」而界面永远不显示，用户看到的是「说加了却没加」。
+     * 这正是 `MAX_TODAY_ITEMS` / `MAX_TOMORROW_ITEMS` 从 `PlanGenerator` 抬成 `internal`
+     * 的原因：上限必须**唯一来源**。
+     *
+     * ⚠️ 当前不支持「跨日期移动条目」（把今天的某项挪到明天）：`day` 是条目身份的一部分，
+     * 移动需同时改 `time`↔`slot` 的形态，语义上更接近「删一条 + 加一条」。
+     */
+    private suspend fun addItemOp(
+        context: Context,
+        db: AppDatabase,
+        date: String,
+        op: JSONObject,
+        commit: Boolean,
+    ): Result {
+        val row = db.planDao().getPlan(date)
+            ?: return Result.Error("$date 还没有生成今日计划，无法新增条目。")
+        val root = parseRoot(row.planJson)
+            ?: return Result.Error("$date 的计划数据无法解析，未做修改。")
+        val items = root.optJSONArray("items")
+            ?: return Result.Error("$date 的计划里没有条目。")
+
+        val raw = op.optJSONObject("patch")
+            ?: return Result.Error("add_item 需要给出条目字段。")
+        val err = sanitizePatch(raw)
+        if (err != null) return Result.Error(err)
+        if (!raw.has("type")) return Result.Error("新增条目必须给出 type。")
+        if (raw.optString("title").trim().isEmpty()) return Result.Error("新增条目必须给出 title。")
+
+        // 复制一份：sanitizePatch 已就地归一化，但 add 不应改动调用方传入的对象
+        val item = JSONObject()
+        for (key in raw.keys()) item.put(key, raw.get(key))
+
+        val isTomorrow = when (op.optString("day").trim().lowercase(Locale.US)) {
+            "", DAY_TODAY -> false
+            DAY_TOMORROW -> true
+            else -> return Result.Error("day 只能是 $DAY_TODAY / $DAY_TOMORROW。")
+        }
+        if (isTomorrow) {
+            val slot = normalizeSlot(op.optString("slot").trim())
+                ?: return Result.Error(
+                    "day=tomorrow 必须给出 slot（${SLOT_KEYS.joinToString(" / ")}）。",
+                )
+            if (slotTaken(items, slot)) {
+                return Result.Error(
+                    "明天已经有「${slotLabel(context, slot)}」的锚点了，改成修改那一条，或换个时段。",
+                )
+            }
+            // 显式护栏：正常情况下 4 个时段唯一 ⇒ 条数天然 ≤ 上限；但若库里已有
+            // 超出上限的历史数据（旧版本 / 异常导入），仅靠"时段唯一"就兜不住 ——
+            // 加一条没被任何检查覆盖的上限 = 迟早静默丢弃。
+            if (countOfDay(items, PLAN_DAY_TOMORROW) >= PlanGenerator.MAX_TOMORROW_ITEMS) {
+                return Result.Error(
+                    "明天的锚点已有 ${PlanGenerator.MAX_TOMORROW_ITEMS} 条（上限），请先删掉一条。",
+                )
+            }
+            item.put("day", PLAN_DAY_TOMORROW)
+            item.put("time", "")
+            item.put("slot", slot)
+            item.put("kcal", 0)
+        } else {
+            val time = op.optString("time").trim()
+            if (!TIME_PATTERN.matches(time)) {
+                return Result.Error("day=today 必须给出 time（HH:mm 24 小时制）。")
+            }
+            if (countOfDay(items, PLAN_DAY_TODAY) >= PlanGenerator.MAX_TODAY_ITEMS) {
+                return Result.Error(
+                    "今天的条目已有 ${PlanGenerator.MAX_TODAY_ITEMS} 条（上限），" +
+                        "请先删掉一条，或改为调整现有条目。",
+                )
+            }
+            item.put("day", PLAN_DAY_TODAY)
+            item.put("time", time)
+            item.put("slot", "")
+        }
+
+        val title = item.optString("title")
+        if (commit) {
+            insertSorted(items, item)
+            db.planDao().upsertPlan(row.copy(planJson = root.toString()))
+        }
+        return Result.Ok(
+            if (isTomorrow) {
+                "在 $date 的计划「明天·${slotLabel(context, item.optString("slot"))}」加一条：$title"
+            } else {
+                "在 $date 的计划加一条 ${item.optString("time")} $title"
+            },
+        )
+    }
+
+    /** 删除一条计划条目（定位须唯一，复用 [locate] 的 `title` / `time` 口径）。 */
+    private suspend fun removeItemOp(
+        db: AppDatabase,
+        date: String,
+        op: JSONObject,
+        commit: Boolean,
+    ): Result {
+        val row = db.planDao().getPlan(date)
+            ?: return Result.Error("$date 还没有生成今日计划，无法删除条目。")
+        val root = parseRoot(row.planJson)
+            ?: return Result.Error("$date 的计划数据无法解析，未做修改。")
+        val items = root.optJSONArray("items")
+            ?: return Result.Error("$date 的计划里没有条目。")
+
+        val matchTitle = op.optString("match_title").trim()
+        val matchTime = op.optString("match_time").trim()
+        if (matchTitle.isEmpty() && matchTime.isEmpty()) {
+            return Result.Error("需要给出 match_title（或 match_time）来指定要删的条目。")
+        }
+        val located = when (val l = locate(items, matchTitle, matchTime)) {
+            is Locate.Found -> l
+            is Locate.Fail -> return Result.Error(l.reason)
+        }
+        val title = items.optJSONObject(located.index)
+            ?.optString("title")?.trim().orEmpty().ifEmpty { "（无标题）" }
+        if (commit) {
+            items.remove(located.index)
+            db.planDao().upsertPlan(row.copy(planJson = root.toString()))
+        }
+        return Result.Ok("从 $date 的计划里删掉「$title」")
+    }
+
+    /** 条目所属日（收敛为 [PLAN_DAY_TODAY] / [PLAN_DAY_TOMORROW]，与 `itemsOf` 同判据）。 */
+    private fun dayOf(o: JSONObject): Int =
+        if (o.optInt("day", PLAN_DAY_TODAY) >= PLAN_DAY_TOMORROW) PLAN_DAY_TOMORROW else PLAN_DAY_TODAY
+
+    /** 数出 `items[]` 中属于 `day` 的条目数。 */
+    private fun countOfDay(items: JSONArray, day: Int): Int {
+        var n = 0
+        for (i in 0 until items.length()) {
+            val o = items.optJSONObject(i) ?: continue
+            if (dayOf(o) == day) n++
+        }
+        return n
+    }
+
+    /** 明天是否已有该时段的锚点。 */
+    private fun slotTaken(items: JSONArray, slot: String): Boolean {
+        for (i in 0 until items.length()) {
+            val o = items.optJSONObject(i) ?: continue
+            if (dayOf(o) == PLAN_DAY_TOMORROW && o.optString("slot").trim() == slot) return true
+        }
+        return false
+    }
+
+    /**
+     * 归一时段键：只认 [PlanSlot] 的四个**规范 ASCII** 键（顺带容忍大小写）。
+     *
+     * 刻意**不认**中文「早/午/晚/练」——`PlanGenerator.resolveSlot` 认中文是给**模型原始输出**
+     * 兜底用的；走到这里的是**已经过我们校验的载荷**，再多一种写法只会多一处只有模型能触发的分支。
+     */
+    private fun normalizeSlot(raw: String): String? {
+        val s = raw.lowercase(Locale.US)
+        return when (s) {
+            PlanSlot.MORNING, PlanSlot.NOON, PlanSlot.EVENING, PlanSlot.TRAIN -> s
+            else -> null
+        }
+    }
+
+    /** 时段展示名（早 / 午 / 晚 / 训练）；未知键回落原始键。 */
+    private fun slotLabel(context: Context, slot: String): String =
+        PlanSlot.labelResOf(slot)?.let { context.getString(it) } ?: slot
+
+    /**
+     * 插到**规范顺序**（今天在前按 `time`，明天在后按时段），保持 `items[]` 时序可读。
+     *
+     * 为什么值得排：`query_plan` 的 `PlanGenerator.itemsDigest` 按**数组顺序**逐条列，
+     * 乱序会让模型读到一份跳时序的清单。用稳定排序 —— 同键条目保持原有相对顺序。
+     */
+    private fun insertSorted(items: JSONArray, item: JSONObject) {
+        val all = mutableListOf<JSONObject>()
+        for (i in 0 until items.length()) items.optJSONObject(i)?.let { all += it }
+        all += item
+        all.sortWith(compareBy<JSONObject>({ dayOf(it) }, { itemSortKey(it) }))
+        while (items.length() > 0) items.remove(0)
+        for (o in all) items.put(o)
+    }
+
+    /** 天内排序键（今天 = `time`；明天 = [PlanSlot.sortKeyOf]），与展示口径同源。 */
+    private fun itemSortKey(o: JSONObject): String =
+        if (dayOf(o) == PLAN_DAY_TOMORROW) PlanSlot.sortKeyOf(o.optString("slot").trim())
+        else o.optString("time").trim()
 
     // ------------------------------------------------------------------
     // 周训练计划：设休息日（training_plans）
