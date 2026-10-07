@@ -37,8 +37,11 @@ const val PROMPT_VER_CHAT: String = "v3"
  * v1（2026-10-06，v0.3 B0）：工具路径首次独立记版本（提示压缩 + temperature 0.4）。
  * v2（2026-10-06，v0.3 B4）：PV-1 = 规则同样作用于工具路径（两路共用 [ChatEngine.systemPrompt]）
  *    + TOOL 模式省略「今天的已知数字」段（去重：数字改由 `query_stats` 按需取）。
+ * v3（2026-10-07）：`TOOLS_SECTION` 加工具调用**意图判据**（按意图不按关键词 /
+ *    混合意图须在正文完整回答其余问题）+ `propose_log` description 收紧，
+ *    修「消息含『记录』二字即只触发记录工具」的过触发。
  */
-const val PROMPT_VER_CHAT_TOOL: String = "v2"
+const val PROMPT_VER_CHAT_TOOL: String = "v3"
 
 /**
  * 系统提示的**路径模式**（v0.3 B0；v0.3 B4 扩展）。
