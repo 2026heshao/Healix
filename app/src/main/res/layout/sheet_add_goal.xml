@@ -14,6 +14,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:background="@drawable/bg_sheet"
+        android:elevation="@dimen/card_elev_3"
         android:orientation="vertical"
         android:paddingStart="@dimen/screen_margin"
         android:paddingEnd="@dimen/screen_margin"

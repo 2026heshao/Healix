@@ -1,13 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    用户气泡：text_1 (#1A1918) 实底 + 白字。
-    圆角 8dp（全局唯一圆角值），无阴影、无渐变、无描边。
-    用 text_1 而不是 accent：#1A1918 是全 App 唯一的"最深中性色"，
-    拿它当气泡底等价于"用户的话最实在"，同时避免 accent 大面积铺开
-    削弱它在按钮上的强调作用（设计规范 v3：1 强调色）。
+    v6 用户气泡：primary_container 实底（文字 = on_primary_container）。
+    右上不对称圆角 16 / 4 / 16 / 16（TL / TR / BR / BL），尾角在右上。
+    无阴影、无渐变、无描边。
 -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
-    <solid android:color="@color/text_1" />
-    <corners android:radius="@dimen/radius" />
+    <solid android:color="@color/primary_container" />
+    <corners
+        android:topLeftRadius="@dimen/bubble_radius"
+        android:topRightRadius="@dimen/bubble_tail_radius"
+        android:bottomRightRadius="@dimen/bubble_radius"
+        android:bottomLeftRadius="@dimen/bubble_radius" />
 </shape>

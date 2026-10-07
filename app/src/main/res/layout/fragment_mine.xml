@@ -1,26 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
     「我的」页（设计规范 11.1，v6 · 3 Tab）：管理类功能的归宿。
-    结构 = 概览（状态详情）/ 数据（知识库 · 预设 · 个人信息 · 导出备份）/ 应用（设置 · 调试 · 通知栏录入）。
-    知识库唯一入口从设置页迁至此页（11.1 取代 10.1）。
-    底部预留 80dp 给全局 tabbar（11.6 密度预算）。
 
-    v8：由 `view_mine_page.xml` 抽出为常驻 Tab Fragment（[MineFragment]）的根布局。
-    根 id 改 `mineRoot`；**去掉 `android:visibility="gone"`** —— 显隐由 FragmentManager
-    的 show/hide 控制，根布局自带 gone 会与 hide() 互相打架。
+    v6 UI 系统化升级（卡片体系回归）：
+      · 顶部个人卡 = 头像 + 姓名 + 副行（体重 · 目标）；
+      · 目标四宫格 = 体重 / 运动 / 睡眠 / 饮水（各带 6dp 迷你进度条）；
+      · 原「去卡片化」的三组通栏行 → 每组一张 bg_card 包裹，组标题用
+        Widget.Healix.SectionTitle，行高仍 setting_row_height(56dp)；
+      · 行 id 全部保持不变（MineFragment 按 id 绑定点击）。
 
-    v8 §④ 4.1（全 App 巡检必改项）：**去卡片**。
-    原先三组各包一层 `bg_card`（surface 底 + 8dp 圆角 + 1dp 描边）+ 左右 16dp 边距，
-    与设置页 / 个人信息页 / 状态详情页 / 记录页的「无卡片纯列表」不一致（违反 G1）。
-    现在分区只靠「组标题 + 留白 + 1dp 线」：
-    - 页左右边距 = 20dp：由行自身的 `Widget.Healix.SettingRow` 提供
-      （`paddingStart/End = @dimen/screen_margin`），容器**不再自带水平边距**；
-    - 组标题 = caption12 `text_3` 小节头（§④ 4.1）；标题下距首行 8dp、组间 28dp（G5）；
-    - 行间 1dp `line`，左右各 20dp 内缩（与页边距对齐，G5）；
-    - 行高 56dp（`setting_row_height` ≥ 48dp 触控，G5）。
-
-    ⚠️ 保留的这几层无色 LinearLayout 只是**结构化分组**（便于按组增删行），
-       **不带任何底色/边框/圆角** —— 它们不是卡片，不构成 G1 的例外。
+    底部预留 list_bottom_pad 给全局 tabbar（11.6 密度预算）。
 -->
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
@@ -36,12 +25,13 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical">
+        android:orientation="vertical"
+        android:paddingTop="4dp">
 
         <!-- 顶部标题：与主界面 56dp 顶栏同规格 -->
         <RelativeLayout
             android:layout_width="match_parent"
-            android:layout_height="56dp"
+            android:layout_height="52dp"
             android:paddingStart="@dimen/screen_margin"
             android:paddingEnd="@dimen/screen_margin">
 
@@ -53,26 +43,346 @@
                 android:text="@string/mine_title" />
         </RelativeLayout>
 
-        <View
+        <!-- ══ 个人卡 ══ 头像 + 姓名 + 副行（体重 · 目标） -->
+        <LinearLayout
+            style="@style/Widget.Healix.Card"
             android:layout_width="match_parent"
-            android:layout_height="@dimen/divider"
-            android:background="@color/line" />
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
 
-        <!-- ── 概览 ── -->
-        <TextView
-            style="@style/Text.Caption"
-            android:layout_width="wrap_content"
+            <TextView
+                android:id="@+id/profileAvatar"
+                android:layout_width="@dimen/avatar_size"
+                android:layout_height="@dimen/avatar_size"
+                android:background="@drawable/bg_avatar"
+                android:fontFamily="sans-serif-medium"
+                android:gravity="center"
+                android:text="H"
+                android:textColor="@color/on_primary_container"
+                android:textSize="20sp"
+                android:textStyle="bold" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="14dp"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/profileName"
+                    style="@style/Text.Title"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:text="@string/dui_profile_name"
+                    tools:text="Healix 用户" />
+
+                <TextView
+                    android:id="@+id/profileMeta"
+                    style="@style/Text.Caption"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:textColor="@color/text_2"
+                    tools:text="体重 71.5 kg · 增重" />
+            </LinearLayout>
+
+            <!--
+                ⚠️ v6 画板里的「连续达标 7 天徽章」**已移除**（不落地）。
+                原因：PRD 硬规则 R5 + 规范 §9.12 禁止「可累积 / 会归零 / 给奖励 / 能排行」
+                的 streak 机制，由 `pipeline/check_kotlin.py` 的 check_no_gamification
+                静态守卫；且全仓不存在「连续达标」聚合口径 —— 落一个无数据源的
+                `visibility=gone` 视图等于死代码。若将来要做同类正反馈，改用
+                「描述性」口径（如「本周达标 5/7 天」，R5 明确允许描述数据的文案）。
+            -->
+        </LinearLayout>
+
+        <!-- ══ 目标四宫格（2×2）：体重 / 运动 / 睡眠 / 饮水 ══ -->
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginStart="@dimen/screen_margin"
-            android:layout_marginTop="20dp"
-            android:layout_marginBottom="8dp"
-            android:text="@string/mine_group_overview"
-            android:textColor="@color/text_3" />
+            android:layout_marginTop="12dp"
+            android:layout_marginEnd="@dimen/screen_margin"
+            android:orientation="horizontal">
+
+            <!-- 体重 -->
+            <LinearLayout
+                android:id="@+id/cardWeight"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:background="@drawable/bg_card"
+                android:elevation="@dimen/card_elev_1"
+                android:orientation="vertical"
+                android:padding="14dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        style="@style/Text.Caption"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/setting_weight"
+                        android:textColor="@color/text_2" />
+
+                    <ImageView
+                        android:layout_width="12dp"
+                        android:layout_height="12dp"
+                        android:contentDescription="@null"
+                        android:src="@drawable/ic_chevron"
+                        android:tint="@color/text_3" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/goalWeightValue"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:ellipsize="end"
+                    android:fontFamily="sans-serif-medium"
+                    android:maxLines="1"
+                    android:textColor="@color/text_1"
+                    android:textSize="20sp"
+                    android:textStyle="bold"
+                    tools:text="71.5 kg" />
+
+                <FrameLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="6dp"
+                    android:layout_marginTop="8dp"
+                    android:background="@drawable/bg_gbar_track">
+
+                    <View
+                        android:id="@+id/goalWeightFill"
+                        android:layout_width="0dp"
+                        android:layout_height="match_parent"
+                        android:background="@drawable/bg_gbar_go" />
+                </FrameLayout>
+            </LinearLayout>
+
+            <Space
+                android:layout_width="10dp"
+                android:layout_height="1dp" />
+
+            <!-- 运动 -->
+            <LinearLayout
+                android:id="@+id/cardExercise"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:background="@drawable/bg_card"
+                android:elevation="@dimen/card_elev_1"
+                android:orientation="vertical"
+                android:padding="14dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        style="@style/Text.Caption"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/dui_goal_exercise"
+                        android:textColor="@color/text_2" />
+
+                    <ImageView
+                        android:layout_width="12dp"
+                        android:layout_height="12dp"
+                        android:contentDescription="@null"
+                        android:src="@drawable/ic_chevron"
+                        android:tint="@color/text_3" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/goalExerciseValue"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:ellipsize="end"
+                    android:fontFamily="sans-serif-medium"
+                    android:maxLines="1"
+                    android:textColor="@color/text_1"
+                    android:textSize="20sp"
+                    android:textStyle="bold"
+                    tools:text="2/3 次" />
+
+                <FrameLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="6dp"
+                    android:layout_marginTop="8dp"
+                    android:background="@drawable/bg_gbar_track">
+
+                    <View
+                        android:id="@+id/goalExerciseFill"
+                        android:layout_width="0dp"
+                        android:layout_height="match_parent"
+                        android:background="@drawable/bg_gbar_mid" />
+                </FrameLayout>
+            </LinearLayout>
+        </LinearLayout>
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical">
+            android:layout_marginStart="@dimen/screen_margin"
+            android:layout_marginTop="10dp"
+            android:layout_marginEnd="@dimen/screen_margin"
+            android:orientation="horizontal">
+
+            <!-- 睡眠 -->
+            <LinearLayout
+                android:id="@+id/cardSleep"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:background="@drawable/bg_card"
+                android:elevation="@dimen/card_elev_1"
+                android:orientation="vertical"
+                android:padding="14dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        style="@style/Text.Caption"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/dui_goal_sleep"
+                        android:textColor="@color/text_2" />
+
+                    <ImageView
+                        android:layout_width="12dp"
+                        android:layout_height="12dp"
+                        android:contentDescription="@null"
+                        android:src="@drawable/ic_chevron"
+                        android:tint="@color/text_3" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/goalSleepValue"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:ellipsize="end"
+                    android:fontFamily="sans-serif-medium"
+                    android:maxLines="1"
+                    android:textColor="@color/text_1"
+                    android:textSize="20sp"
+                    android:textStyle="bold"
+                    tools:text="6.4 h" />
+
+                <FrameLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="6dp"
+                    android:layout_marginTop="8dp"
+                    android:background="@drawable/bg_gbar_track">
+
+                    <View
+                        android:id="@+id/goalSleepFill"
+                        android:layout_width="0dp"
+                        android:layout_height="match_parent"
+                        android:background="@drawable/bg_gbar_mid" />
+                </FrameLayout>
+            </LinearLayout>
+
+            <Space
+                android:layout_width="10dp"
+                android:layout_height="1dp" />
+
+            <!-- 饮水 -->
+            <LinearLayout
+                android:id="@+id/cardWater"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:background="@drawable/bg_card"
+                android:elevation="@dimen/card_elev_1"
+                android:orientation="vertical"
+                android:padding="14dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        style="@style/Text.Caption"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/dui_goal_water"
+                        android:textColor="@color/text_2" />
+
+                    <ImageView
+                        android:layout_width="12dp"
+                        android:layout_height="12dp"
+                        android:contentDescription="@null"
+                        android:src="@drawable/ic_chevron"
+                        android:tint="@color/text_3" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/goalWaterValue"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:ellipsize="end"
+                    android:fontFamily="sans-serif-medium"
+                    android:maxLines="1"
+                    android:textColor="@color/text_1"
+                    android:textSize="20sp"
+                    android:textStyle="bold"
+                    tools:text="1700 ml" />
+
+                <FrameLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="6dp"
+                    android:layout_marginTop="8dp"
+                    android:background="@drawable/bg_gbar_track">
+
+                    <View
+                        android:id="@+id/goalWaterFill"
+                        android:layout_width="0dp"
+                        android:layout_height="match_parent"
+                        android:background="@drawable/bg_gbar_ok" />
+                </FrameLayout>
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- ══ 概览 ══ -->
+        <TextView
+            style="@style/Widget.Healix.SectionTitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/mine_group_overview" />
+
+        <LinearLayout
+            style="@style/Widget.Healix.Card"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="0dp">
 
             <include
                 android:id="@+id/rowStatusDetail"
@@ -81,21 +391,19 @@
                 android:layout_height="wrap_content" />
         </LinearLayout>
 
-        <!-- ── 数据 ── -->
+        <!-- ══ 数据 ══ -->
         <TextView
-            style="@style/Text.Caption"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="@dimen/screen_margin"
-            android:layout_marginTop="28dp"
-            android:layout_marginBottom="8dp"
-            android:text="@string/mine_group_data"
-            android:textColor="@color/text_3" />
-
-        <LinearLayout
+            style="@style/Widget.Healix.SectionTitle"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical">
+            android:text="@string/mine_group_data" />
+
+        <LinearLayout
+            style="@style/Widget.Healix.Card"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="0dp">
 
             <include
                 android:id="@+id/rowResources"
@@ -103,25 +411,11 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content" />
 
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="@dimen/divider"
-                android:layout_marginStart="@dimen/screen_margin"
-                android:layout_marginEnd="@dimen/screen_margin"
-                android:background="@color/line" />
-
             <include
                 android:id="@+id/rowPresets"
                 layout="@layout/row_setting_value"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content" />
-
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="@dimen/divider"
-                android:layout_marginStart="@dimen/screen_margin"
-                android:layout_marginEnd="@dimen/screen_margin"
-                android:background="@color/line" />
 
             <include
                 android:id="@+id/rowKnowledge"
@@ -129,25 +423,11 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content" />
 
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="@dimen/divider"
-                android:layout_marginStart="@dimen/screen_margin"
-                android:layout_marginEnd="@dimen/screen_margin"
-                android:background="@color/line" />
-
             <include
                 android:id="@+id/rowPersonalInfo"
                 layout="@layout/row_setting_value"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content" />
-
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="@dimen/divider"
-                android:layout_marginStart="@dimen/screen_margin"
-                android:layout_marginEnd="@dimen/screen_margin"
-                android:background="@color/line" />
 
             <include
                 android:id="@+id/rowExport"
@@ -155,17 +435,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content" />
 
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="@dimen/divider"
-                android:layout_marginStart="@dimen/screen_margin"
-                android:layout_marginEnd="@dimen/screen_margin"
-                android:background="@color/line" />
-
             <!--
                 导入数据（v8 T07 / 需求 8）：与「导出备份」配成一对 ——
-                只有导出没有读回时，导出的 JSON 是死数据，换机/重装没有任何还原路径。
-                被 include 复用的 id 会带 rowImport 前缀（片段里访问 rowImport.label 等）。
+                只有导出没有读回时，导出的 JSON 是死数据，换机 / 重装没有任何还原路径。
             -->
             <include
                 android:id="@+id/rowImport"
@@ -175,33 +447,21 @@
 
             <!--
                 备份须知（13sp text_3，无底色）：导出文件是**明文** JSON，含健康记录与
-                个人描述；导入不含 API Key。两句都是用户做决定前必须知道的
-                （调研文档 §3.3「导出为明文 → UI 明示」）。用 caption 而不是弹窗 ——
-                这不是需要确认的动作，只是须知。
+                个人描述；导入不含 API Key。两句都是用户做决定前必须知道的。
             -->
             <TextView
                 style="@style/Text.Caption"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="@dimen/screen_margin"
-                android:layout_marginTop="8dp"
+                android:layout_marginTop="4dp"
                 android:layout_marginEnd="@dimen/screen_margin"
                 android:text="@string/backup_note"
                 android:textColor="@color/text_3" />
 
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="@dimen/divider"
-                android:layout_marginTop="12dp"
-                android:layout_marginStart="@dimen/screen_margin"
-                android:layout_marginEnd="@dimen/screen_margin"
-                android:background="@color/line" />
-
             <!--
                 就医准备材料（v8 需求 9 功能 3）：把一段时间窗内的事实整理成一页
-                可交给医生的纯文本。与「导出备份」并列在数据组 —— 两者都是"把数据
-                带走"，但一个是给未来的自己（可还原），一个是给医生（可阅读）。
-                副行写明可选时间窗，避免用户点进去才知道。
+                可交给医生的纯文本，与「导出备份」并列在数据组。
             -->
             <include
                 android:id="@+id/rowMedical"
@@ -210,22 +470,20 @@
                 android:layout_height="wrap_content" />
         </LinearLayout>
 
-        <!-- ── 应用 ── -->
+        <!-- ══ 应用 ══ -->
         <TextView
-            style="@style/Text.Caption"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="@dimen/screen_margin"
-            android:layout_marginTop="28dp"
-            android:layout_marginBottom="8dp"
-            android:text="@string/mine_group_app"
-            android:textColor="@color/text_3" />
-
-        <LinearLayout
+            style="@style/Widget.Healix.SectionTitle"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="28dp"
-            android:orientation="vertical">
+            android:text="@string/mine_group_app" />
+
+        <LinearLayout
+            style="@style/Widget.Healix.Card"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="@dimen/block_gap"
+            android:orientation="vertical"
+            android:padding="0dp">
 
             <include
                 android:id="@+id/rowSettings"
@@ -233,25 +491,11 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content" />
 
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="@dimen/divider"
-                android:layout_marginStart="@dimen/screen_margin"
-                android:layout_marginEnd="@dimen/screen_margin"
-                android:background="@color/line" />
-
             <include
                 android:id="@+id/rowDebug"
                 layout="@layout/row_setting_value"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content" />
-
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="@dimen/divider"
-                android:layout_marginStart="@dimen/screen_margin"
-                android:layout_marginEnd="@dimen/screen_margin"
-                android:background="@color/line" />
 
             <include
                 android:id="@+id/rowNotify"

@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 深色主题：继承同一套 style，令牌由 values-night/colors.xml 覆盖。 -->
+<!-- 深色主题：本文件**整份重定义** Theme.Healix（style 不跨资源限定符合并），
+     令牌由 values-night/colors.xml 覆盖。不得新增组件样式。 -->
 <resources>
     <style name="Theme.Healix" parent="Theme.MaterialComponents.NoActionBar">
         <item name="android:colorBackground">@color/bg</item>
@@ -17,8 +18,8 @@
 
         <item name="android:windowContentTransitions">false</item>
         <item name="android:windowActivityTransitions">false</item>
-        <item name="colorAccent">@color/accent</item>
-        <item name="android:textColorHighlight">@color/accent</item>
+        <item name="colorAccent">@color/primary</item>
+        <item name="android:textColorHighlight">@color/primary</item>
 
         <!-- 弹层容器透明（清单3 R2）：与 values/themes.xml 同条目。
              ⚠️ 本文件是**整份重定义**（style 不跨资源限定符合并），只改白天那份 =

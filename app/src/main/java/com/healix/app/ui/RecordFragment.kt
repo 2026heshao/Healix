@@ -9,6 +9,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.InputMethodManager
+import android.widget.LinearLayout
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.Lifecycle
@@ -20,7 +21,6 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.healix.app.R
 import com.healix.app.databinding.FragmentRecordBinding
-import com.healix.app.databinding.ItemEventBinding
 import com.healix.app.databinding.ItemRecordHeaderBinding
 import com.healix.app.db.EventEntity
 import com.healix.app.db.GoalSlots
@@ -28,7 +28,6 @@ import com.healix.app.db.PresetEntity
 import com.healix.app.db.SettingsKeys
 import com.healix.app.notify.AppEvent
 import com.healix.app.notify.AppEventBus
-import com.healix.app.notify.EventText
 import com.healix.app.rules.RecentChips
 import com.healix.app.ui.widget.InputBarHeightAnimator
 import com.healix.app.ui.widget.SparklineView
@@ -139,7 +138,7 @@ class RecordFragment : Fragment() {
             bindHeaderInteractions(b)
             renderGoalArea()
             renderPresetStrip()
-            renderStatusRow(lastHomeStatus)
+            renderMetricsState()
             renderNudgeBar()
             renderPlanBar()
         })
@@ -215,6 +214,14 @@ class RecordFragment : Fragment() {
         maybeShowGoalSetup()
     }
 
+    /**
+     * 复点当前 Tab 时由宿主 [MainActivity] 调用（v6 §5.1）：列表滚回顶部。
+     * 三页常驻不销毁，视图可能已销毁（`_binding == null`）→ 空值守卫，不崩。
+     */
+    fun scrollToTop() {
+        _binding?.list?.smoothScrollToPosition(0)
+    }
+
     override fun onDestroyView() {
         super.onDestroyView()
         // header 随列表销毁；引用一并清空，防渲染函数在销毁后经旧引用写视图
@@ -253,28 +260,24 @@ class RecordFragment : Fragment() {
 
     /**
      * header 内视图的点击监听（B2：这些视图随滚动区进了 item_record_header.xml，
-     * 只能在 RecordHeaderAdapter 首次绑定时挂）。语义与抽离前逐一相同：
+     * 只能在 RecordHeaderAdapter 首次绑定时挂）。语义与抽离前逐一对应：
      * - 主目标行 / 「去调整 ›」→ [onPrimaryGoalRowClick]；
-     * - 三卡 / 盈余行 → [openGoalDetail]（点哪张卡定位哪个 metric）；
-     * - 状态行 → 状态详情页（有信号默认落「身体」段，否则「运动」段）；
+     * - Hero 卡 → 盈余视角详情弹层（沿用旧「今日盈余」单行的去向）；
+     * - 指标 chip（运动 / 睡眠 / 体重）→ [openGoalDetail]（点哪个 chip 定位哪个 metric）；
+     * - 信号态 chip → 状态详情页（未读信号默认落「身体」段）并标记已读（规范 §9.2）；
      * - 计划提示条 → 计划页；监督提示条 → 聚焦输入框。
      */
     private fun bindHeaderInteractions(b: ItemRecordHeaderBinding) {
         b.goalPrimaryRow.setOnClickListener { onPrimaryGoalRowClick() }
         b.goalAdjust.setOnClickListener { onPrimaryGoalRowClick() }
-        b.subTrainRow.setOnClickListener { openGoalDetail(GoalDetailSheet.TAB_TRAIN) }
-        b.subSleepRow.setOnClickListener { openGoalDetail(GoalDetailSheet.TAB_SLEEP) }
-        b.subWeightRow.setOnClickListener { openGoalDetail(GoalDetailSheet.TAB_WEIGHT) }
-        b.gapRow.setOnClickListener { openGoalDetail(GoalDetailSheet.TAB_GAP) }
-        b.statusRow.setOnClickListener {
-            val tab = if (b.statusRow.tag == StatusDetailFragment.TAB_BODY) {
-                StatusDetailFragment.TAB_BODY
-            } else {
-                StatusDetailFragment.TAB_EXERCISE
-            }
+        b.heroCard.setOnClickListener { openGoalDetail(GoalDetailSheet.TAB_GAP) }
+        b.metricTrain.setOnClickListener { openGoalDetail(GoalDetailSheet.TAB_TRAIN) }
+        b.metricSleep.setOnClickListener { openGoalDetail(GoalDetailSheet.TAB_SLEEP) }
+        b.metricWeight.setOnClickListener { openGoalDetail(GoalDetailSheet.TAB_WEIGHT) }
+        b.metricSignal.setOnClickListener {
             NavHost.open(
                 requireContext(),
-                StatusDetailFragment.newInstance(tab),
+                StatusDetailFragment.newInstance(StatusDetailFragment.TAB_BODY),
                 NavHost.PAGE_STATUS_DETAIL,
             )
             // 进了状态页就算看过了 → 已读后必须切回摘要态（规范 §9.2）
@@ -366,46 +369,24 @@ class RecordFragment : Fragment() {
     }
 
     /**
-     * 状态行右侧 chevron 取色：摘要态 `text_3`、信号态 `accent`（规范 §9.2）。
+     * 指标 chip 行两态互斥渲染（规范 §9.2 / v6 §四，写入 header）。
+     * - 无未读信号：右一显示体重 chip；
+     * - 有未读信号：右一原地切成 warning 衬底 + warning 文字（体重 chip 隐藏），
+     *   行高与列数不变（恒单行 48dp）。
+     * [lastHomeStatus] 为 null = Flow 尚未到达（补渲染时跳过，不伪造初始态）。
      */
-    private fun tintChevron(colorRes: Int) {
-        headerBinding?.statusChevron?.drawable
-            ?.setTint(ContextCompat.getColor(requireContext(), colorRes))
-    }
-
-    /**
-     * 状态行两态互斥渲染（规范 §9.2，B2 后写入 header）。
-     * [status] 为 null = Flow 尚未到达（补渲染时跳过，不伪造初始态）。
-     */
-    private fun renderStatusRow(status: HomeStatus?) {
+    private fun renderMetricsState() {
         val h = headerBinding ?: return
-        when (status) {
-            is HomeStatus.Signal -> {
-                h.statusRow.tag = StatusDetailFragment.TAB_BODY
-                h.statusText.text = status.text
-                h.statusText.setTextColor(
-                    ContextCompat.getColor(requireContext(), R.color.accent),
-                )
-                tintChevron(R.color.accent)
-            }
-            is HomeStatus.Summary -> {
-                h.statusRow.tag = StatusDetailFragment.TAB_EXERCISE
-                h.statusText.text = status.text
-                h.statusText.setTextColor(
-                    ContextCompat.getColor(requireContext(), R.color.text_2),
-                )
-                tintChevron(R.color.text_3)
-            }
-            HomeStatus.Empty -> {
-                h.statusRow.tag = StatusDetailFragment.TAB_EXERCISE
-                h.statusText.setText(R.string.status_none)
-                h.statusText.setTextColor(
-                    ContextCompat.getColor(requireContext(), R.color.text_3),
-                )
-                tintChevron(R.color.text_3)
-            }
-            null -> Unit
+        val signal = lastHomeStatus as? HomeStatus.Signal
+        if (signal == null) {
+            h.metricWeight.visibility = View.VISIBLE
+            h.metricSignal.visibility = View.GONE
+            return
         }
+        h.metricWeight.visibility = View.GONE
+        h.metricSignal.visibility = View.VISIBLE
+        h.metricSignal.setBackgroundResource(R.drawable.bg_metric_chip_warn)
+        h.metricSignalText.text = signal.text
     }
 
     private fun observe() {
@@ -437,10 +418,10 @@ class RecordFragment : Fragment() {
 
                 launch {
                     vm.summary.collect { s ->
-                        // 汇总区（36sp 大数字 + 进度线 + 摄入/消耗行）已在 v8 问题 4 中整体移除，
-                        // 压成目标区的「今日盈余」单行；大数字与明细下沉到 GoalDetailSheet 的盈余视角。
+                        // v6：热量汇总升级为 Hero 卡（左列 Text.Hero 主数字 + 8dp 进度条
+                        // + 右侧 76dp 达标环）；大数字与明细仍下沉到 GoalDetailSheet 盈余视角。
                         lastSummary = s
-                        renderGapRow()
+                        renderGoalArea()
                         renderPlanBar()
                     }
                 }
@@ -486,11 +467,12 @@ class RecordFragment : Fragment() {
                 launch { vm.presets.collect { lastPresets = it; renderPresetStrip() } }
                 launch { vm.recentChips.collect { lastRecents = it; renderPresetStrip() } }
 
-                // 状态行：两态互斥渲染（规范 §9.2）；「我的」页副行由 MineFragment 自行订阅同源 flow
+                // 状态：v6 起并入指标 chip 行（两态互斥，恒单行 48dp）；
+                // 「我的」页副行由 MineFragment 自行订阅同源 flow
                 launch {
                     vm.homeStatus.collect { status ->
                         lastHomeStatus = status
-                        renderStatusRow(status)
+                        renderMetricsState()
                     }
                 }
 
@@ -555,20 +537,19 @@ class RecordFragment : Fragment() {
         }
     }
 
-    // ── 需求 5 / v8 问题 4 渲染 ─────────────────────────────────────────
+    // ── 需求 5 / v6 记录页渲染 ─────────────────────────────────────────
 
     /**
      * 目标区**全量重渲染**（幂等）。
      *
-     * 结构（自上而下）：主目标行 48dp + 1dp 线 + 三卡 60dp + 1dp 线 + 今日盈余 32dp。
-     * 显隐规则（规范 §① 状态覆盖）：
-     * - 主目标已设 → 全段显示；
+     * 结构（自上而下）：主目标行 48dp + 1dp 线 + Hero 卡 + 指标 chip 行 48dp。
+     * 显隐规则：
      * - 主目标未设 → 行内改「未设置主目标 / 去设置 ›」；
-     * - 没有任何 active 次目标 → 三卡整段（含两条分隔线）收起，盈余行同样收起
-     *   —— 目标区塌缩为单行 48dp，不出现"两条 1dp 线夹一个空块"。
+     * - 没有任何 active 次目标且无未读信号 → 指标 chip 行整段收起；
+     * - 隐藏热量数字（HIDE_KCAL）或主目标未设 → Hero 卡整卡隐藏。
      *
-     * 三卡**恒为**训练 / 睡眠 / 体重三项，与用户启用了几个次目标无关（规范 §①
-     * 「目标个数不影响布局」）—— 所以三卡的行/列结构在 XML 里写死，代码只填值与图。
+     * 指标 chip 行**恒为**运动 / 睡眠 / 体重三格（两态互斥，恒单行 48dp），
+     * 与用户启用了几个次目标无关 —— 行列结构在 XML 写死，代码只填值与图。
      */
     private fun renderGoalArea() {
         if (_binding == null) return
@@ -578,18 +559,21 @@ class RecordFragment : Fragment() {
         val g = lastGoal
         val primarySet = g?.set == true
         val hasSecondary = GoalSlots.ADDABLE.any { slot -> slot.metrics.any { it in lastTargets.keys } }
-        // 隐藏热量数字时，"能算盈余"这件事本身就不该显示
-        val showGap = primarySet && !lastHideKcal
+        // 有未读信号时也必须显示指标行（信号占右一格），否则未读信号会被整段收起
+        val hasSignal = lastHomeStatus is HomeStatus.Signal
+        val showMetrics = hasSecondary || hasSignal
+        // 隐藏热量数字时，"能算盈余"这件事本身就不该显示（Hero 卡整卡隐藏）
+        val showHero = primarySet && !lastHideKcal
 
         renderPrimaryRow(g, primarySet)
-        renderCards()
-        renderGapRow()
+        renderHero()
+        renderMetrics()
+        renderMetricsState()
 
-        h.goalCardRow.visibility = if (hasSecondary) View.VISIBLE else View.GONE
+        h.heroCard.visibility = if (showHero) View.VISIBLE else View.GONE
+        h.metricsRow.visibility = if (showMetrics) View.VISIBLE else View.GONE
         // 分隔线跟随相邻内容：有内容才画线，避免收起后留下孤立的 1dp 线
-        h.goalDividerA.visibility = if (hasSecondary || showGap) View.VISIBLE else View.GONE
-        h.goalDividerB.visibility = if (hasSecondary && showGap) View.VISIBLE else View.GONE
-        h.gapRow.visibility = if (showGap) View.VISIBLE else View.GONE
+        h.goalDivider.visibility = if (showMetrics || showHero) View.VISIBLE else View.GONE
     }
 
     /**
@@ -640,27 +624,60 @@ class RecordFragment : Fragment() {
         }
     }
 
-    /** 三卡值 + 迷你趋势线（20dp，accent 单色，不铺面）。 */
-    private fun renderCards() {
+    /**
+     * Hero 卡内容：Text.Hero 主数字（盈亏正负号保留）+ 单位 + 8dp 进度条 + 达标环。
+     * 进度与环的百分比都取 `摄入 / 目标`（clamp 0..1）；目标为 0 时按 0 处理。
+     * 卡片显隐由 [renderGoalArea] 统一控制（HIDE_KCAL / 主目标未设 → 隐藏）。
+     */
+    private fun renderHero() {
         val h = headerBinding ?: return
-        h.subTrainValue.text =
-            getString(R.string.sub_goal_train_card, lastTrain.done, lastTrain.goal)
-        renderSpark(h.subTrainSpark, lastTrainSeries)
+        val s = lastSummary
+        h.heroNum.text = if (s.gap >= 0) {
+            getString(R.string.gap_format, s.gap)
+        } else {
+            getString(R.string.gap_negative_format, s.gap)
+        }
+        h.heroSub.text = getString(R.string.summary_format, s.kcalIn, s.kcalOut, s.target)
+        val pct = if (s.target > 0) (s.kcalIn.toFloat() / s.target).coerceIn(0f, 1f) else 0f
+        setHeroProgress(pct)
+        h.heroRing.submit(pct, getString(R.string.rec_ring_label))
+    }
 
-        h.subSleepValue.text = lastSleepSeries.lastOrNull()?.let {
+    /** 8dp 进度条按权重分配填充 / 余量（weightSum 100，免去测量后再设宽度的时序问题）。 */
+    private fun setHeroProgress(pct: Float) {
+        val h = headerBinding ?: return
+        val fill = h.heroBarFill.layoutParams as LinearLayout.LayoutParams
+        fill.weight = pct * 100f
+        h.heroBarFill.layoutParams = fill
+        val rest = h.heroBarRest.layoutParams as LinearLayout.LayoutParams
+        rest.weight = (1f - pct) * 100f
+        h.heroBarRest.layoutParams = rest
+    }
+
+    /**
+     * 指标 chip 行内容：运动 / 睡眠 / 体重三格值 + 20dp 迷你趋势线。
+     * 信号态的衬底切换在 [renderMetricsState] 里做（两态互斥，恒单行 48dp）。
+     */
+    private fun renderMetrics() {
+        val h = headerBinding ?: return
+        h.metricTrainValue.text =
+            getString(R.string.sub_goal_train_card, lastTrain.done, lastTrain.goal)
+        renderSpark(h.metricTrainSpark, lastTrainSeries)
+
+        h.metricSleepValue.text = lastSleepSeries.lastOrNull()?.let {
             getString(R.string.unit_hour_short, trimNumber(it))
         } ?: EMPTY_VALUE
-        renderSpark(h.subSleepSpark, lastSleepSeries)
+        renderSpark(h.metricSleepSpark, lastSleepSeries)
 
         if (lastHideWeight) {
-            h.subWeightValue.text = getString(R.string.goal_card_masked)
+            h.metricWeightValue.text = getString(R.string.goal_card_masked)
         } else {
-            h.subWeightValue.text = lastWeightSeries.lastOrNull()?.let {
+            h.metricWeightValue.text = lastWeightSeries.lastOrNull()?.let {
                 getString(R.string.unit_kg, trimNumber(it))
             } ?: EMPTY_VALUE
         }
-        // 隐私：打码时**不绘制**折线，但 20dp 槽位保留（布局高度固定 → 卡片不塌陷）
-        renderSpark(h.subWeightSpark, lastWeightSeries, masked = lastHideWeight)
+        // 隐私：打码时**不绘制**折线，但 20dp 槽位保留（chip 高度固定 → 不塌陷）
+        renderSpark(h.metricWeightSpark, lastWeightSeries, masked = lastHideWeight)
     }
 
     /**
@@ -679,23 +696,6 @@ class RecordFragment : Fragment() {
             ),
         )
         view.submit(values)
-    }
-
-    /** 今日盈余单行：数值 + 6px 圆点按正负着色（positive/negative **只用于圆点，不铺面**）。 */
-    private fun renderGapRow() {
-        val h = headerBinding ?: return
-        val s = lastSummary
-        h.gapValue.text = if (s.gap >= 0) {
-            getString(R.string.gap_format, s.gap)
-        } else {
-            getString(R.string.gap_negative_format, s.gap)
-        }
-        h.gapDot.background?.setTint(
-            ContextCompat.getColor(
-                requireContext(),
-                if (s.gap >= 0) R.color.positive else R.color.negative,
-            ),
-        )
     }
 
     /**
@@ -761,12 +761,13 @@ class RecordFragment : Fragment() {
     }
 
     /**
-     * 首页横条：预设 chips + 1dp 竖线 + 「最近记录」chips（功能补充 2.1 / v8 需求 9 功能 5）。
+     * 首页横条：预设 chips + 「最近记录」chips（功能补充 2.1 / v8 需求 9 功能 5）。
      *
      * 点一下 = 一条记录，完全不打字、不调 AI —— 这是全 App 摩擦最低的路径。
-     * 两段**共用同一条横滚**：拆成两条会让首页多出一整行高度；竖线只在两段都有时
-     * 插入（只有最近项时不必凭空加一条线）。最近 chip 的文案与体重遮罩由
-     * [RecentChips.label] 决定（受 HIDE_WEIGHT 约束，与三卡同口径）。
+     * v6：两段**共用同一条横滚**，且都渲染为 Filter chip（item_rec_chip，chip 形态 +
+     * 点选态由 bg_chip / chip_text selector 承载）；不再插竖线分隔（chip 自身的
+     * 圆角与间距已足够分组）。最近 chip 的文案与体重遮罩由 [RecentChips.label]
+     * 决定（受 HIDE_WEIGHT 约束，与指标 chip 同口径）。
      */
     private fun renderPresetStrip() {
         val h = headerBinding ?: return
@@ -775,11 +776,10 @@ class RecordFragment : Fragment() {
         val recents = lastRecents
         val visible = presets.isNotEmpty() || recents.isNotEmpty()
         h.presetScroll.visibility = if (visible) View.VISIBLE else View.GONE
-        h.presetDivider.visibility = if (visible) View.VISIBLE else View.GONE
         if (!visible) return
 
         for (preset in presets) {
-            val tv = layoutInflater.inflate(R.layout.item_preset, h.presetRow, false)
+            val tv = layoutInflater.inflate(R.layout.item_rec_chip, h.presetRow, false)
                 as android.widget.TextView
             tv.text = preset.name
             tv.setOnClickListener { vm.logPreset(preset) }
@@ -787,22 +787,13 @@ class RecordFragment : Fragment() {
             h.presetRow.addView(tv)
         }
 
-        if (recents.isNotEmpty()) {
-            if (presets.isNotEmpty()) {
-                h.presetRow.addView(
-                    layoutInflater.inflate(
-                        R.layout.item_preset_separator, h.presetRow, false,
-                    ),
-                )
-            }
-            for (event in recents) {
-                val tv = layoutInflater.inflate(R.layout.item_preset, h.presetRow, false)
-                    as android.widget.TextView
-                tv.text = RecentChips.label(requireContext(), event, lastHideWeight)
-                tv.setOnClickListener { vm.logRecent(event) }
-                tv.bindPressScale()
-                h.presetRow.addView(tv)
-            }
+        for (event in recents) {
+            val tv = layoutInflater.inflate(R.layout.item_rec_chip, h.presetRow, false)
+                as android.widget.TextView
+            tv.text = RecentChips.label(requireContext(), event, lastHideWeight)
+            tv.setOnClickListener { vm.logRecent(event) }
+            tv.bindPressScale()
+            h.presetRow.addView(tv)
         }
     }
 
@@ -816,154 +807,6 @@ class RecordFragment : Fragment() {
 }
 
 /**
- * 记录列表适配器。
- * 无卡片、无阴影、无彩色徽章 —— 靠 6px 圆点 + 1dp 分隔线组织信息。
- *
- * v6：每行包 swipewrap（item_event.xml），左滑露「编辑/删除」（11.3）；
- * 按压缩放双反馈（11.4）。手势由共享的 [SwipeController] 统一裁决
- * （全局单开 + 300ms click 屏蔽）。
- *
- * v8：由 `MainActivity.kt` 底部迁入本文件（只服务记录页）。
+ * 记录列表适配器已迁至 `RecordListAdapters.kt`（v6：分组卡逻辑与另两段轻适配器同处一文件）。
  */
-class EventAdapter(
-    private val onEdit: (EventEntity) -> Unit,
-    private val onRetry: (EventEntity) -> Unit,
-    private val onDelete: (EventEntity) -> Unit,
-    private val swipe: SwipeController,
-) : RecyclerView.Adapter<EventAdapter.VH>() {
 
-    private var items: List<EventEntity> = emptyList()
-
-    /**
-     * 隐私：隐藏热量数字（规范 §9.7 ④）。为 true 时 meal / exercise 的摘要
-     * 不再显示 kcal，改为显示用户自己填的数量文本；没有数量就整行隐藏。
-     */
-    var hideKcal: Boolean = false
-        set(value) {
-            if (field == value) return
-            field = value
-            notifyDataSetChanged()
-        }
-
-    fun submit(list: List<EventEntity>) {
-        items = list
-        notifyItemRangeChanged(0, items.size)
-        notifyDataSetChanged()
-    }
-
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
-        val b = ItemEventBinding.inflate(
-            LayoutInflater.from(parent.context), parent, false,
-        )
-        return VH(b)
-    }
-
-    override fun getItemCount(): Int = items.size
-
-    override fun onBindViewHolder(holder: VH, position: Int) = holder.bind(items[position])
-
-    inner class VH(private val b: ItemEventBinding) : RecyclerView.ViewHolder(b.root) {
-
-        fun bind(e: EventEntity) {
-            val ctx = b.root.context
-
-            // ── 复用防残留：滑开态 ViewHolder 被复用到新 item 时，swipeWrap
-            //    可能带着上一次的 -144dp 平移。bind 前先取消残留动画、归位平移，
-            //    并解除 SwipeController 对这个视图的滑开跟踪。──
-            b.swipeItem.animate().cancel()
-            b.swipeItem.translationX = 0f
-            swipe.release(b.swipeItem)
-
-            // ── v6 左滑：拖拽跟随 + 按压缩放，同一个触摸监听承载两种反馈 ──
-            b.swipeItem.setOnTouchListener { v, ev ->
-                when (ev.actionMasked) {
-                    MotionEvent.ACTION_DOWN ->
-                        v.animate().scaleX(PRESS_SCALE).scaleY(PRESS_SCALE).setDuration(120).start()
-                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL ->
-                        v.animate().scaleX(1f).scaleY(1f).setDuration(120).start()
-                }
-                swipe.onTouch(v, ev)
-                false // 不消费：点击 / 长按照旧
-            }
-            b.actEdit.setOnClickListener {
-                if (!swipe.clickAllowed()) return@setOnClickListener
-                swipe.closeAll()
-                onEdit(e)
-            }
-            b.actDelete.setOnClickListener {
-                if (!swipe.clickAllowed()) return@setOnClickListener
-                swipe.closeAll()
-                onDelete(e)
-            }
-
-            // 类型 + 时间（第一行，13sp text_2）
-            b.typeLabel.text = EventText.typeName(ctx, e.type)
-            b.timeLabel.text = HealixDate.timeLabel(e.ts)
-
-            // 6px 圆点按类型着色
-            b.dot.background.setTint(EventText.typeColor(ctx, e.type))
-
-            // 正文：raw_text（15sp text_1，最多 2 行）
-            b.bodyText.text = e.rawText
-
-            // 摘要：按类型口径，无信息则隐藏（不留空行）
-            val summary = EventText.summary(ctx, e, hideKcal)
-            b.summaryText.text = summary
-            b.summaryText.visibility = if (summary.isNullOrEmpty()) View.GONE else View.VISIBLE
-
-            // 三态：pending 显示"识别中"，failed 显示「未识别 · 点此补充」
-            when (e.parseStatus) {
-                PARSE_PENDING -> {
-                    // 「识别中」13sp text_3、**不可点**、整行仍可点进编辑（规范 §3.3）
-                    b.pendingText.visibility = View.VISIBLE
-                    b.errorText.visibility = View.GONE
-                }
-                PARSE_FAILED -> {
-                    b.pendingText.visibility = View.GONE
-                    b.errorText.visibility = View.VISIBLE
-
-                    // ⚠️ 失败 ≠ 错误（PRD §15.5 / 规范 §3.10）：
-                    //   原文已落库、day_key 已算对 → "这条还没算完"，不是数据丢了。
-                    //   negative **只留给"数据真的可能丢"**：DB 写入 / 更新失败。
-                    val dataLoss = e.lastError?.let {
-                        it.startsWith("db_insert_failed") || it.startsWith("db_update_failed")
-                    } == true
-
-                    if (dataLoss) {
-                        b.errorText.setText(R.string.state_save_failed)
-                        b.errorText.setTextColor(ContextCompat.getColor(ctx, R.color.negative))
-                        b.errorText.setOnClickListener { onRetry(e) }
-                    } else {
-                        b.errorText.setText(R.string.state_unrecognized)
-                        b.errorText.setTextColor(ContextCompat.getColor(ctx, R.color.text_2))
-                        // 「补充」= 进编辑弹窗，交给整行的 onEdit 处理
-                        b.errorText.setOnClickListener(null)
-                        b.errorText.isClickable = false
-                    }
-                }
-                else -> {
-                    b.pendingText.visibility = View.GONE
-                    b.errorText.visibility = View.GONE
-                }
-            }
-
-            // 整行可点 → 编辑（复用 ConfirmSheet）。刚拖完的 300ms 内不触发（V4）。
-            b.swipeItem.setOnClickListener {
-                if (!swipe.clickAllowed()) return@setOnClickListener
-                onEdit(e)
-            }
-
-            // 最后一行不画分隔线
-            b.divider.visibility =
-                if (bindingAdapterPosition == items.size - 1) View.GONE else View.VISIBLE
-        }
-    }
-
-    private companion object {
-        const val PARSE_PENDING = "pending"
-        const val PARSE_FAILED = "failed"
-
-        /** 按压缩放幅度（规范 11.4，原型 scale .985）。 */
-        const val PRESS_SCALE = 0.985f
-    }
-}

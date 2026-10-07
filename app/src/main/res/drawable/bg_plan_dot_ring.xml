@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    v6 计划页时间轴圆点（原型 .tl-item::before 的 box-shadow 等价物）：
+    外层 14dp 的 bg 实底圆环（3dp 描边圈，把竖轴「钉」在圆点后面），
+    内层 8dp primary 实心圆点。
+    用法：View 尺寸恒为 14dp × 14dp，本 drawable 直接作 background。
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="oval">
+            <solid android:color="@color/bg" />
+        </shape>
+    </item>
+    <item
+        android:bottom="3dp"
+        android:left="3dp"
+        android:right="3dp"
+        android:top="3dp">
+        <shape android:shape="oval">
+            <solid android:color="@color/primary" />
+        </shape>
+    </item>
+</layer-list>

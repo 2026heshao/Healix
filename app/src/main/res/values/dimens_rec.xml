@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    记录页（B 层）专属尺寸。契约 §3 已覆盖的尺寸一律直接复用，不在此重复登记。
+    只在确实缺一个契约未提供的版式值时才新增，键名带 rec_ 前缀。
+    ⚠️ 本文件只在 values/ 定义（不在 values-night 对等清单内），无需夜间副本。
+-->
+<resources>
+    <!-- 记录列表分组卡之间的纵向间距（同一张卡内相邻行为 0） -->
+    <dimen name="rec_card_gap">12dp</dimen>
+</resources>

@@ -1,49 +1,136 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    全局底部导航 3 Tab（设计规范 11.1）：
+    全局底部导航 3 Tab（设计规范 11.1 v6）：
     记录 ｜ 助理 ｜ 我的，64dp，绝对定位盖底（include 宿主负责 layout_gravity=bottom）。
-    tabbar 不属于任何屏：只在 Tab 页可见，进二级页由 TabBar 隐藏。
-    顶部 1dp 线复用 bg_input_bar 的描边规格（surface 底 + line 上边线）。
-    选中态 text_1 / 未选中 text_2，13sp —— 与原型 .tabbar 一致。
+    tabbar 不属于任何屏：只在 Tab 页可见，进二级页由 pageContainer 覆盖。
+
+    v6 形态：底改 surface_container（不再复用 bg_input_bar 的顶线），
+    三段为「图标（20dp 线性 1.6dp 描边）+ 文字（Text.Label 11sp/500）」的纵向结构，
+    选中态 = primary_container 药丸指示器（56×30dp，圆角 15dp）+ on_primary_container
+    文字；未选中 = 透明占位 + text_2。三段 id 保持 tabRecord / tabAssistant / tabMine
+    （TabBar.kt 按 id 查找），药丸 / 图标 / 文字另有子 id 供高亮切换。
+
+    ⚠️ 图标着色由代码 setColorFilter 切换（tint 色随选中态变，不放 color/ selector），
+    故 ImageView 不设 android:tint，默认描边色仅作代码生效前的兜底。
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="@dimen/tabbar_height"
-    android:orientation="horizontal"
-    android:background="@drawable/bg_input_bar">
+    android:background="@color/surface_container"
+    android:orientation="horizontal">
 
-    <TextView
+    <LinearLayout
         android:id="@+id/tabRecord"
-        style="@style/Text.Button"
         android:layout_width="0dp"
         android:layout_height="match_parent"
         android:layout_weight="1"
         android:background="?attr/selectableItemBackground"
+        android:clickable="true"
+        android:contentDescription="@string/tab_home"
+        android:focusable="true"
         android:gravity="center"
-        android:text="@string/tab_home"
-        android:textColor="@color/text_1" />
+        android:orientation="vertical">
 
-    <TextView
+        <FrameLayout
+            android:id="@+id/pillRecord"
+            android:layout_width="@dimen/tab_pill_width"
+            android:layout_height="@dimen/tab_pill_height"
+            android:background="@drawable/bg_pill_off">
+
+            <ImageView
+                android:id="@+id/iconRecord"
+                android:layout_width="@dimen/tab_icon"
+                android:layout_height="@dimen/tab_icon"
+                android:layout_gravity="center"
+                android:importantForAccessibility="no"
+                android:src="@drawable/ic_tab_record" />
+        </FrameLayout>
+
+        <TextView
+            android:id="@+id/labelRecord"
+            style="@style/Text.Label"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/tab_label_gap"
+            android:importantForAccessibility="no"
+            android:text="@string/tab_home"
+            android:textColor="@color/text_2" />
+    </LinearLayout>
+
+    <LinearLayout
         android:id="@+id/tabAssistant"
-        style="@style/Text.Button"
         android:layout_width="0dp"
         android:layout_height="match_parent"
         android:layout_weight="1"
         android:background="?attr/selectableItemBackground"
+        android:clickable="true"
+        android:contentDescription="@string/assistant"
+        android:focusable="true"
         android:gravity="center"
-        android:text="@string/assistant"
-        android:textColor="@color/text_2" />
+        android:orientation="vertical">
 
-    <TextView
+        <FrameLayout
+            android:id="@+id/pillAssistant"
+            android:layout_width="@dimen/tab_pill_width"
+            android:layout_height="@dimen/tab_pill_height"
+            android:background="@drawable/bg_pill_off">
+
+            <ImageView
+                android:id="@+id/iconAssistant"
+                android:layout_width="@dimen/tab_icon"
+                android:layout_height="@dimen/tab_icon"
+                android:layout_gravity="center"
+                android:importantForAccessibility="no"
+                android:src="@drawable/ic_tab_assistant" />
+        </FrameLayout>
+
+        <TextView
+            android:id="@+id/labelAssistant"
+            style="@style/Text.Label"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/tab_label_gap"
+            android:importantForAccessibility="no"
+            android:text="@string/assistant"
+            android:textColor="@color/text_2" />
+    </LinearLayout>
+
+    <LinearLayout
         android:id="@+id/tabMine"
-        style="@style/Text.Button"
         android:layout_width="0dp"
         android:layout_height="match_parent"
         android:layout_weight="1"
         android:background="?attr/selectableItemBackground"
+        android:clickable="true"
+        android:contentDescription="@string/tab_mine"
+        android:focusable="true"
         android:gravity="center"
-        android:text="@string/tab_mine"
-        android:textColor="@color/text_2" />
+        android:orientation="vertical">
+
+        <FrameLayout
+            android:id="@+id/pillMine"
+            android:layout_width="@dimen/tab_pill_width"
+            android:layout_height="@dimen/tab_pill_height"
+            android:background="@drawable/bg_pill_off">
+
+            <ImageView
+                android:id="@+id/iconMine"
+                android:layout_width="@dimen/tab_icon"
+                android:layout_height="@dimen/tab_icon"
+                android:layout_gravity="center"
+                android:importantForAccessibility="no"
+                android:src="@drawable/ic_tab_mine" />
+        </FrameLayout>
+
+        <TextView
+            android:id="@+id/labelMine"
+            style="@style/Text.Label"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/tab_label_gap"
+            android:importantForAccessibility="no"
+            android:text="@string/tab_mine"
+            android:textColor="@color/text_2" />
+    </LinearLayout>
 
 </LinearLayout>

@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 主按钮文字色（浅色）：白字配 primary 橙底。 -->
 <resources>
     <color name="btn_primary_text">#FFFFFF</color>
 </resources>

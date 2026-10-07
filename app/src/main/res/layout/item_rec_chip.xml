@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    记录页 Filter chip（预设 / 最近记录共用）。
+    v6：由原 item_preset 的灰字无底升级为 chip 形态（surface_variant 底 + radius_sm +
+    text_2；选中态 primary_container + on_primary_container，由 bg_chip / chip_text
+    selector 承载）。点选行为完全不变：一触即直写，零弹窗。
+    与助理页共用的 item_preset 保持不动（该文件还服务 AssistantFragment）。
+-->
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/chipName"
+    style="@style/Widget.Healix.Chip"
+    android:layout_width="wrap_content"
+    android:layout_height="@dimen/chip_height"
+    android:layout_marginEnd="8dp"
+    android:ellipsize="end"
+    android:maxLines="1"
+    tools:text="牛肉面" />

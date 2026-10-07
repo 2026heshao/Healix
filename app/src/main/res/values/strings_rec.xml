@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    记录页（B 层）专属文案。键名一律带 rec_ 前缀，避免与 values/strings.xml 冲突。
+    只在确实需要新文案时才在此登记；能复用既有 strings.xml 键的就不在此重复。
+-->
+<resources>
+    <!-- Hero 卡达标环中心的小字标签（环上大数字是百分比） -->
+    <string name="rec_ring_label">达标</string>
+</resources>

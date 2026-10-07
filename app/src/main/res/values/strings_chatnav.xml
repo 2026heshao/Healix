@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    助理页 + 底部导航（C 层）新增文案。
+    ⚠️ 只登记本层新增的键，前缀统一 chatnav_；不并入 values/strings.xml（F 层拥有）。
+-->
+<resources>
+    <!-- 工具反馈条状态后缀（v6 §四）：已落库的反馈条 -->
+    <string name="chatnav_tool_done">完成</string>
+    <!-- 工具反馈条状态后缀：拟稿待人工确认 -->
+    <string name="chatnav_tool_pending">待确认</string>
+</resources>

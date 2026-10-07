@@ -62,6 +62,6 @@
         android:layout_width="match_parent"
         android:layout_height="@dimen/divider"
         android:layout_marginStart="@dimen/screen_margin"
-        android:background="@color/line" />
+        android:background="@color/outline_variant" />
 
 </LinearLayout>

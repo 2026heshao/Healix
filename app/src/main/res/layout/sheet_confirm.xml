@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    ConfirmSheet（组件规范 3.5）：顶部圆角 8dp，把手 36×3dp，字段行高 52dp。
+    ConfirmSheet（组件规范 3.5）：bg_sheet v6 顶角 24dp，把手 36×4dp，字段行高 52dp，
+    卡片 elev_3 上投影。
     底部右对齐：文字按钮「重新识别」+ 主按钮「确认」。
     v6（11.5）：根容器换成 GrabberLayout —— 支持下拖关闭（超过 80dp 松手即关），
     并排除 input/button 上的按下（防表单误拖）。
@@ -14,6 +15,7 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:background="@drawable/bg_sheet"
+    android:elevation="@dimen/card_elev_3"
     android:orientation="vertical"
     android:paddingStart="@dimen/screen_margin"
     android:paddingEnd="@dimen/screen_margin"
@@ -61,7 +63,7 @@
         android:layout_width="match_parent"
         android:layout_height="@dimen/divider"
         android:layout_marginTop="14dp"
-        android:background="@color/line" />
+        android:background="@color/outline_variant" />
 
     <!-- 字段行容器：由代码按类型动态填充 -->
     <LinearLayout

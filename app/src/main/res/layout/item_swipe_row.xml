@@ -4,7 +4,7 @@
 
     结构复用 `item_event.xml` 的 swipewrap：
       · 外层 FrameLayout(swipeWrap)：滑动层（swipeItem）盖在常驻操作层（swipeActs）上；
-      · 下层常驻「删除」按钮（negative 底，72dp）；
+      · 下层常驻「删除」按钮（error 底圆角块 bg_delete_block，72dp）；
       · 内容层 = `row_setting_value`（56dp 设置行），背景 surface 保证盖住删除位。
 
     与记录列表项的差异：设置行**只有「删除」一个动作**（编辑走整行点击），
@@ -17,7 +17,7 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content">
 
-    <!-- 下层常驻操作按钮：删除（negative 底） -->
+    <!-- 下层常驻操作按钮：删除（error 底，圆角块 72dp） -->
     <LinearLayout
         android:id="@+id/swipeActs"
         android:layout_width="match_parent"
@@ -29,10 +29,10 @@
             android:id="@+id/actDelete"
             android:layout_width="@dimen/swipe_act_width"
             android:layout_height="match_parent"
-            android:background="@color/negative"
+            android:background="@drawable/bg_delete_block"
             android:gravity="center"
             android:text="@string/delete"
-            android:textColor="@color/btn_primary_text" />
+            android:textColor="@color/on_error" />
     </LinearLayout>
 
     <!-- 内容层：row_setting_value（其根 style 自带 ripple），背景 surface 盖住下层 -->

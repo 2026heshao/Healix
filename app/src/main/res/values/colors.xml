@@ -1,28 +1,57 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    Healix 设计令牌（浅色）。
-    规范来源：docs/Healix设计规范系统.md 第二章。
-    硬约束：全局只有 1 个强调色（accent）；positive / negative 只用于文字与 6px 圆点。
+    Healix 设计令牌（浅色）· v6。
+    规范来源：docs/v8/UI系统化升级方案-v6-2026-10-07.md + build/_v6_contract.md。
+    硬约束：主色 primary 专注操作；语义色 success / warning / error 只用于
+    语义容器与文字；圆角 8 / 16 / 24 三档。
+    ⚠️ 本文件键集合必须与 values-night/colors.xml 逐字相等（对等检查器逐键比对）。
 -->
 <resources>
 
-    <!-- 中性色（暖调，不用冷灰） -->
-    <color name="bg">#FAFAF9</color>
+    <!-- ═══ 主色系（primary）═══ -->
+    <color name="primary">#B85028</color>
+    <color name="on_primary">#FFFFFF</color>
+    <color name="primary_container">#F7E6DC</color>
+    <color name="on_primary_container">#7A2F12</color>
+    <color name="primary_press">#A3451F</color>
+
+    <!-- ═══ 次色系（secondary）═══ -->
+    <color name="secondary">#3D5A6C</color>
+    <color name="on_secondary">#FFFFFF</color>
+    <color name="secondary_container">#E2EAEE</color>
+    <color name="on_secondary_container">#2A4250</color>
+    <color name="tertiary">#6B5B7B</color>
+
+    <!-- ═══ 语义色 · 成功 ═══ -->
+    <color name="success">#4A7C59</color>
+    <color name="on_success">#FFFFFF</color>
+    <color name="success_container">#E4EEE6</color>
+    <color name="on_success_container">#2C4A34</color>
+
+    <!-- ═══ 语义色 · 预警 ═══ -->
+    <color name="warning">#B07818</color>
+    <color name="warning_container">#F6ECD8</color>
+    <color name="on_warning_container">#7A5410</color>
+
+    <!-- ═══ 语义色 · 错误 ═══ -->
+    <color name="error">#A63D40</color>
+    <color name="on_error">#FFFFFF</color>
+    <color name="error_container">#F5E2E2</color>
+    <color name="on_error_container">#6E2729</color>
+
+    <!-- ═══ 中性色（暖调，不用冷灰）═══ -->
+    <color name="bg">#F4F2EF</color>
     <color name="surface">#FFFFFF</color>
+    <color name="surface_variant">#FAF9F7</color>
+    <color name="surface_container">#EFEDE9</color>
     <color name="text_1">#1A1918</color>
     <color name="text_2">#6E6B66</color>
     <color name="text_3">#9C9891</color>
-    <color name="line">#EAE8E4</color>
-    <color name="line_strong">#DAD7D2</color>
+    <color name="outline">#DDD9D4</color>
+    <color name="outline_variant">#EAE8E4</color>
     <color name="press">#F2F1EE</color>
 
-    <!-- 强调与语义色 -->
-    <color name="accent">#B85028</color>
-    <color name="accent_press">#A3451F</color>
-    <color name="positive">#4A7C59</color>
-    <color name="negative">#A63D40</color>
-
-    <!-- 事件类型标识：6px 低饱和圆点，不做彩色徽章 -->
+    <!-- ═══ 事件类型标识：6px 低饱和圆点（v5 六色，值不改）═══ -->
     <color name="type_meal">#B85028</color>
     <color name="type_exercise">#3D5A6C</color>
     <color name="type_body">#6B5B7B</color>
@@ -30,13 +59,24 @@
     <color name="type_illness">#A63D40</color>
     <color name="type_other">#9C9891</color>
 
-    <!-- 主按钮禁用态 -->
+    <!-- ═══ 其它 ═══ -->
     <color name="btn_disabled_bg">#DAD7D2</color>
     <color name="scrim">#52000000</color>
 
-    <!-- 用户气泡文字：与 bg_bubble_user（text_1 实底）构成固定对比对。
-         浅色 = 深底(#1A1918)配白字；深色 = 浅底(#F2F0ED)配深字。
-         不能复用 btn_primary_text（两种模式都是白字），否则深色模式白字配浅底不可读。 -->
-    <color name="bubble_user_text">#FFFFFF</color>
+    <!-- 进度条轨道色（Hero 卡 8dp 进度条底）：浅色 = text_1 的 10% 透明 -->
+    <color name="progress_track">#1A1A1918</color>
+
+    <!-- 用户气泡文字 = on_primary_container（气泡底为 primary_container 实底） -->
+    <color name="bubble_user_text">@color/on_primary_container</color>
+
+    <!-- ═══ 兼容别名（deprecated）═══
+         全仓 ~55 个文件仍引用旧名，别名让 P0 落地当天零爆红，后续逐步迁移。
+         两侧（values / values-night）都必须写，值用 @color/新名 引用。 -->
+    <color name="accent">@color/primary</color>
+    <color name="accent_press">@color/primary_press</color>
+    <color name="positive">@color/success</color>
+    <color name="negative">@color/error</color>
+    <color name="line">@color/outline_variant</color>
+    <color name="line_strong">@color/outline</color>
 
 </resources>

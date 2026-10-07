@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v6 进度条轨道：8dp 圆角，色 = @color/progress_track（浅 #1A1A1918 / 深 #24FFFFFF）。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <solid android:color="@color/progress_track" />
+    <corners android:radius="@dimen/radius_sm" />
+</shape>

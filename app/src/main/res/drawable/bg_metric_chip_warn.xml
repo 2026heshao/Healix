@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v6 指标 chip（预警态）：warning_container 实底 + 8dp 圆角。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <solid android:color="@color/warning_container" />
+    <corners android:radius="@dimen/radius_sm" />
+</shape>

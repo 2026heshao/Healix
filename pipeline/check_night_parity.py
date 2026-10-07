@@ -76,8 +76,13 @@ warnings: list[str] = []
 WHITELIST_DAY_ONLY: set[tuple[str, str, str]] = {
     ("themes.xml", "style", "Theme.Healix.Splash"),
     ("themes.xml", "style", "Widget.Healix.Button"),
+    ("themes.xml", "style", "Widget.Healix.ButtonTonal"),
     ("themes.xml", "style", "Widget.Healix.TextButton"),
     ("themes.xml", "style", "Widget.Healix.TextButton.Danger"),
+    ("themes.xml", "style", "Widget.Healix.Card"),
+    ("themes.xml", "style", "Widget.Healix.Chip"),
+    ("themes.xml", "style", "Widget.Healix.MetricChip"),
+    ("themes.xml", "style", "Widget.Healix.SectionTitle"),
     ("themes.xml", "style", "Widget.Healix.QuickInput"),
     ("themes.xml", "style", "Widget.Healix.BlockInput"),
     ("themes.xml", "style", "Widget.Healix.ListRow"),

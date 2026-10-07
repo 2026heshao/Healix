@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v6 分组卡片：单独一项（四角 16dp）。与 bg_card 同形。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <solid android:color="@color/surface" />
+    <corners android:radius="@dimen/radius_md" />
+</shape>

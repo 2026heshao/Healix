@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    工具反馈条的左侧竖线（v6 §四 对话消息）：2dp 宽、primary 实底，
+    左侧上下角跟随 bg_toolline 的 8dp 圆角（宽仅 2dp，实际取近似）。
+    宽度由布局参数给定，此处只负责色与左角形状。
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/primary" />
+    <corners
+        android:bottomLeftRadius="8dp"
+        android:topLeftRadius="8dp" />
+</shape>

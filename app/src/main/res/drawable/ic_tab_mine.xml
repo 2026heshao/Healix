@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    底部导航 · 我的（人像）。线性图标，20×20 视口、1.6dp 描边（v6 §四 图标体系）。
+    描边色仅作代码 tint 生效前的兜底，运行时由 TabBar 的 setColorFilter 切换选中态色。
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="20dp"
+    android:height="20dp"
+    android:viewportWidth="20"
+    android:viewportHeight="20">
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M7,7 a3,3 0 1,0 6,0 a3,3 0 1,0 -6,0"
+        android:strokeColor="@color/text_2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:strokeWidth="1.6" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M4,17 c0.8,-3 3,-4.5 6,-4.5 s5.2,1.5 6,4.5"
+        android:strokeColor="@color/text_2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:strokeWidth="1.6" />
+</vector>

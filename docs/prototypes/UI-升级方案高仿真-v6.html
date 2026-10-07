@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Healix UI 系统化升级 v6 · 高仿真画板</title>
+<style>
+/* ============================================================
+   Healix Design Tokens v6 —— 大幅升级版
+   依据：docs/v8/UI系统化升级方案-v6-2026-10-07.md
+   主色专注操作 / 语义色表达情绪 / 卡片三级阴影 / 圆角 8-16-24
+   ============================================================ */
+:root{
+  --primary:#B85028; --on_primary:#FFFFFF;
+  --primary_container:#F7E6DC; --on_primary_container:#7A2F12;
+  --secondary:#3D5A6C; --secondary_container:#E2EAEE;
+  --tertiary:#6B5B7B;
+  --success:#4A7C59; --success_container:#E4EEE6;
+  --warning:#B07818; --warning_container:#F6ECD8;
+  --error:#A63D40;  --error_container:#F5E2E2;
+  --bg:#F4F2EF; --surface:#FFFFFF; --surface_variant:#FAF9F7; --surface_container:#EFEDE9;
+  --text_1:#1A1918; --text_2:#6E6B66; --text_3:#9C9891;
+  --outline:#DDD9D4; --outline_variant:#EAE8E4; --press:#F2F1EE;
+  --dot_meal:#B85028; --dot_exercise:#3D5A6C; --dot_body:#6B5B7B;
+  --dot_sleep:#4A5568; --dot_illness:#A63D40; --dot_other:#9C9891;
+  --r_sm:8px; --r_md:16px; --r_lg:24px;
+  --elev_1:0 1px 2px rgba(26,25,24,.04), 0 4px 16px rgba(26,25,24,.06);
+  --elev_2:0 2px 6px rgba(26,25,24,.06), 0 12px 32px rgba(26,25,24,.10);
+  --elev_3:0 -8px 32px rgba(26,25,24,.12);
+  --dur_fast:150ms; --dur_normal:240ms; --dur_slow:400ms;
+  --ease:cubic-bezier(.2,0,0,1); --spring:cubic-bezier(.34,1.56,.64,1);
+  --shell_bg:#E8E5E0; --shell_line:#D6D2CC; --panel_text:#1A1918;
+}
+[data-theme="dark"]{
+  --primary:#D4703F; --on_primary:#131211;
+  --primary_container:#4A2413; --on_primary_container:#F7D9C9;
+  --secondary:#7FA3B8; --secondary_container:#24343E;
+  --tertiary:#9B8BAB;
+  --success:#6E9E7C; --success_container:#1F3526;
+  --warning:#D9A344; --warning_container:#3A2E14;
+  --error:#C4565A;  --error_container:#3B1F20;
+  --bg:#121110; --surface:#1C1B1A; --surface_variant:#242220; --surface_container:#2A2826;
+  --text_1:#F2F0ED; --text_2:#A09C95; --text_3:#6E6A64;
+  --outline:#3A3735; --outline_variant:#2E2C2A; --press:#252321;
+  --dot_meal:#D4703F; --dot_exercise:#5C7C8F; --dot_body:#8B7C9A;
+  --dot_sleep:#6C7683; --dot_illness:#C4565A; --dot_other:#6E6A64;
+  --elev_1:0 1px 2px rgba(0,0,0,.20), 0 4px 16px rgba(0,0,0,.24);
+  --elev_2:0 2px 6px rgba(0,0,0,.24), 0 12px 32px rgba(0,0,0,.32);
+  --elev_3:0 -8px 32px rgba(0,0,0,.40);
+  --shell_bg:#0A0A09; --shell_line:#2A2826;
+}
+
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{
+  font-family:-apple-system,"PingFang SC","HarmonyOS Sans SC","Noto Sans CJK SC","Microsoft YaHei",sans-serif;
+  background:var(--shell_bg); color:var(--panel_text);
+  display:flex; gap:40px; justify-content:center; align-items:flex-start;
+  padding:32px; min-height:100vh; font-size:14px; line-height:1.6;
+}
+
+/* ---------- 原型外壳（非产品 UI） ---------- */
+.panel{width:236px;flex-shrink:0;position:sticky;top:32px}
+.panel h1{font-size:17px;font-weight:600;letter-spacing:-0.01em}
+.panel .sub{font-size:12px;color:var(--text_2);margin-top:2px}
+.panel .sec{font-size:12px;color:var(--text_2);margin:24px 0 8px;letter-spacing:.04em}
+.navlist{list-style:none}
+.navlist li{
+  padding:9px 12px;border-radius:var(--r_sm);cursor:pointer;font-size:14px;
+  color:var(--text_2);transition:background var(--dur_fast) var(--ease);
+  display:flex;justify-content:space-between;align-items:center;
+}
+.navlist li:hover{background:var(--press)}
+.navlist li.on{background:var(--primary);color:var(--on_primary);font-weight:500}
+[data-theme="dark"] .navlist li.on{color:#131211}
+.navlist li .tag{font-size:11px;opacity:.7}
+.toggle{
+  display:flex;align-items:center;gap:8px;padding:8px 12px;cursor:pointer;
+  font-size:13px;color:var(--text_2);border:1px solid var(--outline);
+  border-radius:var(--r_sm);margin-bottom:8px;
+}
+.toggle input{accent-color:var(--primary)}
+.hint{font-size:12px;color:var(--text_2);line-height:1.7;margin-top:16px;
+  border-top:1px solid var(--outline_variant);padding-top:12px}
+
+/* ---------- 画板说明（在手机框外、画板下方） ---------- */
+.caption-note{
+  width:390px;flex-shrink:0;margin-top:12px;font-size:12px;color:var(--text_2);
+  line-height:1.8;padding:12px 16px;border:1px dashed var(--outline);
+  border-radius:var(--r_sm);background:var(--surface_variant);
+}
+.caption-note b{color:var(--text_1);font-weight:600}
+[data-theme="dark"] .caption-note{background:var(--surface)}
+
+/* ---------- 设备外壳 ---------- */
+.device{
+  width:390px;height:844px;flex-shrink:0;background:var(--bg);
+  border:1px solid var(--shell_line);border-radius:44px;overflow:hidden;
+  display:flex;flex-direction:column;position:relative;
+}
+.colwrap{display:flex;flex-direction:column}
+.statusbar{
+  height:44px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;
+  padding:0 24px;font-size:13px;color:var(--text_1);font-weight:600;
+}
+.statusbar .dots{display:flex;gap:4px;align-items:flex-end;height:10px}
+.statusbar .dots i{width:3px;background:var(--text_1);border-radius:1px;display:block}
+.statusbar .dots i:nth-child(1){height:4px}
+.statusbar .dots i:nth-child(2){height:6px}
+.statusbar .dots i:nth-child(3){height:8px}
+.statusbar .dots i:nth-child(4){height:10px}
+
+.screen{flex:1;display:none;flex-direction:column;min-height:0}
+.screen.on{display:flex;animation:fadein var(--dur_normal) var(--ease)}
+@keyframes fadein{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+
+/* ---------- 通用 ---------- */
+.appbar{
+  height:52px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;
+  padding:0 20px;font-size:17px;font-weight:600;color:var(--text_1);
+}
+.appbar .iconbtn{
+  width:48px;height:48px;display:flex;align-items:center;justify-content:center;
+  border:none;background:none;cursor:pointer;color:var(--text_1);margin-left:-14px;
+}
+.iconbtn svg{display:block}
+.appbar .right{font-size:13px;font-weight:400;color:var(--text_2)}
+.body{flex:1;overflow-y:auto;min-height:0}
+.body::-webkit-scrollbar{width:0}
+.p20{padding:0 20px}
+.grouptitle{font-size:12px;font-weight:500;color:var(--text_2);
+  letter-spacing:.02em;padding:20px 20px 8px}
+
+/* ---------- v6 卡片 ---------- */
+.card{
+  background:var(--surface);border-radius:var(--r_md);box-shadow:var(--elev_1);
+  margin:0 20px 12px;overflow:hidden;
+}
+.card.plain{box-shadow:none;border:1px solid var(--outline_variant)}
+.card-pad{padding:16px}
+.card:active{box-shadow:var(--elev_2)}
+
+/* ---------- v6 按钮 ---------- */
+.btn-primary{
+  height:52px;border-radius:var(--r_md);background:var(--primary);color:var(--on_primary);
+  border:none;font-size:15px;font-weight:600;cursor:pointer;font-family:inherit;
+  padding:0 24px;transition:filter var(--dur_fast) var(--ease),transform var(--dur_fast) var(--ease);
+  width:100%;
+}
+.btn-primary:active{filter:brightness(.94);transform:scale(.985)}
+[data-theme="dark"] .btn-primary{color:#131211}
+.btn-tonal{
+  height:48px;border-radius:var(--r_md);background:var(--secondary_container);color:var(--secondary);
+  border:none;font-size:15px;font-weight:600;cursor:pointer;font-family:inherit;width:100%;
+  transition:filter var(--dur_fast) var(--ease);
+}
+.btn-tonal:active{filter:brightness(.96)}
+[data-theme="dark"] .btn-tonal{color:#A9C4D3}
+.btn-text{
+  border:none;background:none;color:var(--primary);font-size:13px;font-weight:600;
+  cursor:pointer;font-family:inherit;padding:12px;min-height:48px;
+}
+
+/* ---------- chips ---------- */
+.chiprow{display:flex;gap:8px;overflow-x:auto;padding:10px 20px;flex-shrink:0}
+.chiprow::-webkit-scrollbar{height:0}
+.chip{
+  font-size:13px;color:var(--text_2);white-space:nowrap;cursor:pointer;
+  padding:9px 14px;min-height:36px;display:flex;align-items:center;
+  background:var(--surface_variant);border-radius:var(--r_sm);border:1px solid transparent;
+  transition:background var(--dur_fast) var(--ease),color var(--dur_fast) var(--ease);
+}
+.chip.on{background:var(--primary_container);color:var(--on_primary_container);font-weight:500}
+[data-theme="dark"] .chip.on{color:#F7D9C9}
+.chip:active{transform:scale(.97)}
+
+/* ---------- 记录页 Hero 卡 ---------- */
+.hero{
+  margin:4px 20px 12px;border-radius:var(--r_md);padding:18px 18px 16px;
+  background:var(--primary_container);box-shadow:var(--elev_1);
+  display:flex;align-items:center;gap:16px;
+}
+[data-theme="dark"] .hero{box-shadow:none;border:1px solid var(--outline_variant)}
+.hero .col{flex:1;min-width:0}
+.hero .label{font-size:12px;font-weight:500;color:var(--on_primary_container);opacity:.85;letter-spacing:.02em}
+.hero .num{font-size:40px;font-weight:600;color:var(--on_primary_container);
+  letter-spacing:-0.02em;line-height:1.15;margin:2px 0 10px}
+.hero .num span{font-size:14px;font-weight:400;letter-spacing:0;margin-left:4px;opacity:.75}
+.hero .bar{height:8px;border-radius:4px;background:rgba(26,25,24,.10);overflow:hidden}
+[data-theme="dark"] .hero .bar{background:rgba(255,255,255,.14)}
+.hero .bar i{display:block;height:100%;width:78%;border-radius:4px;background:var(--primary);
+  transition:width var(--dur_slow) var(--ease)}
+.hero .sub{font-size:12px;color:var(--on_primary_container);opacity:.8;margin-top:8px}
+.ring{width:76px;height:76px;flex-shrink:0;position:relative}
+.ring svg{transform:rotate(-90deg)}
+.ring .txt{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  font-size:15px;font-weight:600;color:var(--on_primary_container);line-height:1.1}
+.ring .txt small{font-size:10px;font-weight:500;opacity:.7}
+
+/* ---------- 多维指标行（两态互斥，恒 48dp） ---------- */
+.metrics{display:flex;gap:8px;padding:0 20px 12px;flex-shrink:0}
+.metric{
+  flex:1;display:flex;align-items:center;gap:6px;height:48px;padding:0 10px;
+  background:var(--surface);border-radius:var(--r_sm);box-shadow:var(--elev_1);cursor:pointer;
+}
+[data-theme="dark"] .metric{box-shadow:none;border:1px solid var(--outline_variant)}
+.metric:active{background:var(--press)}
+.metric .mv{font-size:12px;font-weight:600;color:var(--text_1);line-height:1.2;white-space:nowrap}
+.metric .mk{font-size:10px;color:var(--text_3);line-height:1.2;white-space:nowrap}
+.metric svg{flex-shrink:0}
+.metric.warn{background:var(--warning_container)}
+.metric.warn .mv,.metric.warn .mk{color:var(--warning)}
+
+/* ---------- 记录列表项 ---------- */
+.item{padding:13px 16px;display:flex;gap:10px;cursor:pointer;
+  transition:background var(--dur_fast) var(--ease)}
+.item:active{background:var(--press)}
+.item + .item{border-top:1px solid var(--outline_variant)}
+.item .dot{width:6px;height:6px;border-radius:3px;margin-top:8px;flex-shrink:0}
+.item .bodycol{flex:1;min-width:0}
+.item .meta{font-size:13px;color:var(--text_2);display:flex;justify-content:space-between;gap:8px}
+.item .main{font-size:15px;color:var(--text_1);margin-top:2px;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.item .sum{font-size:13px;color:var(--text_2);margin-top:2px}
+.item .pending{font-size:13px;color:var(--text_3);margin-top:2px}
+.item .pending.retry{color:var(--text_2);text-decoration:underline;
+  text-underline-offset:3px;text-decoration-thickness:1px}
+
+/* ---------- 底部：输入条 + Tab 导航 ---------- */
+.inputbar{
+  flex-shrink:0;padding:10px 12px 10px 20px;background:transparent;
+}
+.inputbar .field{
+  height:48px;background:var(--surface);border-radius:var(--r_md);box-shadow:var(--elev_1);
+  display:flex;align-items:center;padding:0 6px 0 16px;gap:8px;
+}
+[data-theme="dark"] .inputbar .field{border:1px solid var(--outline_variant)}
+.inputbar input{
+  flex:1;border:none;outline:none;background:none;font-size:15px;font-family:inherit;
+  color:var(--text_1);caret-color:var(--primary);min-width:0;
+}
+.inputbar input::placeholder{color:var(--text_2)}
+.sendbtn{
+  width:36px;height:36px;border:none;border-radius:12px;background:var(--primary);
+  color:var(--on_primary);cursor:pointer;display:flex;align-items:center;justify-content:center;
+  flex-shrink:0;transition:filter var(--dur_fast) var(--ease);
+}
+.sendbtn:active{filter:brightness(.92)}
+[data-theme="dark"] .sendbtn{color:#131211}
+
+.tabbar{
+  height:64px;flex-shrink:0;background:var(--surface_container);
+  display:flex;align-items:stretch;padding:0 8px;
+}
+[data-theme="dark"] .tabbar{border-top:1px solid var(--outline_variant)}
+.tab{
+  flex:1;border:none;background:none;cursor:pointer;font-family:inherit;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+  color:var(--text_2);font-size:11px;font-weight:500;
+}
+.tab .pill{
+  width:56px;height:30px;border-radius:15px;display:flex;align-items:center;justify-content:center;
+  transition:background var(--dur_fast) var(--ease);
+}
+.tab.on{color:var(--on_primary_container)}
+[data-theme="dark"] .tab.on{color:#F7D9C9}
+.tab.on .pill{background:var(--primary_container)}
+
+/* ---------- 设置行 ---------- */
+.row{
+  min-height:56px;display:flex;align-items:center;justify-content:space-between;
+  padding:0 16px;font-size:15px;color:var(--text_1);cursor:pointer;
+  transition:background var(--dur_fast) var(--ease);
+}
+.row:active{background:var(--press)}
+.row .val{font-size:15px;color:var(--text_2);display:flex;align-items:center;gap:6px}
+.row .val svg{color:var(--text_3)}
+
+/* ---------- 助理页（v6 气泡） ---------- */
+.chat{padding:12px 20px 8px;display:flex;flex-direction:column;gap:12px}
+.msg{max-width:82%;padding:12px 14px;font-size:15px;line-height:1.6;color:var(--text_1);
+  box-shadow:var(--elev_1);animation:fadein var(--dur_slow) var(--ease)}
+[data-theme="dark"] .msg{box-shadow:none;border:1px solid var(--outline_variant)}
+.msg.ai{align-self:flex-start;background:var(--surface);border-radius:4px 16px 16px 16px}
+.msg.me{align-self:flex-end;background:var(--primary_container);color:var(--on_primary_container);
+  border-radius:16px 4px 16px 16px}
+[data-theme="dark"] .msg.me{color:#F7D9C9}
+.toolline{
+  align-self:flex-start;display:flex;gap:10px;padding:10px 14px;max-width:82%;
+  background:var(--surface_variant);border-radius:var(--r_sm);
+  border-left:2px solid var(--primary);font-size:13px;color:var(--text_2);
+}
+.toolline .st{color:var(--text_3)}
+.stamp{align-self:flex-end;font-size:12px;color:var(--text_3);margin-top:-6px}
+.disclaim{font-size:12px;color:var(--text_3);text-align:center;padding:4px 20px 8px;flex-shrink:0}
+
+/* ---------- 我的页 ---------- */
+.profile{margin:4px 20px 12px;border-radius:var(--r_md);padding:18px;
+  background:var(--surface);box-shadow:var(--elev_1);display:flex;align-items:center;gap:14px}
+.avatar{width:56px;height:56px;border-radius:28px;background:var(--primary_container);
+  color:var(--on_primary_container);display:flex;align-items:center;justify-content:center;
+  font-size:20px;font-weight:600;flex-shrink:0}
+[data-theme="dark"] .avatar{color:#F7D9C9}
+.profile .name{font-size:17px;font-weight:600;color:var(--text_1)}
+.profile .meta{font-size:12px;color:var(--text_2);margin-top:2px}
+.streak{margin-left:auto;text-align:center;padding:8px 12px;border-radius:var(--r_sm);
+  background:var(--success_container);color:var(--success)}
+.streak b{display:block;font-size:20px;font-weight:700;line-height:1.1}
+.streak span{font-size:10px;font-weight:500}
+.goalgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:0 20px 12px}
+.gcard{background:var(--surface);border-radius:var(--r_md);box-shadow:var(--elev_1);padding:14px}
+[data-theme="dark"] .gcard{border:1px solid var(--outline_variant)}
+.gcard .gt{font-size:12px;color:var(--text_2);display:flex;justify-content:space-between;align-items:center}
+.gcard .gv{font-size:20px;font-weight:600;color:var(--text_1);margin:4px 0 8px}
+.gcard .gv span{font-size:12px;font-weight:400;color:var(--text_2)}
+.gbar{height:6px;border-radius:3px;background:var(--surface_container);overflow:hidden}
+.gbar i{display:block;height:100%;border-radius:3px}
+.gbar .ok{background:var(--success)} .gbar .go{background:var(--primary)}
+.gbar .mid{background:var(--secondary)}
+
+/* ---------- 弹层（EventEditSheet v6） ---------- */
+.scrim{position:absolute;inset:0;background:rgba(0,0,0,.32);z-index:5;display:none}
+.scrim.on{display:block;animation:fadein var(--dur_normal) var(--ease)}
+.sheet{
+  position:absolute;left:0;right:0;bottom:0;z-index:6;display:none;
+  background:var(--surface);border-radius:var(--r_lg) var(--r_lg) 0 0;
+  box-shadow:var(--elev_3);padding:8px 20px 24px;
+}
+.sheet.on{display:block;animation:sheetup var(--dur_normal) var(--ease)}
+@keyframes sheetup{from{transform:translateY(60px);opacity:.6}to{transform:none;opacity:1}}
+.handle{width:36px;height:4px;border-radius:2px;background:var(--outline);margin:6px auto 14px}
+.sheet h3{font-size:17px;font-weight:600;margin-bottom:10px}
+.frow{display:flex;align-items:center;justify-content:space-between;min-height:52px;
+  border-bottom:1px solid var(--outline_variant);font-size:13px;color:var(--text_2)}
+.frow:last-of-type{border-bottom:none}
+.frow .fv{font-size:15px;color:var(--text_1)}
+.sheet .actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-top:14px}
+.sheet .actions .btn-primary{width:auto;padding:0 28px;height:48px;font-size:14px}
+.src{font-size:12px;color:var(--text_3);margin:6px 0 4px}
+
+/* ---------- 计划页时间轴 ---------- */
+.tl{margin:4px 20px 0;position:relative;padding-left:24px}
+.tl::before{content:"";position:absolute;left:7px;top:8px;bottom:8px;width:1.5px;
+  background:var(--outline_variant);border-radius:1px}
+.tl-item{position:relative;margin-bottom:10px;background:var(--surface);border-radius:var(--r_md);
+  box-shadow:var(--elev_1);padding:14px 16px;cursor:pointer}
+.tl-item:active{box-shadow:var(--elev_2)}
+.tl-item::before{content:"";position:absolute;left:-21px;top:20px;width:8px;height:8px;
+  border-radius:4px;background:var(--primary);box-shadow:0 0 0 3px var(--bg)}
+.tl-item .tt{font-size:15px;font-weight:600;color:var(--text_1);display:flex;justify-content:space-between}
+.tl-item .tt time{font-size:13px;font-weight:400;color:var(--text_2)}
+.tl-item .td{font-size:13px;color:var(--text_2);margin-top:3px;line-height:1.55}
+.tl-item .act{margin-top:8px;border-top:1px solid var(--outline_variant);padding-top:6px;
+  display:flex;justify-content:flex-end}
+.hintline{margin:12px 20px 0;font-size:13px;color:var(--text_2);
+  background:var(--secondary_container);border-radius:var(--r_sm);padding:10px 14px}
+.foot-note{font-size:12px;color:var(--text_3);text-align:center;padding:14px 20px}
+
+/* 分段 Tab */
+.segtabs{display:flex;gap:24px;padding:0 20px;border-bottom:1px solid var(--outline_variant);flex-shrink:0}
+.segtab{padding:10px 0 9px;font-size:13px;color:var(--text_2);cursor:pointer;position:relative}
+.segtab.on{color:var(--text_1);font-weight:600}
+.segtab.on::after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:2px;
+  border-radius:1px;background:var(--primary)}
+</style>
+</head>
+<body>
+
+<!-- ================= 外壳导航（非产品 UI） ================= -->
+<div class="panel">
+  <h1>Healix UI 系统化升级</h1>
+  <div class="sub">设计语言 v6 · 高仿真画板 · 2026-10-07</div>
+  <div class="sec">画板</div>
+  <ul class="navlist" id="nav">
+    <li data-s="home" class="on">记录 <span class="tag">Tab 1</span></li>
+    <li data-s="assistant">助理 <span class="tag">Tab 2</span></li>
+    <li data-s="mine">我的 <span class="tag">Tab 3</span></li>
+    <li data-s="settings">设置 <span class="tag">二级页</span></li>
+    <li data-s="plan">今日计划 <span class="tag">二级页</span></li>
+    <li data-s="sheet">编辑弹层 <span class="tag">EventEditSheet</span></li>
+  </ul>
+  <div class="sec">模式</div>
+  <label class="toggle"><input type="checkbox" id="dark">深色模式</label>
+  <div class="hint">
+    v6 变化速览：卡片容器 + 三级阴影 · 语义色四档（success / warning / error / info）·
+    Hero 数字卡 · Filter chips · 气泡对话 · 64dp 药丸 Tab 栏 · 圆角 8/16/24 三级。<br><br>
+    直写路径、识别中/未识别两态、状态行两态互斥等 v5 行为规格原样保留。
+  </div>
+</div>
+
+<div class="colwrap">
+<div class="device">
+  <div class="statusbar"><span>15:42</span><span class="dots"><i></i><i></i><i></i><i></i></span></div>
+
+  <!-- ================= 记录页 ================= -->
+  <div class="screen on" id="s-home">
+    <div class="appbar"><span>10月7日 周三</span><button class="iconbtn" title="设置">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="10" cy="10" r="2.6"/><path d="M10 2.6v2.2M10 15.2v2.2M2.6 10h2.2M15.2 10h2.2M4.7 4.7l1.6 1.6M13.7 13.7l1.6 1.6M15.3 4.7l-1.6 1.6M6.3 13.7l-1.6 1.6"/></svg>
+    </button></div>
+    <div class="body">
+      <div class="chiprow">
+        <span class="chip on">牛肉面</span><span class="chip">鸡蛋灌饼</span><span class="chip">米饭</span><span class="chip">鸡胸沙拉</span><span class="chip">酸奶</span>
+      </div>
+      <div class="hero">
+        <div class="col">
+          <div class="label">今日盈余</div>
+          <div class="num">+328<span>kcal</span></div>
+          <div class="bar"><i></i></div>
+          <div class="sub">摄入 2180 · 消耗 1860 · 目标 2500</div>
+        </div>
+        <div class="ring">
+          <svg width="76" height="76" viewBox="0 0 76 76">
+            <circle cx="38" cy="38" r="32" fill="none" stroke="rgba(26,25,24,.10)" stroke-width="6"/>
+            <circle cx="38" cy="38" r="32" fill="none" stroke="var(--primary)" stroke-width="6"
+              stroke-linecap="round" stroke-dasharray="201 201" stroke-dashoffset="44"/>
+          </svg>
+          <div class="txt">78%<small>达标</small></div>
+        </div>
+      </div>
+      <div class="metrics">
+        <div class="metric"><svg width="44" height="16" viewBox="0 0 44 16"><polyline points="1,12 9,9 17,11 25,6 33,8 43,3" fill="none" stroke="var(--secondary)" stroke-width="1.6" stroke-linecap="round"/></svg><div><div class="mv">2/3 次</div><div class="mk">运动</div></div></div>
+        <div class="metric"><svg width="44" height="16" viewBox="0 0 44 16"><polyline points="1,8 9,10 17,7 25,9 33,6 43,7" fill="none" stroke="var(--dot_sleep)" stroke-width="1.6" stroke-linecap="round"/></svg><div><div class="mv">7.2 h</div><div class="mk">睡眠</div></div></div>
+        <div class="metric warn"><div><div class="mv">连续 3 天睡眠不足</div><div class="mk">今晚提前 1 小时熄灯</div></div></div>
+      </div>
+      <div class="grouptitle">今天</div>
+      <div class="card">
+        <div class="item">
+          <span class="dot" style="background:var(--dot_meal)"></span>
+          <div class="bodycol">
+            <div class="meta"><span>饮食</span><span>12:30</span></div>
+            <div class="main">中午吃了牛肉面加鸡蛋</div>
+            <div class="sum">约 600 kcal</div>
+          </div>
+        </div>
+        <div class="item">
+          <span class="dot" style="background:var(--dot_other)"></span>
+          <div class="bodycol">
+            <div class="meta"><span>其他</span><span>14:05</span></div>
+            <div class="main">下午喝了一杯拿铁</div>
+            <div class="pending">识别中</div>
+          </div>
+        </div>
+      </div>
+      <div class="grouptitle">昨天</div>
+      <div class="card">
+        <div class="item">
+          <span class="dot" style="background:var(--dot_exercise)"></span>
+          <div class="bodycol">
+            <div class="meta"><span>运动</span><span>19:00</span></div>
+            <div class="main">晚上跑了五公里</div>
+            <div class="sum">约 300 kcal · 5 公里</div>
+          </div>
+        </div>
+        <div class="item">
+          <span class="dot" style="background:var(--dot_meal)"></span>
+          <div class="bodycol">
+            <div class="meta"><span>饮食</span><span>18:20</span></div>
+            <div class="main">晚饭吃了鸡胸沙拉</div>
+            <div class="pending retry">未识别 · 点此补充</div>
+          </div>
+        </div>
+      </div>
+      <div style="height:12px"></div>
+    </div>
+    <div class="inputbar"><div class="field">
+      <input placeholder="记一笔…">
+      <button class="sendbtn"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13L13 3M6 3h7v7"/></svg></button>
+    </div></div>
+    <div class="tabbar" id="tabbar">
+      <button class="tab on"><span class="pill"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9.5L10 3l7 6.5V17h-5v-4h-4v4H3z"/></svg></span>记录</button>
+      <button class="tab"><span class="pill"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M17 10c0 3.5-3.1 6-7 6-1 0-2-.2-2.8-.5L3 16.5l1.1-3A5.6 5.6 0 013 10c0-3.5 3.1-6 7-6s7 2.5 7 6z"/></svg></span>助理</button>
+      <button class="tab"><span class="pill"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="7" r="3"/><path d="M4 17c.8-3 3-4.5 6-4.5s5.2 1.5 6 4.5"/></svg></span>我的</button>
+    </div>
+  </div>
+
+  <!-- ================= 助理页 ================= -->
+  <div class="screen" id="s-assistant">
+    <div class="appbar"><span>助理</span><span class="right">今天</span></div>
+    <div class="body">
+      <div class="chat">
+        <div class="msg ai">已摄入 1200 / 目标 2500，还差 1300。晚饭建议吃牛肉炒饭（牛肉 150g + 米饭 200g + 鸡蛋），约 650 kcal。</div>
+        <div class="msg me">我中午吃了牛肉面</div>
+        <div class="toolline"><span>已记录 饮食 · 约 600 kcal</span><span class="st">完成</span></div>
+        <div class="msg ai">还差 700。晚饭可以吃少一点，睡前加一份蛋白粉补上。</div>
+        <div class="msg me">帮我把昨晚的睡眠补上，睡了六个半小时</div>
+        <div class="toolline"><span>已记录 睡眠 · 6.5 小时 · 昨晚</span><span class="st">待确认</span></div>
+        <div class="msg ai">好的，已按 23:30 就寝倒推。连续 3 天睡眠不足，今晚建议提前 1 小时熄灯。</div>
+        <div class="stamp">15:42</div>
+      </div>
+    </div>
+    <div class="disclaim">估算值，非医疗建议</div>
+    <div class="inputbar"><div class="field">
+      <input placeholder="问问助理…">
+      <button class="sendbtn"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13L13 3M6 3h7v7"/></svg></button>
+    </div></div>
+    <div class="tabbar">
+      <button class="tab"><span class="pill"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9.5L10 3l7 6.5V17h-5v-4h-4v4H3z"/></svg></span>记录</button>
+      <button class="tab on"><span class="pill"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M17 10c0 3.5-3.1 6-7 6-1 0-2-.2-2.8-.5L3 16.5l1.1-3A5.6 5.6 0 013 10c0-3.5 3.1-6 7-6s7 2.5 7 6z"/></svg></span>助理</button>
+      <button class="tab"><span class="pill"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="7" r="3"/><path d="M4 17c.8-3 3-4.5 6-4.5s5.2 1.5 6 4.5"/></svg></span>我的</button>
+    </div>
+  </div>
+
+  <!-- ================= 我的页 ================= -->
+  <div class="screen" id="s-mine">
+    <div class="appbar"><span>我的</span><span class="right">编辑</span></div>
+    <div class="body">
+      <div class="profile">
+        <div class="avatar">H</div>
+        <div>
+          <div class="name">Healix 用户</div>
+          <div class="meta">71.5 kg · 增重目标 62.0 kg*</div>
+        </div>
+        <div class="streak"><b>7</b><span>连续达标</span></div>
+      </div>
+      <div class="goalgrid">
+        <div class="gcard">
+          <div class="gt"><span>体重</span><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="var(--text_3)" stroke-width="1.6"><path d="M4 2l4 4-4 4"/></svg></div>
+          <div class="gv">71.5 <span>kg</span></div>
+          <div class="gbar"><i class="go" style="width:34%"></i></div>
+        </div>
+        <div class="gcard">
+          <div class="gt"><span>运动</span><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="var(--text_3)" stroke-width="1.6"><path d="M4 2l4 4-4 4"/></svg></div>
+          <div class="gv">2/3 <span>次 · 96 分钟</span></div>
+          <div class="gbar"><i class="mid" style="width:66%"></i></div>
+        </div>
+        <div class="gcard">
+          <div class="gt"><span>睡眠</span><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="var(--text_3)" stroke-width="1.6"><path d="M4 2l4 4-4 4"/></svg></div>
+          <div class="gv">6.4 <span>h 均值</span></div>
+          <div class="gbar"><i class="mid" style="width:85%"></i></div>
+        </div>
+        <div class="gcard">
+          <div class="gt"><span>饮水</span><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="var(--text_3)" stroke-width="1.6"><path d="M4 2l4 4-4 4"/></svg></div>
+          <div class="gv">1700 <span>ml 达标</span></div>
+          <div class="gbar"><i class="ok" style="width:100%"></i></div>
+        </div>
+      </div>
+      <div class="grouptitle">目标与提醒</div>
+      <div class="card">
+        <div class="row"><span>主目标</span><span class="val">增重 <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 3l4 4-4 4"/></svg></span></div>
+        <div class="row"><span>每周训练</span><span class="val">3 次 / 150 分钟 <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 3l4 4-4 4"/></svg></span></div>
+        <div class="row"><span>提醒</span><span class="val">3 项 <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 3l4 4-4 4"/></svg></span></div>
+      </div>
+      <div class="grouptitle">数据与隐私</div>
+      <div class="card">
+        <div class="row"><span>隐私开关</span><span class="val">显示 <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 3l4 4-4 4"/></svg></span></div>
+        <div class="row"><span>导出备份</span><span class="val"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 3l4 4-4 4"/></svg></span></div>
+      </div>
+      <div style="height:12px"></div>
+    </div>
+    <div class="tabbar">
+      <button class="tab"><span class="pill"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9.5L10 3l7 6.5V17h-5v-4h-4v4H3z"/></svg></span>记录</button>
+      <button class="tab"><span class="pill"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M17 10c0 3.5-3.1 6-7 6-1 0-2-.2-2.8-.5L3 16.5l1.1-3A5.6 5.6 0 013 10c0-3.5 3.1-6 7-6s7 2.5 7 6z"/></svg></span>助理</button>
+      <button class="tab on"><span class="pill"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="7" r="3"/><path d="M4 17c.8-3 3-4.5 6-4.5s5.2 1.5 6 4.5"/></svg></span>我的</button>
+    </div>
+  </div>
+
+  <!-- ================= 设置（二级页） ================= -->
+  <div class="screen" id="s-settings">
+    <div class="appbar"><button class="iconbtn"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4l-6 6 6 6"/></svg></button><span>设置</span><span style="width:34px"></span></div>
+    <div class="body">
+      <div class="grouptitle">模型服务</div>
+      <div class="card">
+        <div class="row"><span>服务商</span><span class="val">智谱 GLM <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 3l4 4-4 4"/></svg></span></div>
+        <div class="row"><span>接口地址</span><span class="val">https://… <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 3l4 4-4 4"/></svg></span></div>
+        <div class="row"><span>模型名</span><span class="val">glm-4.7-flash <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 3l4 4-4 4"/></svg></span></div>
+        <div class="row"><span>API Key</span><span class="val">•••••••• <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 3l4 4-4 4"/></svg></span></div>
+      </div>
+      <div style="margin:4px 20px 6px"><button class="btn-tonal">测试连通性</button></div>
+      <div style="margin:0 20px 8px;font-size:13px;color:var(--success)">连通 · 1.2s</div>
+      <div class="grouptitle">调用限制</div>
+      <div class="card">
+        <div class="row"><span>每日调用上限</span><span class="val">20 次</span></div>
+        <div class="row"><span>每日对话上限</span><span class="val">15 次</span></div>
+        <div class="row"><span>重试次数</span><span class="val">5 次</span></div>
+      </div>
+      <div class="grouptitle">个人</div>
+      <div class="card">
+        <div class="row"><span>当前体重</span><span class="val">71.5 kg · 3天前</span></div>
+        <div class="row"><span>日界线</span><span class="val">4:00</span></div>
+      </div>
+      <div class="grouptitle">隐私</div>
+      <div class="card">
+        <div class="row"><span>隐藏热量数字</span><span class="val">显示</span></div>
+        <div class="row"><span>隐藏体重数字</span><span class="val">已隐藏</span></div>
+      </div>
+      <div style="height:12px"></div>
+    </div>
+  </div>
+
+  <!-- ================= 今日计划（二级页） ================= -->
+  <div class="screen" id="s-plan">
+    <div class="appbar"><button class="iconbtn"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4l-6 6 6 6"/></svg></button><span>今日计划</span><span class="right">更新</span></div>
+    <div class="segtabs">
+      <span class="segtab on">计划</span><span class="segtab">训练</span><span class="segtab">回顾</span>
+    </div>
+    <div class="body">
+      <div class="hintline">今天先补足蛋白，晚上安排一次力量 · 还差 1280 kcal</div>
+      <div style="height:14px"></div>
+      <div class="tl">
+        <div class="tl-item">
+          <div class="tt"><span>晚餐：主食 + 蛋白质</span><time>18:30</time></div>
+          <div class="td">熟米饭 200g + 鸡胸 150g + 一份绿叶菜<br>约 20 分钟 · 这一顿补上一大半缺口</div>
+          <div class="act"><button class="btn-text">记一笔</button></div>
+        </div>
+        <div class="tl-item">
+          <div class="tt"><span>力量训练：上肢</span><time>20:00</time></div>
+          <div class="td">哑铃推举 + 划船，约 40 分钟<br>近 7 天仅 2 次训练，今天补上第 3 次</div>
+          <div class="act"><button class="btn-text">记一笔</button></div>
+        </div>
+        <div class="tl-item">
+          <div class="tt"><span>加餐：睡前补充</span><time>21:30</time></div>
+          <div class="td">蛋白粉 1 勺 + 香蕉 1 根<br>小份好消化，离睡眠还有 1.5 小时</div>
+        </div>
+        <div class="tl-item">
+          <div class="tt"><span>睡：放下手机</span><time>23:00</time></div>
+          <div class="td">今晚按目标就寝时间执行<br>近 3 天平均只睡 6.0 小时</div>
+        </div>
+      </div>
+      <div class="foot-note">AI 计划 · 09:30 生成 ｜ 估算值，非医疗建议</div>
+    </div>
+  </div>
+
+  <!-- ================= 编辑弹层（EventEditSheet v6） ================= -->
+  <div class="screen" id="s-sheet" style="position:relative">
+    <div class="scrim on"></div>
+    <div class="sheet on">
+      <div class="handle"></div>
+      <h3>编辑记录</h3>
+      <div class="src">来自对话</div>
+      <div class="frow"><span>类型</span><span class="fv">饮食</span></div>
+      <div class="frow"><span>内容</span><span class="fv">中午吃了牛肉面加鸡蛋</span></div>
+      <div class="frow"><span>热量</span><span class="fv">600 kcal</span></div>
+      <div class="frow"><span>时间</span><span class="fv">今天 12:30</span></div>
+      <div class="actions">
+        <button class="btn-text">重新识别</button>
+        <button class="btn-primary">保存</button>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /device -->
+
+<div class="caption-note" id="cap"></div>
+</div>
+
+<script>
+const caps = {
+  home: "<b>记录页（Tab 1）</b> — v6 变化：① 预设横条升级为 Filter chips（点选态 primary_container 衬底，点击仍为直写零弹窗）；② 热量汇总升级为 Hero 卡（primary_container 衬底 + 40sp 数字 + 8dp 进度条 + 右侧达标环）；③ 多维状态行升级为三枚指标 chip，信号态（右一）切 warning_container 衬底，两态互斥、单行 48dp 规格不变；④ 记录列表按天分组成卡片，行内「识别中 / 未识别」两态规格原样保留；⑤ 底部输入条浮卡化 + 64dp 药丸 Tab 栏。",
+  assistant: "<b>助理页（Tab 2）</b> — v6 变化：用户消息 = primary_container 气泡（右上不对称圆角 16/4），助理消息 = surface 卡片气泡；工具反馈 = 2dp primary 竖线 + surface_variant 底，状态后缀「完成 / 待确认」（待确认点开即 EventEditSheet，确认路径与首页直写保持分离）；免责声明常驻底部。",
+  mine: "<b>我的页（Tab 3）</b> — v6 新增信息架构：① 个人卡（头像 + 连续达标徽章，达标走 success_container）；② 目标四宫格卡（体重/运动/睡眠/饮水，迷你进度条按语义取色）；③ 设置入口按「目标与提醒 / 数据与隐私」分组卡片化，行高 56dp 不变。",
+  settings: "<b>设置（二级页）</b> — v6 变化：分组由通栏行升级为分组卡片；「测试连通性」升级为 Tonal 按钮（secondary_container 底，区别于主按钮的操作层级）；连通结果就地显示（success 色），规格延续 v5。API Key 保持掩码。",
+  plan: "<b>今日计划（二级页）</b> — v6 变化：单条时间轴升级为「轴 + 条目卡」（圆点钉在左侧轴上）；「记一笔」仅对 meal/exercise 条目显示（写入口径不变）；顶部提示条升级为 info 衬底（secondary_container）；「更新」按钮触发 AI 重排、打开页面只读缓存的口径不变。",
+  sheet: "<b>编辑弹层（EventEditSheet v6）</b> — v6 变化：顶角 8dp 升至 24dp（radius_lg）+ 上投影 elev_3 + 把手加粗至 4dp；「来自对话」来源标注保留；字段行规格与「重新识别 + 保存」操作结构不变。触发点仍为：点记录行编辑 / 对话 propose_log 确认。"
+};
+const nav = document.getElementById('nav');
+const cap = document.getElementById('cap');
+nav.addEventListener('click', e => {
+  const li = e.target.closest('li'); if (!li) return;
+  nav.querySelectorAll('li').forEach(x => x.classList.remove('on'));
+  li.classList.add('on');
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('on'));
+  document.getElementById('s-' + li.dataset.s).classList.add('on');
+  cap.innerHTML = caps[li.dataset.s];
+});
+cap.innerHTML = caps.home;
+
+/* Tab 栏点击即切换画板（零动画，与 v8 拍板一致） */
+const tabMap = {0:'home', 1:'assistant', 2:'mine'};
+document.querySelectorAll('.tabbar').forEach(bar => {
+  bar.querySelectorAll('.tab').forEach((t, i) => t.addEventListener('click', () => {
+    const target = tabMap[i]; if (!target) return;
+    nav.querySelector(`li[data-s="${target}"]`).click();
+  }));
+});
+
+document.getElementById('dark').addEventListener('change', e => {
+  document.documentElement.dataset.theme = e.target.checked ? 'dark' : 'light';
+});
+</script>
+</body>
+</html>

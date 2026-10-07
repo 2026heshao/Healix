@@ -1,16 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    记录列表项（组件规范 3.3 + 11.3 v6 左滑操作）。
+    记录列表项（组件规范 3.3 + 11.3 左滑操作 + v6 分组卡）。
     · 饮食                        12:30
       中午吃了牛肉面加鸡蛋
       约 600 kcal
-    ──────────────────────────  1dp 线（左缩进 20dp）
+    行内规格**原样保留**：6px 圆点 + 类型/时间 + 原文 2 行 + 摘要，
+    「识别中 / 未识别 · 点此补充」两态不变。
 
-    v6：行外包 swipewrap —— 下层常驻「编辑」（text_3 底）/「删除」（negative 底）
-    两枚 72dp 按钮，行左滑露出；拖拽/吸附/回弹逻辑在 SwipeRows.kt。
+    v6 变化：
+    - 行不再通栏，左右留 screen_margin；同天同类型相邻行聚进一张 surface 卡，
+      卡片背景（bg_card_solo / bg_card_top / bg_card_middle / bg_card_bottom）
+      与卡片间距由 EventAdapter 按 position 在代码里设定（本文件只留透明壳）；
+    - 卡内相邻行之间的 1dp 分隔线（divider）由代码按「是否组内末行」显隐；
+    - 左滑操作：「编辑」保持 text_3 底，「删除」改 bg_delete_block（error 底白字圆角），
+      均 72dp（swipe_act_width）。拖拽 / 吸附 / 回弹逻辑见 SwipeController.kt。
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/eventRoot"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical">
@@ -21,7 +28,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content">
 
-        <!-- 下层常驻操作按钮：编辑（text_3 底）/ 删除（negative 底），各 72dp -->
+        <!-- 下层常驻操作按钮：编辑（text_3 底）/ 删除（error 底圆角块），各 72dp -->
         <LinearLayout
             android:id="@+id/swipeActs"
             android:layout_width="match_parent"
@@ -42,19 +49,22 @@
                 android:id="@+id/actDelete"
                 android:layout_width="@dimen/swipe_act_width"
                 android:layout_height="match_parent"
-                android:background="@color/negative"
+                android:background="@drawable/bg_delete_block"
                 android:gravity="center"
                 android:text="@string/delete"
-                android:textColor="@color/btn_primary_text" />
+                android:textColor="@color/on_error" />
         </LinearLayout>
 
+        <!-- 内容层：背景透明，露出 eventRoot 上的分组卡底色；ripple 由 ListRow 样式给 -->
         <LinearLayout
             android:id="@+id/swipeItem"
             style="@style/Widget.Healix.ListRow"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:background="@color/surface"
-            android:orientation="horizontal">
+            android:background="?attr/selectableItemBackground"
+            android:orientation="horizontal"
+            android:paddingStart="@dimen/item_padding"
+            android:paddingEnd="@dimen/item_padding">
 
         <!-- 6px 低饱和圆点，垂直居中于第一行 -->
         <View
@@ -139,12 +149,12 @@
     </LinearLayout>
     </FrameLayout>
 
-    <!-- 分隔线：左缩进 20dp -->
+    <!-- 卡内分隔线（组内非末行显示；组末行隐藏，由 EventAdapter 控制） -->
     <View
         android:id="@+id/divider"
         android:layout_width="match_parent"
         android:layout_height="@dimen/divider"
-        android:layout_marginStart="@dimen/screen_margin"
+        android:layout_marginStart="@dimen/item_padding"
         android:background="@color/line" />
 
 </LinearLayout>

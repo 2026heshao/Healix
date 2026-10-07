@@ -5,8 +5,10 @@
     常驻 Tab Fragment（[RecordFragment]）—— 与「助理」「我的」三页同为 Fragment，
     导航范式唯一（无半迁移）。
 
-    硬约束：无卡片、无阴影、汇总区不给色块。
-    需求 5：顶部新增「主目标行」与「次目标进度区」，在列表 header 内（随滚动离场）。
+    v6 记录页改版：
+    - 滚动 header 升级为 Filter chips（presetScroll）+ Hero 卡 + 指标 chip 行
+      + 主目标行 + planBar + nudgeBar（见 item_record_header.xml）；
+    - 输入条浮卡化（bg_input_bar 圆角卡 + input_field_height 高度）。
 
     v0.3 B2（需求 2：合并滚动区）—— 结构分两区：
     - 固定区（操作型，不随滚）：顶栏 + divider + offlineBar(状态提示条)
@@ -15,8 +17,8 @@
       持 5s 定时器，宿主被回收即悬挂。
     - 滚动区（内容型，唯一滚动轴）：RecyclerView(list, weight=1)，adapter =
       ConcatAdapter(RecordHeaderAdapter, EventAdapter, RecordEmptyAdapter) ——
-      header（goalArea + presetScroll + presetDivider + statusRow + nudgeBar +
-      planBar）见 item_record_header.xml；空态 footer 见 item_record_empty.xml。
+      header 见 item_record_header.xml，事件行见 item_event.xml，
+      空态 footer 见 item_record_empty.xml。
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
@@ -136,7 +138,8 @@
         android:scrollbars="none" />
 
     <!--
-        速记输入区：高 64dp，顶部 1dp 上边界线，无圆角无卡片。
+        速记输入区（v6 浮卡化）：surface 圆角浮卡（bg_input_bar，radius_md），高度
+        input_field_height(48dp)，左右留 screen_margin / 12dp 边距，不再有顶线。
         marginBottom = tab_raise：抬升到全局 tabbar 之上，不被全局导航遮挡（11.6）。
         IME 弹出时由 TabBar.bindImeGuard 把这个 margin 归零，输入条贴住键盘顶。
     -->
@@ -144,13 +147,15 @@
         android:id="@+id/inputBar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:layout_marginStart="@dimen/screen_margin"
+        android:layout_marginEnd="12dp"
         android:layout_marginBottom="@dimen/tab_raise"
-        android:minHeight="@dimen/input_height"
+        android:minHeight="@dimen/input_field_height"
         android:background="@drawable/bg_input_bar"
         android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:paddingStart="@dimen/screen_margin"
-        android:paddingEnd="12dp">
+        android:paddingStart="16dp"
+        android:paddingEnd="6dp">
 
         <EditText
             android:id="@+id/input"
@@ -160,7 +165,7 @@
             android:layout_weight="1"
             android:hint="@string/hint_quick_input"
             android:importantForAutofill="no"
-            android:minHeight="@dimen/input_height" />
+            android:minHeight="@dimen/input_field_height" />
 
         <!-- 状态：细环 + 13sp 灰字（限流必须显示预估秒数） -->
         <ProgressBar

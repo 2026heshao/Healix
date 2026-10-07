@@ -65,7 +65,7 @@ class MainActivity : AppCompatActivity() {
         ensureTabs()
 
         currentTab = intent.getIntExtra(TabBar.EXTRA_TAB, TabBar.TAB_RECORD)
-        TabBar.bind(this, currentTab) { tab -> showTab(tab) }
+        TabBar.bind(this, currentTab) { tab -> onTabSelected(tab) }
         // 键盘守卫（W2）：`@id/input` 在记录页与助理页各有一份。边距归零/还原必须
         // 对**两条** inputBar 全量求值 —— 只写「当前可见 Tab」那条时，记录页 IME 打开
         // （margin=0）→ 切助理 Tab 还原事件够不到记录条 → 切回时记录条贴底被 tabbar
@@ -264,6 +264,33 @@ class MainActivity : AppCompatActivity() {
         // W2（修 bug A 状态残留）：切 Tab 后强制 insets 重放 —— 让键盘守卫按最新
         // 的 Tab 可见性重新求值 tabbar 显隐与两条输入条边距（否则记录条可能永远卡 0）。
         ViewCompat.requestApplyInsets(window.decorView)
+    }
+
+    /**
+     * Tab 点击入口（v6 §5.1）：异 Tab → 平级切换；**复点当前 Tab → 该页列表滚回顶部**。
+     *
+     * 刻意**不**把「滚回顶部」塞进 [showTab] 的 early-return 分支：`onNewIntent`
+     * （通知栏速记 / 桌面小工具重开本页）也走 [showTab]，塞进去会让外部入口重开
+     * 顺带触发滚动 —— 那是另一条语义（应保持"落在原位置"）。
+     */
+    private fun onTabSelected(target: Int) {
+        if (target == currentTab) {
+            scrollActiveTabToTop()
+        } else {
+            showTab(target)
+        }
+    }
+
+    /**
+     * 复点当前 Tab → 当前页滚动轴归零（记录/助理 = RecyclerView，我的 = ScrollView）。
+     * 三页常驻不销毁，`_binding` 在视图销毁后为 null，故各页自身做空值守卫。
+     */
+    private fun scrollActiveTabToTop() {
+        when (currentTab) {
+            TabBar.TAB_RECORD -> record?.scrollToTop()
+            TabBar.TAB_ASSISTANT -> assistant?.scrollToTop()
+            TabBar.TAB_MINE -> mine?.scrollToTop()
+        }
     }
 
     private fun showTabImmediate(target: Int) {

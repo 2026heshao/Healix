@@ -28,7 +28,7 @@ import com.healix.app.R
  * 硬规则（与规范 §9.3 同源）
  * ══════════════════════════════════════════════════════════════════════════
  * - 无网格、无坐标轴、无图例、无绘制动画
- * - 线色只来自 `accent`（**不按数值正负切换红绿**，不铺面、不加渐变）
+ * - 线色只来自 `primary`（**不按数值正负切换红绿**，不铺面、不加渐变）
  * - 只在最后一个点画实心圆
  * - 数据点 < 3 时不画线，居中显示占位文案（文案由调用方传入）
  * - 左右不留内边距（卡片自己已有 padding），上下只留 marker 半径，避免末点被裁
@@ -57,11 +57,11 @@ class SparklineView @JvmOverloads constructor(
         strokeWidth = chartStroke
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
-        color = ContextCompat.getColor(context, R.color.accent)
+        color = ContextCompat.getColor(context, R.color.primary)
     }
     private val markerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
-        color = ContextCompat.getColor(context, R.color.accent)
+        color = ContextCompat.getColor(context, R.color.primary)
     }
 
     /** 占位文案：12sp `text_3`，与三卡标题同级（规范 §9.3 的"数据不足"态）。 */

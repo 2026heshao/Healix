@@ -359,11 +359,11 @@ class SettingsFragment : Fragment() {
                     } else {
                         binding.testResult.visibility = View.VISIBLE
                         binding.testResult.text = r.text
-                        // 成功用 positive，失败用 negative —— 只出现在文字上
+                        // 成功用 success，失败用 negative（= error）—— 只出现在文字上
                         binding.testResult.setTextColor(
                             ContextCompat.getColor(
                                 requireContext(),
-                                if (r.ok) R.color.positive else R.color.negative,
+                                if (r.ok) R.color.success else R.color.negative,
                             )
                         )
                     }
@@ -380,7 +380,7 @@ class SettingsFragment : Fragment() {
                     binding.testResult.setTextColor(
                         ContextCompat.getColor(
                             requireContext(),
-                            if (r.ok) R.color.positive else R.color.negative,
+                            if (r.ok) R.color.success else R.color.negative,
                         )
                     )
                 }

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v6 Tab 药丸占位：透明（保证未选中/选中三段等高，不塌陷）。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <solid android:color="@android:color/transparent" />
+</shape>

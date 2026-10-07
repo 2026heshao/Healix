@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 弹窗把手：36×3dp -->
+<!-- v6 弹窗把手：36 × 4dp，outline 实底 + 2dp 圆角。 -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android">
-    <solid android:color="@color/line_strong" />
-    <corners android:radius="@dimen/progress_radius" />
+    <solid android:color="@color/outline" />
+    <corners android:radius="2dp" />
     <size
         android:width="@dimen/handle_width"
         android:height="@dimen/handle_height" />

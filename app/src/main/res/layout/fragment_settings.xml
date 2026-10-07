@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 设置页（设计规范系统 4.4）：纯列表 + 分隔线，分组标题 12sp text_2，行高 56dp。
+<!-- 设置页（设计规范 4.4 / v6 卡片体系）：分组卡片包裹，组标题 Widget.Healix.SectionTitle，
+     行高 56dp 不变（v6 卡片行内无分隔线）。
      v8 需求 4/6：
        · 目标组由**固定 include** 改为**动态容器 goalContainer**（左滑删除 + 添加目标）；
        · 删除「隐私」组（HIDE_KCAL/HIDE_WEIGHT 键与消费方保留，仅去掉 UI 入口）；
@@ -45,7 +46,7 @@
 
     <!--
         内联撤销条（规范 §9.6）：左滑删除目标 / 提醒后出现，5 秒后自动消失。
-        与首页同构 —— **无底色无边框**，靠文字区分。放在工具栏正下方（不进 ScrollView），
+        与首页同构 —— 无底色无边框，靠文字区分。放在工具栏正下方（不进 ScrollView），
         保证无论列表滚到哪里都可见。
     -->
     <LinearLayout
@@ -91,42 +92,47 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
+            android:paddingTop="8dp"
             android:paddingBottom="32dp">
 
-            <!-- 模型服务 -->
+            <!-- ══ 模型服务 ══ -->
             <TextView
-                style="@style/Text.Caption"
+                style="@style/Widget.Healix.SectionTitle"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:paddingStart="@dimen/screen_margin"
-                android:paddingEnd="@dimen/screen_margin"
-                android:paddingTop="12dp"
-                android:paddingBottom="8dp"
                 android:text="@string/group_model" />
 
-            <include
-                android:id="@+id/rowProvider"
-                layout="@layout/row_setting_value"
+            <LinearLayout
+                style="@style/Widget.Healix.Card"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="0dp">
 
-            <include
-                android:id="@+id/rowBaseUrl"
-                layout="@layout/row_setting_value"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
+                <include
+                    android:id="@+id/rowProvider"
+                    layout="@layout/row_setting_value"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
 
-            <include
-                android:id="@+id/rowModel"
-                layout="@layout/row_setting_value"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
+                <include
+                    android:id="@+id/rowBaseUrl"
+                    layout="@layout/row_setting_value"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
 
-            <include
-                android:id="@+id/rowApiKey"
-                layout="@layout/row_setting_value"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
+                <include
+                    android:id="@+id/rowModel"
+                    layout="@layout/row_setting_value"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+
+                <include
+                    android:id="@+id/rowApiKey"
+                    layout="@layout/row_setting_value"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+            </LinearLayout>
 
             <!--
                 接入 / 启用：本节第一主按钮。
@@ -137,10 +143,9 @@
                 android:id="@+id/btnApply"
                 style="@style/Widget.Healix.Button"
                 android:layout_width="match_parent"
-                android:layout_height="48dp"
                 android:layout_marginStart="@dimen/screen_margin"
+                android:layout_marginTop="12dp"
                 android:layout_marginEnd="@dimen/screen_margin"
-                android:layout_marginTop="16dp"
                 android:text="@string/apply_provider" />
 
             <!-- 接入状态：常驻显示当前是「已接入」还是「未接入」，不靠弹窗 -->
@@ -150,20 +155,22 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="@dimen/screen_margin"
-                android:layout_marginEnd="@dimen/screen_margin"
                 android:layout_marginTop="8dp"
+                android:layout_marginEnd="@dimen/screen_margin"
                 tools:text="已接入 · 智谱 GLM · glm-4-flash"
                 tools:visibility="visible" />
 
-            <!-- 测试连通性：本节第二按钮，样式降一级为文字按钮（避免两个同权重主按钮） -->
+            <!--
+                测试连通性：本节次级主动作，用 Tonal 按钮（secondary_container 底、secondary 文字），
+                与主按钮（primary 底）层级分明。
+            -->
             <androidx.appcompat.widget.AppCompatButton
                 android:id="@+id/btnTest"
-                style="@style/Widget.Healix.TextButton"
-                android:layout_width="wrap_content"
-                android:layout_height="48dp"
+                style="@style/Widget.Healix.ButtonTonal"
+                android:layout_width="match_parent"
                 android:layout_marginStart="@dimen/screen_margin"
+                android:layout_marginTop="8dp"
                 android:layout_marginEnd="@dimen/screen_margin"
-                android:layout_marginTop="4dp"
                 android:text="@string/test_conn" />
 
             <!-- 测试结果就地显示，不弹 Toast（结果需要能被反复查看） -->
@@ -173,86 +180,71 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="@dimen/screen_margin"
-                android:layout_marginEnd="@dimen/screen_margin"
                 android:layout_marginTop="8dp"
+                android:layout_marginEnd="@dimen/screen_margin"
                 android:visibility="gone"
                 tools:text="连通 · 1.2s"
                 tools:visibility="visible" />
 
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="@dimen/divider"
-                android:layout_marginTop="@dimen/block_gap"
-                android:background="@color/line" />
-
-            <!-- 调用限制 -->
+            <!-- ══ 调用限制 ══ -->
             <TextView
-                style="@style/Text.Caption"
+                style="@style/Widget.Healix.SectionTitle"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:paddingStart="@dimen/screen_margin"
-                android:paddingEnd="@dimen/screen_margin"
-                android:paddingTop="12dp"
-                android:paddingBottom="8dp"
                 android:text="@string/group_quota" />
 
-            <!-- 日界线（原「个人」组上移至此）：决定配额日窗口与会话切日，是系统参数 -->
-            <include
-                android:id="@+id/rowDayStart"
-                layout="@layout/row_setting_value"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
-
-            <include
-                android:id="@+id/rowExtractQuota"
-                layout="@layout/row_setting_value"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
-
-            <include
-                android:id="@+id/rowChatQuota"
-                layout="@layout/row_setting_value"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
-
-            <include
-                android:id="@+id/rowRetry"
-                layout="@layout/row_setting_value"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
-
-            <include
-                android:id="@+id/rowRetryDelay"
-                layout="@layout/row_setting_value"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
-
-            <!-- ══ 目标 ★v4（规范 9.7 ①）══
-                 读写落在 goals 表（不是 settings 表）：目标有"起始值 / 目标值 / 主目标"
-                 三个维度，且首页状态行、训练处方都要读它，塞进 settings 会再次分裂语义。
-                 v8 需求 4：行由 `goalDao().observeActive()` **动态渲染**（左滑删除），
-                 主目标行不出删除位（is_primary==1）；末尾「添加目标」恢复归档项。 -->
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="@dimen/divider"
-                android:layout_marginTop="@dimen/block_gap"
-                android:background="@color/line" />
-
-            <TextView
-                android:id="@+id/goalSectionHeader"
-                style="@style/Text.Caption"
+            <LinearLayout
+                style="@style/Widget.Healix.Card"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:paddingStart="@dimen/screen_margin"
-                android:paddingEnd="@dimen/screen_margin"
-                android:paddingTop="12dp"
-                android:paddingBottom="8dp"
+                android:orientation="vertical"
+                android:padding="0dp">
+
+                <!-- 日界线（原「个人」组上移至此）：决定配额日窗口与会话切日，是系统参数 -->
+                <include
+                    android:id="@+id/rowDayStart"
+                    layout="@layout/row_setting_value"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+
+                <include
+                    android:id="@+id/rowExtractQuota"
+                    layout="@layout/row_setting_value"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+
+                <include
+                    android:id="@+id/rowChatQuota"
+                    layout="@layout/row_setting_value"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+
+                <include
+                    android:id="@+id/rowRetry"
+                    layout="@layout/row_setting_value"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+
+                <include
+                    android:id="@+id/rowRetryDelay"
+                    layout="@layout/row_setting_value"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+            </LinearLayout>
+
+            <!-- ══ 目标 ★v4（规范 9.7 ①）══
+                 读写落在 goals 表（不是 settings 表）。行由 goalDao().observeActive() 动态渲染
+                 （左滑删除），主目标行不出删除位（is_primary==1）；末尾「添加目标」恢复归档项。 -->
+            <TextView
+                android:id="@+id/goalSectionHeader"
+                style="@style/Widget.Healix.SectionTitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
                 android:text="@string/group_goal" />
 
             <!--
                 v8 问题 2a：老用户把热量目标从「个人信息页」搬进本栏后，
-                **仅一次**提示「热量目标现已移至此栏」（13sp text_2）。
-                可关闭：点一下即收起并落 KCAL_MOVE_HINT_SEEN 标记（同 goalSourceHint 的一次性纪律）。
+                仅一次提示「热量目标现已移至此栏」（13sp text_2）。可点关闭。
             -->
             <TextView
                 android:id="@+id/goalKcalMovedHint"
@@ -269,9 +261,7 @@
 
             <!--
                 目标组「依据提示」（规范 9.7）：13sp text_3，仅首次打开该组时显示一次。
-                形式裁决 = 放**组标题下方一行**，而非规范字面的「每项值下方」：
-                体重/训练/睡眠/饮水的默认值同出一个来源（《中国居民膳食指南(2022)》），
-                逐项重复 5 遍只是噪声。可见性由 SettingsFragment.setupGoalSourceHint() 控制。
+                形式裁决 = 放组标题下方一行（体重/训练/睡眠/饮水默认值同出一个来源）。
             -->
             <TextView
                 android:id="@+id/goalSourceHint"
@@ -285,180 +275,174 @@
                 tools:text="来自膳食指南推荐量"
                 tools:visibility="visible" />
 
-            <!-- 动态目标行容器：每行 inflate item_swipe_row.xml 后加入 -->
             <LinearLayout
-                android:id="@+id/goalContainer"
+                style="@style/Widget.Healix.Card"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical" />
+                android:orientation="vertical"
+                android:padding="0dp">
 
-            <!--
-                v8 问题 2b：删掉默认种子后的空态说明 —— 仅主目标、无任何次目标时显示
-                `还没有次目标`（12sp text_3，规范 ②）。可见性由 SettingsFragment.renderGoals 控制。
-            -->
-            <TextView
-                android:id="@+id/goalEmptyHint"
-                style="@style/Text.Caption"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:paddingStart="@dimen/screen_margin"
-                android:paddingEnd="@dimen/screen_margin"
-                android:paddingBottom="4dp"
-                android:text="@string/goal_empty_no_secondary"
-                android:textColor="@color/text_3"
-                android:visibility="gone"
-                tools:visibility="visible" />
+                <!-- 动态目标行容器：每行 inflate item_swipe_row.xml 后加入 -->
+                <LinearLayout
+                    android:id="@+id/goalContainer"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical" />
 
-            <!--
-                「添加目标」入口（常驻栏底，唯一显式创建入口）。
-                槽位加满时**原地降级**为禁用态：标签 text_3、右侧 caption `已达上限 6 项`、
-                不可点（规范 ②·状态覆盖 + G11）。状态由 SettingsFragment.updateGoalAddEntry 控制。
-            -->
-            <include
-                android:id="@+id/rowGoalAdd"
-                layout="@layout/row_setting_value"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
+                <!--
+                    v8 问题 2b：删掉默认种子后的空态说明 —— 仅主目标、无任何次目标时显示
+                    `还没有次目标`（12sp text_3）。可见性由 SettingsFragment.renderGoals 控制。
+                -->
+                <TextView
+                    android:id="@+id/goalEmptyHint"
+                    style="@style/Text.Caption"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:paddingStart="@dimen/screen_margin"
+                    android:paddingEnd="@dimen/screen_margin"
+                    android:paddingBottom="4dp"
+                    android:text="@string/goal_empty_no_secondary"
+                    android:textColor="@color/text_3"
+                    android:visibility="gone"
+                    tools:visibility="visible" />
+
+                <!--
+                    「添加目标」入口（常驻栏底，唯一显式创建入口）。
+                    槽位加满时原地降级为禁用态，状态由 SettingsFragment.updateGoalAddEntry 控制。
+                -->
+                <include
+                    android:id="@+id/rowGoalAdd"
+                    layout="@layout/row_setting_value"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+            </LinearLayout>
 
             <!-- ══ 热量摄入 ★清单3 R3（规范 9.7 ①，与其它组标题同构）══
-                 kcal 的**唯一 UI 入口**：开关行（HIDE_KCAL 取反，键复用零新增）+ 数值行
-                 （goals 表 kcal_daily）。插在「目标」组止点与「提醒」组分隔线之间。
-                 老用户 kcal_daily 数据行不占次目标槽位（Q1 裁决），目标组 UI 已收编。 -->
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="@dimen/divider"
-                android:layout_marginTop="@dimen/block_gap"
-                android:background="@color/line" />
-
+                 kcal 的唯一 UI 入口：开关行（HIDE_KCAL 取反，键复用零新增）+ 数值行。 -->
             <TextView
-                style="@style/Text.Caption"
+                style="@style/Widget.Healix.SectionTitle"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:paddingStart="@dimen/screen_margin"
-                android:paddingEnd="@dimen/screen_margin"
-                android:paddingTop="12dp"
-                android:paddingBottom="8dp"
                 android:text="@string/group_kcal_intake" />
 
-            <include
-                android:id="@+id/rowKcalSwitch"
-                layout="@layout/row_setting_switch"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
-
-            <include
-                android:id="@+id/rowKcalGoal"
-                layout="@layout/row_setting_value"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
-
-            <!-- ══ AI 可见资料范围 ★2026-10-05（规范 9.7 ①，与其它组标题同构）══
-                 SettingsKeys.AI_DATA_FULL 的唯一 UI 入口：开关行 checked = aiDataFull
-                 本身（不取反）。控制画像/体格/目标/次目标/计划段是否注入三条 AI 链路。 -->
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="@dimen/divider"
-                android:layout_marginTop="@dimen/block_gap"
-                android:background="@color/line" />
-
-            <TextView
-                style="@style/Text.Caption"
+            <LinearLayout
+                style="@style/Widget.Healix.Card"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:paddingStart="@dimen/screen_margin"
-                android:paddingEnd="@dimen/screen_margin"
-                android:paddingTop="12dp"
-                android:paddingBottom="8dp"
+                android:orientation="vertical"
+                android:padding="0dp">
+
+                <include
+                    android:id="@+id/rowKcalSwitch"
+                    layout="@layout/row_setting_switch"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+
+                <include
+                    android:id="@+id/rowKcalGoal"
+                    layout="@layout/row_setting_value"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+            </LinearLayout>
+
+            <!-- ══ AI 可见资料范围 ★2026-10-05（规范 9.7 ①）══
+                 SettingsKeys.AI_DATA_FULL 的唯一 UI 入口：开关行 checked = aiDataFull 本身。 -->
+            <TextView
+                style="@style/Widget.Healix.SectionTitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
                 android:text="@string/group_ai_data" />
 
-            <include
-                android:id="@+id/rowAiDataSwitch"
-                layout="@layout/row_setting_switch"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
-
-            <!-- D3 文案（v0.3 B6）：关掉可见资料范围后仍可查询记录，说清边界。 -->
-            <TextView
-                android:id="@+id/aiDataNote"
-                style="@style/Text.Caption"
+            <LinearLayout
+                style="@style/Widget.Healix.Card"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:paddingStart="@dimen/screen_margin"
-                android:paddingEnd="@dimen/screen_margin"
-                android:paddingBottom="8dp"
-                android:text="@string/ai_data_note"
-                android:textColor="@color/text_3" />
+                android:orientation="vertical"
+                android:padding="0dp">
 
-            <!-- 规则库入口（v0.3 B4）：二级页加/删/改/启停/排序。 -->
-            <include
-                android:id="@+id/rowAiRules"
-                layout="@layout/row_setting_value"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
+                <include
+                    android:id="@+id/rowAiDataSwitch"
+                    layout="@layout/row_setting_switch"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
 
-            <!-- AI 工具总开关（v0.3 B5）：关 = 退回单轮，不调用任何工具。 -->
-            <include
-                android:id="@+id/rowAiTools"
-                layout="@layout/row_setting_switch"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
+                <!-- D3 文案（v0.3 B6）：关掉可见资料范围后仍可查询记录，说清边界。 -->
+                <TextView
+                    android:id="@+id/aiDataNote"
+                    style="@style/Text.Caption"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:paddingStart="@dimen/screen_margin"
+                    android:paddingEnd="@dimen/screen_margin"
+                    android:paddingBottom="8dp"
+                    android:text="@string/ai_data_note"
+                    android:textColor="@color/text_3" />
 
-            <!-- 写权限三开关（v0.3 B6）：仅工具总开关开启时显示。 -->
-            <include
-                android:id="@+id/rowAiToolWritePlan"
-                layout="@layout/row_setting_switch"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
+                <!-- 规则库入口（v0.3 B4）：二级页加/删/改/启停/排序。 -->
+                <include
+                    android:id="@+id/rowAiRules"
+                    layout="@layout/row_setting_value"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
 
-            <include
-                android:id="@+id/rowAiToolWriteRecord"
-                layout="@layout/row_setting_switch"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
+                <!-- AI 工具总开关（v0.3 B5）：关 = 退回单轮，不调用任何工具。 -->
+                <include
+                    android:id="@+id/rowAiTools"
+                    layout="@layout/row_setting_switch"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
 
-            <include
-                android:id="@+id/rowAiToolWriteGoal"
-                layout="@layout/row_setting_switch"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
+                <!-- 写权限三开关（v0.3 B6）：仅工具总开关开启时显示。 -->
+                <include
+                    android:id="@+id/rowAiToolWritePlan"
+                    layout="@layout/row_setting_switch"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+
+                <include
+                    android:id="@+id/rowAiToolWriteRecord"
+                    layout="@layout/row_setting_switch"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+
+                <include
+                    android:id="@+id/rowAiToolWriteGoal"
+                    layout="@layout/row_setting_switch"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+            </LinearLayout>
 
             <!-- ══ 提醒 ★v4（规范 9.7 ③）══
-                 读写落在 reminders 表。行是**动态渲染**的（可增删 + 左滑删除），
-                 所以容器用 LinearLayout，行由代码 inflate item_swipe_row.xml 后加入。
-                 v8 需求 4：**不再预置**默认提醒（体检/洗牙/配镜），仅保留「添加提醒」入口。 -->
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="@dimen/divider"
-                android:layout_marginTop="@dimen/block_gap"
-                android:background="@color/line" />
-
+                 读写落在 reminders 表。行是动态渲染的（可增删 + 左滑删除）。 -->
             <TextView
-                style="@style/Text.Caption"
+                style="@style/Widget.Healix.SectionTitle"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:paddingStart="@dimen/screen_margin"
-                android:paddingEnd="@dimen/screen_margin"
-                android:paddingTop="12dp"
-                android:paddingBottom="8dp"
                 android:text="@string/group_reminder" />
 
             <LinearLayout
-                android:id="@+id/reminderContainer"
+                style="@style/Widget.Healix.Card"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical" />
+                android:orientation="vertical"
+                android:padding="0dp">
 
-            <include
-                android:id="@+id/rowReminderAdd"
-                layout="@layout/row_setting_value"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
+                <LinearLayout
+                    android:id="@+id/reminderContainer"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical" />
 
-            <!-- v6（11.1）：「数据 / 调试 / 知识库」三组迁「我的」页（fragment_mine.xml），
-                 设置页回归纯配置（模型服务 / 调用限制 / 目标 / 提醒）。
+                <include
+                    android:id="@+id/rowReminderAdd"
+                    layout="@layout/row_setting_value"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+            </LinearLayout>
+
+            <!-- v6（11.1）：「数据 / 调试 / 知识库」三组迁「我的」页，设置页回归纯配置。
                  v8 需求 6：原「隐私」组（HIDE_KCAL / HIDE_WEIGHT）UI 入口整体移除；
-                 两个 settings 键与全部消费方（首页汇总区 / 状态详情页 / 对话系统提示）保留。 -->
+                 两个 settings 键与全部消费方保留。 -->
         </LinearLayout>
     </ScrollView>
-
 </LinearLayout>

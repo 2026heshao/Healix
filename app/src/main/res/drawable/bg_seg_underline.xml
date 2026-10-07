@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v6 分段下划线：primary 实底 + 1dp 圆角，高 seg_underline(2dp)。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <solid android:color="@color/primary" />
+    <corners android:radius="1dp" />
+    <size android:height="@dimen/seg_underline" />
+</shape>

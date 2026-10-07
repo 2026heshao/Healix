@@ -1,13 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    行内输入的 1dp 焦点底线（P1-5，用在 row_sheet_field 的字段行）。
-    描边技巧同 bg_input_bar，但**方向相反**：本文件保留**底边**（推走上 / 左 / 右三边，
-    即 top / left / right 取负）；bg_input_bar 保留**顶边**（推走下 / 左 / 右）。
-    颜色由 @color/focus_line selector 驱动（rest line → focus accent）。
-    顶部线版本见 bg_input_top_line。
+    v6 行内输入的 1dp 焦点底线（用在 row_sheet_field 的字段行）。
+    保留**底边**（推走上 / 左 / 右三边，即 top / left / right 取负）；顶线版本见 bg_input_top_line。
+    颜色由 @color/focus_line selector 驱动（rest outline_variant → focus primary）。
     为什么是 -2dp 而不是 -1dp：1dp 的 stroke 会在描边外侧多留约 1dp margin，
-    -1dp 推不干净会残留极细描边（焦点态 accent 下会变成一圈近乎完整的描边框），
-    -2dp 才能让那三条边完全出界。
+    -1dp 推不干净会残留极细描边（焦点态 primary 下会变成一圈近乎完整的描边框）。
 -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item>

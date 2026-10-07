@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
     助理页（设计规范系统 4.2 + 11.1 v6；v8 需求 1/2 由 Activity 迁为常驻 Fragment）。
-    消息区为左右气泡（用户靠右 text_1 实底 / 助理靠左 surface 底 + 描边），
-    气泡背景见 drawable/bg_bubble_user.xml 与 bg_bubble_assistant.xml。
-    仅用既有中性色，无阴影 —— 设计规范 v3 未被破坏。
+    消息区为左右气泡（v6：用户靠右 primary_container 衬底 + on_primary_container 字；
+    助理靠左 surface 实底 + card_elev_1），气泡背景见 drawable/bg_bubble_user.xml
+    与 bg_bubble_assistant.xml；工具反馈条见 ChatAdapter 内置的 bg_toolline。
 
     ⚠️ 与 v8 之前的旧对话页布局的差异：
       - **不再包含 tabbar** —— 全局 3 Tab 的 tabbar 现在唯一地挂在宿主
@@ -214,13 +214,14 @@
         android:text="@string/disclaimer"
         android:textSize="12sp" />
 
-    <!-- 输 入 区：与主界面同规格。v6：抬升到全局 tabbar 之上 -->
+    <!-- 输 入 区：与主界面同规格。v6：bg_input_bar 已是 surface 圆角浮卡；
+         高度改用 input_field_height(48dp)，抬升到全局 tabbar 之上 -->
     <LinearLayout
         android:id="@+id/inputBar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginBottom="@dimen/tab_raise"
-        android:minHeight="@dimen/input_height"
+        android:minHeight="@dimen/input_field_height"
         android:background="@drawable/bg_input_bar"
         android:gravity="center_vertical"
         android:orientation="horizontal"
@@ -235,7 +236,7 @@
             android:layout_weight="1"
             android:hint="@string/hint_chat_input"
             android:importantForAutofill="no"
-            android:minHeight="@dimen/input_height" />
+            android:minHeight="@dimen/input_field_height" />
 
         <ProgressBar
             android:id="@+id/spinner"

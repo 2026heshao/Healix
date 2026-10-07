@@ -29,7 +29,8 @@
             android:scaleType="fitCenter"
             android:src="@drawable/ic_back" />
 
-        <!-- 顶部文字 Tab，选中态 text_1 + 下方 2dp accent 线 -->
+        <!-- v6 分段 Tab：选中态 text_1/600 + 2dp primary 下划线（bg_seg_underline）；
+             未选中 text_2/400。字重由 PlanReviewFragment.selectTab() 合成。 -->
         <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="match_parent"
@@ -43,7 +44,7 @@
 
                 <TextView
                     android:id="@+id/tabPlan"
-                    style="@style/Text.Button"
+                    style="@style/Text.Secondary"
                     android:layout_width="wrap_content"
                     android:layout_height="0dp"
                     android:layout_weight="1"
@@ -55,8 +56,8 @@
                 <View
                     android:id="@+id/tabPlanUnderline"
                     android:layout_width="match_parent"
-                    android:layout_height="2dp"
-                    android:background="@color/accent" />
+                    android:layout_height="@dimen/seg_underline"
+                    android:background="@drawable/bg_seg_underline" />
             </LinearLayout>
 
             <LinearLayout
@@ -66,7 +67,7 @@
 
                 <TextView
                     android:id="@+id/tabReview"
-                    style="@style/Text.Button"
+                    style="@style/Text.Secondary"
                     android:layout_width="wrap_content"
                     android:layout_height="0dp"
                     android:layout_weight="1"
@@ -78,8 +79,8 @@
                 <View
                     android:id="@+id/tabReviewUnderline"
                     android:layout_width="match_parent"
-                    android:layout_height="2dp"
-                    android:background="@color/accent"
+                    android:layout_height="@dimen/seg_underline"
+                    android:background="@drawable/bg_seg_underline"
                     android:visibility="invisible" />
             </LinearLayout>
         </LinearLayout>
@@ -88,7 +89,7 @@
     <View
         android:layout_width="match_parent"
         android:layout_height="@dimen/divider"
-        android:background="@color/line" />
+        android:background="@color/outline_variant" />
 
     <!--
         缺口行：还差 X kcal（body15/text_1）。
@@ -111,7 +112,7 @@
         android:id="@+id/gapDivider"
         android:layout_width="match_parent"
         android:layout_height="@dimen/divider"
-        android:background="@color/line" />
+        android:background="@color/outline_variant" />
 
     <ScrollView
         android:id="@+id/contentScroll"
@@ -217,6 +218,26 @@
                     tools:text="本周重点：卧推尝试比上周加 2.5kg"
                     tools:visibility="visible" />
 
+                <!--
+                    v6 顶部提示条（原型 .hintline）：AI 计划建议，info 档
+                    （secondary_container 衬底 + 8dp 圆角）。空文本时整条隐藏。
+                -->
+                <TextView
+                    android:id="@+id/planNote"
+                    style="@style/Text.Secondary"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="@dimen/screen_margin"
+                    android:layout_marginTop="12dp"
+                    android:layout_marginEnd="@dimen/screen_margin"
+                    android:layout_marginBottom="12dp"
+                    android:background="@drawable/bg_info_banner"
+                    android:paddingStart="14dp"
+                    android:paddingTop="10dp"
+                    android:paddingEnd="14dp"
+                    android:paddingBottom="10dp"
+                    tools:text="今日蛋白质偏低，晚餐优先补蛋白" />
+
                 <LinearLayout
                     android:id="@+id/itemContainer"
                     android:layout_width="match_parent"
@@ -258,17 +279,6 @@
                         android:minHeight="@dimen/touch_min"
                         android:text="@string/plan_generate_today" />
                 </LinearLayout>
-
-                <TextView
-                    android:id="@+id/planNote"
-                    style="@style/Text.Secondary"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:paddingStart="@dimen/screen_margin"
-                    android:paddingEnd="@dimen/screen_margin"
-                    android:paddingTop="@dimen/block_gap"
-                    android:paddingBottom="@dimen/block_gap"
-                    tools:text="今日蛋白质偏低，晚餐优先补蛋白" />
 
                 <!--
                     手动重排入口（常驻、低调文字行）：仅 `entries` 非空时可见
@@ -318,7 +328,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="6dp"
                         android:text="@string/training_failed"
-                        android:textColor="@color/negative"
+                        android:textColor="@color/error"
                         android:visibility="gone"
                         tools:visibility="visible" />
 

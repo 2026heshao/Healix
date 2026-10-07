@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
     文档操作弹窗（设计规范系统 10.3 ③）：复用 EventEditSheet / ConfirmSheet 的
-    容器规格（bg_sheet + 8dp 顶圆角 + 把手），不新造弹窗组件。
-    内容为 标题 / 元信息 / 打开原文 / 删除文档(全弹窗唯一 negative) / 取消。
+    容器规格（bg_sheet v6 顶角 24dp + elev_3 + 把手），不新造弹窗组件。
+    内容为 标题 / 元信息 / 打开原文 / 删除文档(全弹窗唯一 error) / 取消。
     删除二次确认时由代码原地切换内容（不用系统 AlertDialog，无底色容器原则）。
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
@@ -10,6 +10,7 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:background="@drawable/bg_sheet"
+    android:elevation="@dimen/card_elev_3"
     android:orientation="vertical"
     android:paddingStart="@dimen/screen_margin"
     android:paddingEnd="@dimen/screen_margin"
@@ -45,7 +46,7 @@
         android:layout_width="match_parent"
         android:layout_height="@dimen/divider"
         android:layout_marginTop="14dp"
-        android:background="@color/line" />
+        android:background="@color/outline_variant" />
 
     <!-- 打开原文：任何状态下都保留（10.3 ③，解析失败文件也没坏） -->
     <TextView

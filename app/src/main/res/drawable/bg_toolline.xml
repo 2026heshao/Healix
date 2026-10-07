@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v6 工具反馈条底：surface_variant 实底 + 8dp 圆角。
+     左侧 2dp primary 竖线由布局加 View 实现。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <solid android:color="@color/surface_variant" />
+    <corners android:radius="@dimen/radius_sm" />
+</shape>

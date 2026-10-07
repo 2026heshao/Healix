@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v6 分组卡片：末项（上直角、下圆角 16dp）。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <solid android:color="@color/surface" />
+    <corners
+        android:bottomLeftRadius="@dimen/radius_md"
+        android:bottomRightRadius="@dimen/radius_md" />
+</shape>

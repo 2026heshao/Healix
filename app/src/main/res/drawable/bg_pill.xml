@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v6 Tab 药丸指示器：primary_container 实底 + 15dp 圆角。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <solid android:color="@color/primary_container" />
+    <corners android:radius="15dp" />
+</shape>

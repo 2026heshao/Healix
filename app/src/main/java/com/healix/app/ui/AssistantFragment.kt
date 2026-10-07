@@ -411,6 +411,15 @@ class AssistantFragment : Fragment() {
         }
     }
 
+    /**
+     * 复点当前 Tab 时由宿主 [MainActivity] 调用（v6 §5.1：再次点当前 Tab → 列表滚回顶部）。
+     * 助理页的"列表"= 消息流，滚回顶部即回看本会话最早的消息。
+     * 视图可能已销毁（`_binding == null`）→ 空值守卫，不崩。
+     */
+    fun scrollToTop() {
+        _binding?.messageList?.smoothScrollToPosition(0)
+    }
+
     override fun onDestroyView() {
         super.onDestroyView()
         _binding = null
@@ -431,6 +440,12 @@ class AssistantFragment : Fragment() {
  *   - 助理气泡：surface (#FFFFFF) 底 + 1dp line 描边 + text_1 字
  * 没有引入任何新颜色、没有阴影、圆角仍是全局唯一值 8dp、
  * accent 仍只出现在按钮/进度条上（不被气泡稀释）。
+ *
+ * v6（2026-10-07）：气泡语义化 —— 用户气泡改 `primary_container` 衬底 +
+ * `on_primary_container` 字（不对称圆角 16/4/16/16），助理气泡 `surface` 实底 +
+ * `card_elev_1`（圆角 4/16/16/16），最大宽 82%，正文 15sp/行高 1.6；
+ * 并新增工具反馈条（`role=tool`：`surface_variant` 底 + 8dp 圆角 + 左侧 2dp
+ * `primary` 竖线，状态后缀「完成 / 待确认」）。背景件由 F 层统一绘制。
  *
  * 结构：外层 LinearLayout 负责"靠哪边 + 最大宽度"，内层 TextView 带气泡背景。
  * 之所以套一层而不是直接给 TextView 设背景：
@@ -488,7 +503,11 @@ class ChatAdapter : RecyclerView.Adapter<ChatAdapter.VH>() {
 
     override fun getItemViewType(position: Int): Int = when (val r = rows[position]) {
         is Row.Time -> TYPE_TIME
-        is Row.Msg -> if (r.m.role == "user") TYPE_USER else TYPE_ASSISTANT
+        is Row.Msg -> when (r.m.role) {
+            ROLE_USER -> TYPE_USER
+            ROLE_TOOL -> TYPE_TOOL
+            else -> TYPE_ASSISTANT
+        }
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
@@ -508,19 +527,53 @@ class ChatAdapter : RecyclerView.Adapter<ChatAdapter.VH>() {
             return VH(tv, tv)
         }
 
+        // ── 工具反馈条（v6）：surface_variant 底 + 8dp 圆角 + 左侧 2dp primary 竖线 ──
+        if (viewType == TYPE_TOOL) {
+            val bar = android.view.View(ctx).apply {
+                layoutParams = android.widget.LinearLayout.LayoutParams(
+                    dp(ctx, 2f).toInt(),
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                )
+                setBackgroundResource(R.drawable.bg_chat_toolline_bar)
+            }
+            val tv = android.widget.TextView(ctx).apply {
+                layoutParams = android.widget.LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                )
+                setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 13f)
+                setTextColor(ContextCompat.getColor(ctx, R.color.text_2))
+                setPadding(
+                    dp(ctx, 12f).toInt(), dp(ctx, 10f).toInt(),
+                    dp(ctx, 14f).toInt(), dp(ctx, 10f).toInt(),
+                )
+            }
+            val row = android.widget.LinearLayout(ctx).apply {
+                orientation = android.widget.LinearLayout.HORIZONTAL
+                layoutParams = RecyclerView.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                )
+                setBackgroundResource(R.drawable.bg_toolline)
+                addView(bar)
+                addView(tv)
+            }
+            return VH(row, tv)
+        }
+
         val text = android.widget.TextView(ctx).apply {
             layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
             )
             setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 15f)
-            setLineSpacing(dp(ctx, 5f), 1f)
+            setLineSpacing(dp(ctx, 6f), 1f)
             setSingleLine(false)
             // 气泡内的留白：水平 14dp、垂直 10dp
             setPadding(dp(ctx, 14f).toInt(), dp(ctx, 10f).toInt(), dp(ctx, 14f).toInt(), dp(ctx, 10f).toInt())
         }
 
-        // 外层：限制最大宽度 78%，靠 gravity 决定左右
+        // 外层：限制最大宽度 82%，靠 gravity 决定左右
         val row = android.widget.LinearLayout(ctx).apply {
             orientation = android.widget.LinearLayout.HORIZONTAL
             layoutParams = RecyclerView.LayoutParams(
@@ -547,13 +600,17 @@ class ChatAdapter : RecyclerView.Adapter<ChatAdapter.VH>() {
                 }
             }
 
-            is Row.Msg -> bindMessage(holder, position, r.m)
+            is Row.Msg -> if (r.m.role == ROLE_TOOL) {
+                bindToolLine(holder, position, r.m)
+            } else {
+                bindMessage(holder, position, r.m)
+            }
         }
     }
 
     private fun bindMessage(holder: VH, position: Int, m: ChatMessageEntity) {
         val ctx = holder.text.context
-        val isUser = m.role == "user"
+        val isUser = m.role == ROLE_USER
 
         // ── 来源 / 工具角标标注（F12 10.4 ① + §4.5）────────────────
         // 消息体用「末行承载机器可读元数据」的既有约定：`来源：标题 · 第 N 页`
@@ -581,19 +638,22 @@ class ChatAdapter : RecyclerView.Adapter<ChatAdapter.VH>() {
             body
         }
 
-        // ── 气泡外观 ────────────────────────────────────────────────
+        // ── 气泡外观（v6）────────────────────────────────────────────
+        // 背景件由 F 层绘制：用户 = primary_container 衬底（圆角 16/4/16/16），
+        // 助理 = surface 实底 + card_elev_1（圆角 4/16/16/16）。
+        // 用户气泡文字改用 on_primary_container（浅/深两侧均为与衬底成对的可读色）。
         if (isUser) {
             holder.text.setBackgroundResource(R.drawable.bg_bubble_user)
-            // 气泡底色 = text_1（深色模式下是浅底），文字必须与底反相：
-            // bubble_user_text 浅色=白 / 深色=深，不能用恒为白的 btn_primary_text
             holder.text.setTextColor(
-                androidx.core.content.ContextCompat.getColor(ctx, R.color.bubble_user_text)
+                androidx.core.content.ContextCompat.getColor(ctx, R.color.on_primary_container)
             )
+            holder.text.elevation = 0f
         } else {
             holder.text.setBackgroundResource(R.drawable.bg_bubble_assistant)
             holder.text.setTextColor(
                 androidx.core.content.ContextCompat.getColor(ctx, R.color.text_1)
             )
+            holder.text.elevation = ctx.resources.getDimension(R.dimen.card_elev_1)
         }
 
         // ── 长按复制（微扩展 A）：复制正文（不含来源行）───────────────
@@ -607,9 +667,9 @@ class ChatAdapter : RecyclerView.Adapter<ChatAdapter.VH>() {
             true
         }
 
-        // ── 外层对齐 + 最大宽度 78% ──────────────────────────────────
+        // ── 外层对齐 + 最大宽度 82%（v6，原型 .msg max-width:82%）────────
         val screenW = ctx.resources.displayMetrics.widthPixels
-        val maxBubble = (screenW * 0.78f).toInt()
+        val maxBubble = (screenW * 0.82f).toInt()
 
         val textLp = holder.text.layoutParams as android.widget.LinearLayout.LayoutParams
         textLp.width = android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
@@ -635,6 +695,42 @@ class ChatAdapter : RecyclerView.Adapter<ChatAdapter.VH>() {
         if (!isUser && position == rows.size - 1) {
             holder.text.announceForAccessibility(m.content)
         }
+    }
+
+    /**
+     * 工具反馈条（v6，原型 .toolline）：`role=tool` 的消息渲染为 `surface_variant`
+     * 底 + 8dp 圆角 + 左侧 2dp `primary` 竖线的中性反馈条，正文 13sp `text_2`，
+     * 状态后缀「完成 / 待确认」用 `text_3` 弱化。
+     *
+     * 「待确认」= 该工具属于拟稿确认路径（[TOOL_PROPOSE]），与首页直写路径分离；
+     * 其余工具一律「完成」。
+     */
+    private fun bindToolLine(holder: VH, position: Int, m: ChatMessageEntity) {
+        val ctx = holder.text.context
+        val status = ctx.getString(
+            if (m.toolName == TOOL_PROPOSE) R.string.chatnav_tool_pending
+            else R.string.chatnav_tool_done,
+        )
+        val sb = android.text.SpannableString("${m.content}  $status")
+        sb.setSpan(
+            android.text.style.ForegroundColorSpan(
+                androidx.core.content.ContextCompat.getColor(ctx, R.color.text_3),
+            ),
+            m.content.length + 2, sb.length,
+            android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
+        )
+        holder.text.text = sb
+        holder.text.maxWidth =
+            (ctx.resources.displayMetrics.widthPixels * TOOL_MAX_WIDTH).toInt()
+
+        val rowLp = holder.row.layoutParams as RecyclerView.LayoutParams
+        val edgeMargin = dp(ctx, 20f).toInt()
+        rowLp.marginStart = edgeMargin
+        rowLp.marginEnd = edgeMargin
+        val prevRole = (rows.getOrNull(position - 1) as? Row.Msg)?.m?.role
+        rowLp.topMargin =
+            if (prevRole == null || prevRole == m.role) dp(ctx, 6f).toInt() else dp(ctx, 16f).toInt()
+        holder.row.layoutParams = rowLp
     }
 
     class VH(
@@ -726,6 +822,19 @@ class ChatAdapter : RecyclerView.Adapter<ChatAdapter.VH>() {
 
         /** 时间分隔头 viewType（W1）。 */
         const val TYPE_TIME = 2
+
+        /** 工具反馈条 viewType（v6，`role=tool`）。 */
+        const val TYPE_TOOL = 3
+
+        /** 消息角色（`ChatMessageEntity.role`）。 */
+        const val ROLE_USER = "user"
+        const val ROLE_TOOL = "tool"
+
+        /** 拟稿确认工具名 —— 工具反馈条据此显示「待确认」后缀。 */
+        const val TOOL_PROPOSE = "propose_log"
+
+        /** 气泡 / 工具条最大宽度占比（v6，原型 .msg max-width:82%）。 */
+        const val TOOL_MAX_WIDTH = 0.82f
 
         /** 时间头插入阈值：相邻两条消息相隔 > 30 分钟。 */
         const val TIME_GAP_MS = 30L * 60 * 1000

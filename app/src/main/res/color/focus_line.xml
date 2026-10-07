@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    焦点线取色 selector（P1-5）。驱动 bg_input_line / bg_input_top_line 里
-    <stroke> 的颜色：rest = line，focused = accent，150ms 过渡。
+    焦点线取色 selector（P1-5 · v6）。驱动 bg_input_line / bg_input_top_line 里
+    <stroke> 的颜色：rest = outline_variant，focused = primary，150ms 过渡。
     零代码 —— EditText 的 background 直接引用本 selector，获焦 / 失焦时重解析。
-    昼夜自动跟随：line / accent 在 values-night/colors.xml 各有覆盖。
+    昼夜自动跟随：outline_variant / primary 在 values-night/colors.xml 各有覆盖。
 -->
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:state_focused="true" android:color="@color/accent" />
-    <item android:color="@color/line" />
+    <item android:state_focused="true" android:color="@color/primary" />
+    <item android:color="@color/outline_variant" />
 </selector>

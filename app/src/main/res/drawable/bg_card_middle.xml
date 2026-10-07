@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v6 分组卡片：中间项（四角直角）。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <solid android:color="@color/surface" />
+    <corners android:radius="0dp" />
+</shape>

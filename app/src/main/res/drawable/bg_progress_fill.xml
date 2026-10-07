@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v6 进度条填充：primary 实底 + 8dp 圆角。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <solid android:color="@color/primary" />
+    <corners android:radius="@dimen/radius_sm" />
+</shape>

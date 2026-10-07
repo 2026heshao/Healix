@@ -1,14 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    发送键图标取色 selector（P0-1 发送键双态）。
-    空文本 = text_3（可点但暂不可用，位置不变）；非空 = accent，100ms 过渡。
+    发送键图标取色 selector（P0-1 发送键双态 · v6）。
+    空文本 = text_3（可点但暂不可用，位置不变）；非空 = primary，100ms 过渡。
     state_selected 由 TextWatcher 里的 btnSend.isSelected 驱动
     （View.setSelected → refreshDrawableState → CSL 重解析），零动画代码。
-    昼夜自动跟随：text_3 / accent 各自在 values-night/colors.xml 有覆盖。
+    昼夜自动跟随：text_3 / primary 各自在 values-night/colors.xml 有覆盖。
     禁用态（历史会话只读）由第一条 state_enabled=false 兜住，此刻即便有文本也保持灰。
 -->
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:state_enabled="false" android:color="@color/text_3" />
-    <item android:state_selected="true" android:color="@color/accent" />
+    <item android:state_selected="true" android:color="@color/primary" />
     <item android:color="@color/text_3" />
 </selector>

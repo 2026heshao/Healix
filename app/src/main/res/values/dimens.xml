@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    形状与尺寸令牌（docs/Healix设计规范系统.md 2.3）。
-    硬约束：圆角全局只有 8dp 一个值；进度线高 2dp 圆角 1dp。
+    形状与尺寸令牌 · v6（docs/v8/UI系统化升级方案-v6-2026-10-07.md）。
+    圆角三档：radius_sm=8dp / radius_md=16dp / radius_lg=24dp。
+    ⚠️ 本文件不在 values-night 对等清单内（当前只在 values/），无需夜间副本。
 
-    动效 token（P2-11，只登记不新增 dimen）：
+    动效 token（只登记不新增 dimen）：
       motion_fast  = 100ms  发送键变色、按压态
       motion_focus = 150ms  焦点线过渡
       motion_grow  = 200ms  输入条高度自适应
@@ -15,60 +16,85 @@
       motion_fast / motion_focus 由 color selector 的 state 过渡承载，无独立代码常量。
 -->
 <resources>
+    <!-- ═══ 屏幕与间距 ═══ -->
     <dimen name="screen_margin">20dp</dimen>
-    <dimen name="block_gap">28dp</dimen>
+    <dimen name="block_gap">24dp</dimen>
     <dimen name="item_padding">16dp</dimen>
+    <dimen name="card_padding">16dp</dimen>
 
-    <!-- ★ 全局唯一圆角值 -->
+    <!-- ═══ 圆角三档 ═══ -->
+    <dimen name="radius_sm">8dp</dimen>
+    <dimen name="radius_md">16dp</dimen>
+    <dimen name="radius_lg">24dp</dimen>
+    <!-- deprecated 别名（= radius_sm），旧引用保留 -->
     <dimen name="radius">8dp</dimen>
+
+    <!-- ═══ 进度条 ═══ -->
     <dimen name="progress_height">2dp</dimen>
-    <dimen name="progress_radius">1dp</dimen>
+    <dimen name="hero_progress_height">8dp</dimen>
+    <dimen name="progress_radius">4dp</dimen>
     <dimen name="divider">1dp</dimen>
 
+    <!-- ═══ 三级阴影（Android 用 elevation 表达）═══ -->
+    <dimen name="card_elev_1">1dp</dimen>
+    <dimen name="card_elev_2">2dp</dimen>
+    <dimen name="card_elev_3">8dp</dimen>
+
+    <!-- ═══ 触控与行高 ═══ -->
     <dimen name="touch_min">48dp</dimen>
     <dimen name="input_height">64dp</dimen>
+    <dimen name="input_field_height">48dp</dimen>
+    <dimen name="btn_primary_height">52dp</dimen>
     <dimen name="item_height">76dp</dimen>
     <dimen name="setting_row_height">56dp</dimen>
     <dimen name="sheet_row_height">52dp</dimen>
 
+    <!-- ═══ chip / 指标 chip ═══ -->
+    <dimen name="chip_height">36dp</dimen>
+    <dimen name="chip_pad_h">14dp</dimen>
+    <dimen name="metric_chip_height">48dp</dimen>
+
+    <!-- ═══ 图标 / 圆点 / 把手 / 头像 ═══ -->
     <dimen name="dot_size">6dp</dimen>
     <dimen name="send_btn">36dp</dimen>
     <dimen name="handle_width">36dp</dimen>
-    <dimen name="handle_height">3dp</dimen>
+    <dimen name="handle_height">4dp</dimen>
     <dimen name="icon_size">20dp</dimen>
+    <dimen name="avatar_size">56dp</dimen>
 
-    <!--
-        v4 扩展功能 UI（docs/Healix设计规范系统.md 9.11）新增 5 项。
-        ⚠️ 状态行 48dp / 训练日行 76dp / 提醒行 56dp 复用 touch_min / item_height /
-        setting_row_height，**不新增** —— 新增 dimen 越多，圆角与间距越容易失控。
-    -->
+    <!-- ═══ Hero 卡达标环与数字 ═══ -->
+    <dimen name="hero_ring_size">76dp</dimen>
+    <dimen name="hero_ring_stroke">6dp</dimen>
+    <dimen name="hero_num_size">40sp</dimen>
+
+    <!-- ═══ Tab 药丸指示器 ═══ -->
+    <dimen name="tab_pill_width">56dp</dimen>
+    <dimen name="tab_pill_height">30dp</dimen>
+    <dimen name="tab_icon">20dp</dimen>
+    <dimen name="tab_label_gap">2dp</dimen>
+
+    <!-- ═══ 气泡 ═══ -->
+    <dimen name="bubble_radius">16dp</dimen>
+    <dimen name="bubble_tail_radius">4dp</dimen>
+
+    <!-- ═══ 弹层 / 进度线 ═══ -->
+    <dimen name="sheet_top_pad">8dp</dimen>
+    <dimen name="seg_underline">2dp</dimen>
+
+    <!-- ═══ 图表（沿用 v4）═══ -->
     <dimen name="chart_height">80dp</dimen>
     <dimen name="chart_stroke">1.6dp</dimen>
     <dimen name="marker_width">2dp</dimen>
     <dimen name="marker_height">16dp</dimen>
     <dimen name="tab_indicator">2dp</dimen>
 
-    <!--
-        v8 问题 4：记录页目标区压缩（≈142dp）新增 4 项，全部只服务这一块版式。
-        加法校验：主目标行 48(touch_min) + 1(divider) + 三卡 60 + 1(divider) + 盈余 32
-                 = 142dp < 20% 屏高（812 × 0.2 = 162dp）。
-        ⚠️ 三卡行取 60dp 而非原型的 56dp：Android 文本默认上下留白（fontPadding）
-           比浏览器多约 4dp，56dp 在「12sp 标题 + 15sp 值 + 20dp sparkline + 间隙」
-           下会压字。宁多 4dp，不冒险裁字。
-    -->
+    <!-- ═══ v8 问题 4：记录页目标区压缩 ═══ -->
     <dimen name="goal_card_row_height">60dp</dimen>
     <dimen name="goal_mini_chart_height">20dp</dimen>
     <dimen name="goal_insight_row_height">32dp</dimen>
-    <!-- 详情弹层大折线（原 80dp 折线的放大版，问题 4 把图表细节下沉到这里） -->
     <dimen name="goal_detail_chart_height">180dp</dimen>
 
-    <!--
-        v6 交互重构（docs/Healix设计规范系统.md 第十一章）。
-        全部沿用原型既有值域：64dp tabbar / 80dp 底部预留 / 72dp 滑动按钮 /
-        80dp 弹盘关闭阈值 —— 不新造值。
-        v8：Tab 互切改为**零动画**（拍板 #2「点 Tab 即响应」），原 `tab_shift`（8dp
-        切换位移）随之删除 —— 不再有 Tab 平级转场位移。
-    -->
+    <!-- ═══ v6 交互重构 ═══ -->
     <dimen name="tabbar_height">64dp</dimen>
     <dimen name="list_bottom_pad">80dp</dimen>
     <dimen name="tab_raise">64dp</dimen>

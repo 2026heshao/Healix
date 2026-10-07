@@ -14,6 +14,8 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.healix.app.HealixApp
 import com.healix.app.R
 import com.healix.app.databinding.FragmentMineBinding
+import com.healix.app.db.GoalDefaults
+import com.healix.app.db.GoalMetrics
 import com.healix.app.db.SettingsKeys
 import com.healix.app.repo.ResourceStore
 import kotlinx.coroutines.Dispatchers
@@ -58,7 +60,16 @@ class MineFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         bindRows()
+        bindGoalCards()
         observeEntryValues()
+    }
+
+    /**
+     * 复点当前 Tab 时由宿主 [MainActivity] 调用（v6 §5.1）：滚回顶部。
+     * 根布局是 ScrollView（`mineRoot`），`binding.root` 即该 ScrollView 本身。
+     */
+    fun scrollToTop() {
+        _binding?.root?.smoothScrollTo(0, 0)
     }
 
     override fun onDestroyView() {
@@ -173,6 +184,120 @@ class MineFragment : Fragment() {
         observePresetsCount()
         observePersonalInfo()
         observeImportReport()
+        observeGoalGrid()
+    }
+
+    /**
+     * 目标四宫格（v6）：体重 / 运动 / 睡眠 / 饮水 的点击入口。
+     *
+     * - 体重卡 → 个人信息页（当前体重可编辑，与「记一笔」同管道）；
+     * - 运动 / 睡眠 / 饮水卡 → 设置页「目标」栏（数值目标唯一可编辑归属）。
+     */
+    private fun bindGoalCards() {
+        binding.cardWeight.setOnClickListener {
+            NavHost.open(requireContext(), PersonalInfoFragment(), NavHost.PAGE_PERSONAL_INFO)
+        }
+        binding.cardWeight.bindPressScale()
+
+        val toGoal: (View) -> Unit = {
+            NavHost.open(
+                requireContext(),
+                SettingsFragment.newInstance(focusGoal = true),
+                NavHost.PAGE_SETTINGS,
+            )
+        }
+        listOf(binding.cardExercise, binding.cardSleep, binding.cardWater).forEach { card ->
+            card.setOnClickListener(toGoal)
+            card.bindPressScale()
+        }
+    }
+
+    /**
+     * 目标四宫格渲染：全部走既有聚合能力（[MainViewModel] 的 `homeGoal` / `trainProgress` /
+     * `sleepSeries` / `goalTargets` / `hideWeight`），**不新开 DB 查询、不造字段**。
+     *
+     * 口径说明：
+     * - 体重：最近一次体重记录（隐私隐藏时用掩码占位，行为与原「隐藏体重数字」一致）；
+     * - 运动：本周已完成次数 / 每周目标次数；
+     * - 睡眠：近 7 日最近一次睡眠小时 / 睡眠目标；
+     * - 饮水：全仓**只记饮水目标、无当日饮水量事件**，故只展示目标值、进度条留空。
+     */
+    private fun observeGoalGrid() {
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                kotlinx.coroutines.flow.combine(
+                    vm.homeGoal,
+                    vm.trainProgress,
+                    vm.sleepSeries,
+                    vm.goalTargets,
+                    vm.hideWeight,
+                ) { goal, train, sleep, targets, hide ->
+                    GoalGridState(goal, train, sleep, targets, hide)
+                }.collect { state -> renderGoalGrid(state) }
+            }
+        }
+    }
+
+    private fun renderGoalGrid(state: GoalGridState) {
+        // ── 个人卡副行 + 体重卡 ──
+        val weightText = when {
+            state.hideWeight -> getString(R.string.dui_weight_masked)
+            state.goal.latestWeightKg > 0.0 ->
+                getString(R.string.unit_kg, trimWeight(state.goal.latestWeightKg))
+            else -> getString(R.string.setting_weight_none)
+        }
+        val goalName = when (state.goal.modeIndex) {
+            SettingsViewModel.GOAL_MODE_LOSS -> getString(R.string.goal_loss)
+            SettingsViewModel.GOAL_MODE_KEEP -> getString(R.string.goal_keep)
+            SettingsViewModel.GOAL_MODE_CUSTOM ->
+                state.goal.statement.ifBlank { getString(R.string.value_not_set) }
+            else -> getString(R.string.goal_gain)
+        }
+        binding.profileMeta.text = getString(R.string.dui_profile_meta, weightText, goalName)
+        binding.goalWeightValue.text = weightText
+        // 体重无「起始值 / 目标值」进度口径 → 进度条留空（不编造比例）。
+        setBar(binding.goalWeightFill, 0f)
+
+        // ── 运动 ──
+        binding.goalExerciseValue.text =
+            getString(R.string.dui_goal_train_value, state.train.done, state.train.goal)
+        setBar(binding.goalExerciseFill, ratio(state.train.done.toDouble(), state.train.goal.toDouble()))
+
+        // ── 睡眠 ──
+        val sleep = state.sleep.lastOrNull() ?: 0.0
+        val sleepGoal = state.targets[GoalMetrics.SLEEP_H] ?: GoalDefaults.SLEEP_H
+        binding.goalSleepValue.text = if (sleep > 0.0) {
+            getString(R.string.dui_goal_sleep_value, trimWeight(sleep))
+        } else {
+            getString(R.string.value_not_set)
+        }
+        setBar(binding.goalSleepFill, ratio(sleep, sleepGoal))
+
+        // ── 饮水（仅有目标值，无当日摄入量事件 → 进度条留空）──
+        val waterGoal = state.targets[GoalMetrics.WATER_ML] ?: GoalDefaults.WATER_ML.toDouble()
+        binding.goalWaterValue.text = getString(R.string.unit_ml, waterGoal.toInt())
+        setBar(binding.goalWaterFill, 0f)
+    }
+
+    /** value / goal，夹到 0..1；goal ≤ 0 时返回 0（不猜）。 */
+    private fun ratio(value: Double, goal: Double): Float {
+        if (goal <= 0.0) return 0f
+        return (value / goal).coerceIn(0.0, 1.0).toFloat()
+    }
+
+    /**
+     * 迷你进度条填充宽度：按容器实际宽度 × 比例设置（首次布局完成前宽度为 0，
+     * 用 `post` 等一帧再取；`post` 是既有写法，未用 `doOnLayout`）。
+     */
+    private fun setBar(fill: View, ratio: Float) {
+        val bar = fill.parent as? View ?: return
+        fill.post {
+            val width = bar.width
+            if (width <= 0) return@post
+            val lp = fill.layoutParams
+            lp.width = (width * ratio.coerceIn(0f, 1f)).toInt()
+            fill.layoutParams = lp
+        }
     }
 
     /**
@@ -412,3 +537,12 @@ class MineFragment : Fragment() {
             }
     }
 }
+
+/** 目标四宫格渲染所需的一份快照（由既有 StateFlow 组合而来，不新开查询）。 */
+private data class GoalGridState(
+    val goal: HomeGoal,
+    val train: TrainProgress,
+    val sleep: List<Double>,
+    val targets: Map<String, Double>,
+    val hideWeight: Boolean,
+)

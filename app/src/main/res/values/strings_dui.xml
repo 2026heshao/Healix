@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    「我的」页（D 层）专属文案（v6 升级）。
+    键名统一 dui_ 前缀；不改动通用 values/strings.xml。
+-->
+<resources>
+    <!-- 个人卡 -->
+    <string name="dui_profile_name">Healix 用户</string>
+    <!-- 个人卡副行：%1$s = 体重（或未记录 / 掩码），%2$s = 主目标名 -->
+    <string name="dui_profile_meta">%1$s · %2$s</string>
+    <!-- 隐私开启（隐藏体重数字）时，体重用掩码占位 -->
+    <string name="dui_weight_masked">••••</string>
+
+    <!-- 目标四宫格标题（体重复用 setting_weight） -->
+    <string name="dui_goal_exercise">运动</string>
+    <string name="dui_goal_sleep">睡眠</string>
+    <string name="dui_goal_water">饮水</string>
+
+    <!-- 目标四宫格值 -->
+    <string name="dui_goal_train_value">%1$d/%2$d 次</string>
+    <string name="dui_goal_sleep_value">%1$s h</string>
+</resources>

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    v6 Tonal 按钮底：selector（pressed 暗化 / 常态 secondary_container），radius_md(16dp)。
+    按压态在 secondary_container 上叠一层 10% 黑（≈原型 filter:brightness(.96) 的近似实色）。
+    叠加用固定半透明黑：底色仍随昼夜令牌切换，夜间自动跟着变暗。
+    文字色由 Widget.Healix.ButtonTonal 给 @color/secondary。
+-->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_pressed="true">
+        <layer-list>
+            <item>
+                <shape android:shape="rectangle">
+                    <solid android:color="@color/secondary_container" />
+                    <corners android:radius="@dimen/radius_md" />
+                </shape>
+            </item>
+            <item>
+                <shape android:shape="rectangle">
+                    <solid android:color="#1A000000" />
+                    <corners android:radius="@dimen/radius_md" />
+                </shape>
+            </item>
+        </layer-list>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@color/secondary_container" />
+            <corners android:radius="@dimen/radius_md" />
+        </shape>
+    </item>
+</selector>

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    输入条的 **顶部** 1dp 上边界线（无圆角）—— 即 v5 `bg_input_bar` 的旧内容，
+    保留给仍需顶线语义的场景（v6 常驻输入条已改浮卡 bg_input_bar）。
+
+    ⚠️ 方向规则（防回退，项目这里曾写反过）：layer-list <item> 的负向 inset 语义是
+    「**移除**对应那条边」，不是「保留」。所以「保留顶边」必须把 **下 / 左 / 右** 三边
+    取负（bottom/left/right），**不能**写成 top 取负 —— 写 top 取负渲染出来的是底边线。
+    取 -2dp 而非 -1dp：1dp 的 stroke 会在描边外侧多留约 1dp margin，-1dp 推不净会
+    残留极细描边；-2dp 才能让那三条边完全出界。
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@color/surface" />
+        </shape>
+    </item>
+    <item android:bottom="-2dp" android:left="-2dp" android:right="-2dp">
+        <shape android:shape="rectangle">
+            <stroke android:width="@dimen/divider" android:color="@color/outline_variant" />
+            <solid android:color="@android:color/transparent" />
+        </shape>
+    </item>
+</layer-list>

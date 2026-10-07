@@ -59,7 +59,7 @@
             android:layout_height="wrap_content"
             android:orientation="vertical">
 
-            <!-- 三选一文字 Tab：选中 text_1 + 2dp accent 下划线；未选中 text_2（规范 G6） -->
+            <!-- 三选一文字 Tab：选中 text_1 + 2dp primary 下划线；未选中 text_2（规范 G6） -->
             <LinearLayout
                 android:id="@+id/detailTabRow"
                 android:layout_width="match_parent"
@@ -88,7 +88,7 @@
                         android:id="@+id/tabTrainUnderline"
                         android:layout_width="match_parent"
                         android:layout_height="@dimen/tab_indicator"
-                        android:background="@color/accent" />
+                        android:background="@color/primary" />
                 </LinearLayout>
 
                 <LinearLayout
@@ -111,7 +111,7 @@
                         android:id="@+id/tabSleepUnderline"
                         android:layout_width="match_parent"
                         android:layout_height="@dimen/tab_indicator"
-                        android:background="@color/accent"
+                        android:background="@color/primary"
                         android:visibility="invisible" />
                 </LinearLayout>
 
@@ -135,7 +135,7 @@
                         android:id="@+id/tabWeightUnderline"
                         android:layout_width="match_parent"
                         android:layout_height="@dimen/tab_indicator"
-                        android:background="@color/accent"
+                        android:background="@color/primary"
                         android:visibility="invisible" />
                 </LinearLayout>
             </LinearLayout>

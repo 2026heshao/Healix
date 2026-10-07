@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 主按钮文字色（深色）：深字配提亮后的 primary 橙底（= on_primary），
+     若仍用白字会压在浅橙底上不可读。 -->
 <resources>
-    <color name="btn_primary_text">#FFFFFF</color>
+    <color name="btn_primary_text">#131211</color>
 </resources>

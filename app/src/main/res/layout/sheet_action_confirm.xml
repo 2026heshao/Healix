@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
     ActionConfirmSheet（§5.1 统一确认类弹窗）：复用 EventEditSheet 的底色容器规格
-    （§3.5：bg_sheet + GrabberLayout + 把手 36×3dp）。
+    （§3.5：bg_sheet v6 顶角 24dp + elev_3 + GrabberLayout + 把手 36×4dp）。
     结构 = 把手 + 标题 + 单行消息 + 底部右对齐「取消 + 确认」。
     用于 proposal 确认 / 预设删除确认（取代系统 AlertDialog）。
 -->
@@ -14,6 +14,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:background="@drawable/bg_sheet"
+        android:elevation="@dimen/card_elev_3"
         android:orientation="vertical"
         android:paddingStart="@dimen/screen_margin"
         android:paddingEnd="@dimen/screen_margin"

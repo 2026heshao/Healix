@@ -1,5 +1,6 @@
 package com.healix.app.ui
 
+import android.graphics.Typeface
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -89,7 +90,10 @@ class PlanReviewFragment : PageFragment() {
         vm.showTab(tab)
         val isPlan = tab == PlanTab.PLAN
 
-        // 选中态：text_1 + 下方 2dp accent 线；未选中：text_2 + 无底线
+        // v6：选中态 text_1 / 600 + 下方 2dp primary 线（bg_seg_underline）；
+        // 未选中 text_2 / 400 + 无底线。字重按契约 600 = sans-serif-medium + bold 合成。
+        applyTabWeight(binding.tabPlan, isPlan)
+        applyTabWeight(binding.tabReview, !isPlan)
         binding.tabPlan.setTextColor(color(if (isPlan) R.color.text_1 else R.color.text_2))
         binding.tabReview.setTextColor(color(if (isPlan) R.color.text_2 else R.color.text_1))
         binding.tabPlanUnderline.visibility = if (isPlan) View.VISIBLE else View.INVISIBLE
@@ -231,7 +235,7 @@ class PlanReviewFragment : PageFragment() {
                 },
             )
             binding.btnGenerateWeek.setTextColor(
-                color(if (p.generatingTraining) R.color.text_3 else R.color.accent),
+                color(if (p.generatingTraining) R.color.text_3 else R.color.primary),
             )
         }
 
@@ -266,7 +270,7 @@ class PlanReviewFragment : PageFragment() {
                 if (p.generatingToday) R.string.plan_generating else R.string.plan_generate_today,
             )
             binding.btnGenerateToday.setTextColor(
-                color(if (p.generatingToday) R.color.text_3 else R.color.accent),
+                color(if (p.generatingToday) R.color.text_3 else R.color.primary),
             )
             return
         }
@@ -281,7 +285,7 @@ class PlanReviewFragment : PageFragment() {
             if (p.generatingToday) R.string.plan_generating else R.string.plan_rerank_today,
         )
         binding.btnRerankToday.setTextColor(
-            color(if (p.generatingToday) R.color.text_3 else R.color.accent),
+            color(if (p.generatingToday) R.color.text_3 else R.color.primary),
         )
 
         val lastIndex = p.entries.lastIndex
@@ -327,6 +331,7 @@ class PlanReviewFragment : PageFragment() {
         val title = row.findViewById<TextView>(R.id.tlTitle)
         val detail = row.findViewById<TextView>(R.id.tlDetail)
         val meta = row.findViewById<TextView>(R.id.tlMeta)
+        val logAct = row.findViewById<View>(R.id.tlLogAct)
         val logBtn = row.findViewById<TextView>(R.id.btnLogThis)
 
         // 时间列：训练日 timeLabel 为空 → INVISIBLE（保留列宽，保证竖线/圆点跨行对齐）
@@ -351,21 +356,21 @@ class PlanReviewFragment : PageFragment() {
 
         when {
             entry.canLog -> {
-                logBtn.visibility = View.VISIBLE
+                logAct.visibility = View.VISIBLE
                 logBtn.isEnabled = true
                 logBtn.isClickable = true
                 logBtn.text = getString(R.string.log_this)
-                logBtn.setTextColor(color(R.color.accent))
+                logBtn.setTextColor(color(R.color.primary))
                 logBtn.setOnClickListener { onLog(entry) }
             }
             entry.done -> {
-                logBtn.visibility = View.VISIBLE
+                logAct.visibility = View.VISIBLE
                 logBtn.isEnabled = false
                 logBtn.isClickable = false
                 logBtn.text = getString(R.string.recorded)
                 logBtn.setTextColor(color(R.color.text_3))
             }
-            else -> logBtn.visibility = View.GONE
+            else -> logAct.visibility = View.GONE
         }
         return row
     }
@@ -383,6 +388,19 @@ class PlanReviewFragment : PageFragment() {
     // ------------------------------------------------------------------
 
     private fun color(resId: Int): Int = ContextCompat.getColor(requireContext(), resId)
+
+    /**
+     * 分段 Tab 字重：选中 600（sans-serif-medium + bold 合成），未选中 400。
+     * 契约 §2：本模块无字体资源，字重靠 fontFamily + textStyle 组合落地。
+     */
+    private fun applyTabWeight(tv: TextView, selected: Boolean) {
+        tv.setTypeface(
+            Typeface.create(
+                if (selected) "sans-serif-medium" else "sans-serif",
+                if (selected) Typeface.BOLD else Typeface.NORMAL,
+            ),
+        )
+    }
 
     /** epoch millis → 本地 `HH:mm`（24 小时制两位补零，与时间轴同口径）。 */
     private fun hhmm(ts: Long): String {

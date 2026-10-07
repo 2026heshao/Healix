@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v6 chip 文字取色：selected on_primary_container / 常态 text_2。 -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_selected="true" android:color="@color/on_primary_container" />
+    <item android:color="@color/text_2" />
+</selector>

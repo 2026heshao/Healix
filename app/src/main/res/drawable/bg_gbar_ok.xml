@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v6 目标条（达标）：success 实底 + 3dp 圆角。 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <solid android:color="@color/success" />
+    <corners android:radius="3dp" />
+</shape>

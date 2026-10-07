@@ -1,40 +1,88 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    字体规范（docs/Healix设计规范系统.md 2.2）。
-    硬约束：全局只用 400 / 500 两个字重，禁止 600 / 700。
-    行高：body 24sp(1.6) / secondary 20sp / caption 16sp。
+    字体令牌 · v6（docs/v8/UI系统化升级方案-v6-2026-10-07.md）。
+    字重落地方式（无需字体资源文件）：
+      400 → android:fontFamily="sans-serif"
+      500 → android:fontFamily="sans-serif-medium"
+      600 → android:fontFamily="sans-serif-medium" + android:textStyle="bold"
+            （合成加粗：CJK 视觉≈medium，拉丁数字达 600 观感）
+      700 → android:fontFamily="sans-serif" + android:textStyle="bold"
+    ⚠️ 本文件只在 values/ 定义，无 values-night 副本。
 -->
 <resources>
 
-    <!-- numeral：36sp/400，全 App 唯一超大字，热量盈余主数字 -->
+    <!-- ═══ 数字 hero ═══ -->
+
+    <!-- Display：32sp/600，主数字（热量页） -->
+    <style name="Text.Display" parent="">
+        <item name="android:textSize">32sp</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textColor">@color/text_1</item>
+        <item name="android:letterSpacing">-0.02</item>
+        <item name="android:lineSpacingExtra">0sp</item>
+        <item name="android:includeFontPadding">false</item>
+    </style>
+
+    <!-- Numeral：36sp/400，全 App 唯一超大字（保留） -->
     <style name="Text.Numeral" parent="">
         <item name="android:textSize">36sp</item>
         <item name="android:textStyle">normal</item>
+        <item name="android:fontFamily">sans-serif</item>
         <item name="android:textColor">@color/text_1</item>
         <item name="android:letterSpacing">-0.02</item>
         <item name="android:includeFontPadding">false</item>
     </style>
 
-    <!-- title：17sp/500 -->
-    <style name="Text.Title" parent="">
-        <item name="android:textSize">17sp</item>
-        <item name="android:textStyle">normal</item>
+    <!-- Hero：40sp/600，Hero 卡主数字 -->
+    <style name="Text.Hero" parent="">
+        <item name="android:textSize">40sp</item>
         <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textColor">@color/text_1</item>
+        <item name="android:letterSpacing">-0.02</item>
+        <item name="android:includeFontPadding">false</item>
+    </style>
+
+    <!-- ═══ 标题 ═══ -->
+
+    <!-- TitleLarge：22sp/600，页面大标题 -->
+    <style name="Text.TitleLarge" parent="">
+        <item name="android:textSize">22sp</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:textStyle">bold</item>
         <item name="android:textColor">@color/text_1</item>
     </style>
 
-    <!-- body：15sp/400，行高 24sp -->
+    <!-- Title：17sp/600，页面/卡片标题（v5 为 500） -->
+    <style name="Text.Title" parent="">
+        <item name="android:textSize">17sp</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textColor">@color/text_1</item>
+    </style>
+
+    <!-- ═══ 正文 ═══ -->
+
+    <!-- Body：15sp/400，行高 24sp -->
     <style name="Text.Body" parent="">
         <item name="android:textSize">15sp</item>
+        <item name="android:fontFamily">sans-serif</item>
         <item name="android:textColor">@color/text_1</item>
         <item name="android:lineSpacingExtra">6sp</item>
     </style>
 
+    <!-- BodyEmphasis：15sp/600，卡片关键值 -->
+    <style name="Text.BodyEmphasis" parent="">
+        <item name="android:textSize">15sp</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textColor">@color/text_1</item>
+    </style>
+
     <!--
-        body→medium：15sp/500（行高不放大，供**紧凑卡**的当前值用，v8 问题 4 三卡）。
-        500 的落地方式是 `sans-serif-medium`（全局只允许 400/500，禁 600/700）。
-        includeFontPadding=false：三卡竖向预算紧（12 标题 + 15 值 + 20 sparkline），
-        字体默认上下留白会让整卡在 60dp 里被压。
+        BodyMedium：15sp/500，紧凑卡当前值（行高不放大）。
+        500 落地 = sans-serif-medium；includeFontPadding=false（三卡竖向预算紧）。
     -->
     <style name="Text.BodyMedium" parent="">
         <item name="android:textSize">15sp</item>
@@ -43,38 +91,54 @@
         <item name="android:includeFontPadding">false</item>
     </style>
 
-    <!-- secondary：13sp/400，行高 20sp -->
+    <!-- Secondary：13sp/400，摘要，行高 20sp -->
     <style name="Text.Secondary" parent="">
         <item name="android:textSize">13sp</item>
+        <item name="android:fontFamily">sans-serif</item>
         <item name="android:textColor">@color/text_2</item>
         <item name="android:lineSpacingExtra">3sp</item>
     </style>
 
-    <!-- caption：12sp/400，分区标题、免责声明 -->
+    <!-- Caption：12sp/500，分区标题、免责声明（v5 为 400） -->
     <style name="Text.Caption" parent="">
         <item name="android:textSize">12sp</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
         <item name="android:textColor">@color/text_2</item>
+        <item name="android:letterSpacing">0.02</item>
     </style>
 
+    <!-- Tertiary：13sp/400，辅助装饰 -->
     <style name="Text.Tertiary" parent="">
         <item name="android:textSize">13sp</item>
+        <item name="android:fontFamily">sans-serif</item>
         <item name="android:textColor">@color/text_3</item>
     </style>
 
-    <!-- 按钮：13sp/500（主按钮规格 3.1） -->
-    <style name="Text.Button" parent="">
-        <item name="android:textSize">13sp</item>
+    <!-- Label：11sp/500，Tab 标签 -->
+    <style name="Text.Label" parent="">
+        <item name="android:textSize">11sp</item>
         <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:textColor">@color/text_2</item>
+    </style>
+
+    <!-- ═══ 按钮 / 可点文字 ═══ -->
+
+    <!-- Button：15sp/600（v5 为 13sp/500） -->
+    <style name="Text.Button" parent="">
+        <item name="android:textSize">15sp</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:textStyle">bold</item>
         <item name="android:textAllCaps">false</item>
     </style>
 
-    <!-- 可点文字：accent 13sp/500（文字按钮 / 监督提示条） -->
+    <!-- Link：parent Button，textColor primary -->
     <style name="Text.Link" parent="Text.Button">
-        <item name="android:textColor">@color/accent</item>
+        <item name="android:textColor">@color/primary</item>
     </style>
 
+    <!-- Danger：parent Button，textColor error -->
     <style name="Text.Danger" parent="Text.Button">
-        <item name="android:textColor">@color/negative</item>
+        <item name="android:textColor">@color/error</item>
     </style>
 
 </resources>

@@ -1,9 +1,11 @@
 package com.healix.app.ui
 
 import android.app.Activity
+import android.graphics.PorterDuff
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.widget.ImageView
 import android.widget.TextView
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
@@ -26,8 +28,8 @@ import com.healix.app.R
  *   `startActivity(CLEAR_TOP|SINGLE_TOP)` 重启 MainActivity 并 `finish()`，
  *   每次都吃一次窗口转场，这是「Tab 点击延迟偏高」的根因。
  *
- * **按下即高亮**：`ACTION_DOWN` 时立即 [select] 新 Tab 的文字色，
- * 内容切换由抬起后的 `onTab` 回调完成 —— 与微信底部 Tab 的手感一致。
+ * **按下即高亮**：`ACTION_DOWN` 时立即 [select] 切换新 Tab 的药丸背景 /
+ * 图标 tint / 文字色，内容切换由抬起后的 `onTab` 回调完成 —— 与微信底部 Tab 的手感一致。
  *
  * - 二级页（状态详情/设置/计划/个人信息/知识库/资源/预设/调试/就医材料）：
  *   v8 T03 起**九页全部**改为宿主 [MainActivity] 内 `pageContainer` 上的 Fragment，
@@ -53,9 +55,9 @@ internal object TabBar {
      * 不消费事件 —— 按压态、涟漪、点击照旧（v8 需求 2）。
      */
     fun bind(activity: Activity, active: Int, onTab: (Int) -> Unit) {
-        val record = activity.findViewById<TextView>(R.id.tabRecord)
-        val assistant = activity.findViewById<TextView>(R.id.tabAssistant)
-        val mine = activity.findViewById<TextView>(R.id.tabMine)
+        val record = activity.findViewById<View>(R.id.tabRecord)
+        val assistant = activity.findViewById<View>(R.id.tabAssistant)
+        val mine = activity.findViewById<View>(R.id.tabMine)
 
         select(activity, active)
 
@@ -74,12 +76,15 @@ internal object TabBar {
 
     /**
      * Tab 切换后重设高亮：三个 Tab 的内容都在同一 Activity 里，
-     * 切完必须同步 tabbar 三段颜色（bind 只在 onCreate 高亮一次，不够）。
+     * 切完必须同步 tabbar 三段（药丸 / 图标 / 文字），bind 只在 onCreate 高亮一次不够。
+     *
+     * v6：选中态 = primary_container 药丸（[R.drawable.bg_pill]）+ on_primary_container
+     * 图标 tint 与文字；未选中 = 透明药丸占位（[R.drawable.bg_pill_off]）+ text_2。
      */
     fun select(activity: Activity, tab: Int) {
-        highlight(activity.findViewById(R.id.tabRecord), tab == TAB_RECORD)
-        highlight(activity.findViewById(R.id.tabAssistant), tab == TAB_ASSISTANT)
-        highlight(activity.findViewById(R.id.tabMine), tab == TAB_MINE)
+        applyHighlight(activity, R.id.pillRecord, R.id.iconRecord, R.id.labelRecord, tab == TAB_RECORD)
+        applyHighlight(activity, R.id.pillAssistant, R.id.iconAssistant, R.id.labelAssistant, tab == TAB_ASSISTANT)
+        applyHighlight(activity, R.id.pillMine, R.id.iconMine, R.id.labelMine, tab == TAB_MINE)
     }
 
     /**
@@ -152,12 +157,22 @@ internal object TabBar {
         }
     }
 
-    private fun highlight(tab: TextView, on: Boolean) {
-        tab.setTextColor(
-            ContextCompat.getColor(
-                tab.context,
-                if (on) R.color.text_1 else R.color.text_2,
-            ),
+    private fun applyHighlight(
+        activity: Activity,
+        pillId: Int,
+        iconId: Int,
+        labelId: Int,
+        on: Boolean,
+    ) {
+        activity.findViewById<View>(pillId).setBackgroundResource(
+            if (on) R.drawable.bg_pill else R.drawable.bg_pill_off,
         )
+        val tint = ContextCompat.getColor(
+            activity,
+            if (on) R.color.on_primary_container else R.color.text_2,
+        )
+        activity.findViewById<ImageView>(iconId)
+            .setColorFilter(tint, PorterDuff.Mode.SRC_IN)
+        activity.findViewById<TextView>(labelId).setTextColor(tint)
     }
 }
