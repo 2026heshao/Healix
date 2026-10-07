@@ -13,6 +13,7 @@ import com.healix.app.agent.LogProposal
 import com.healix.app.agent.PlanChangeProposal
 import com.healix.app.agent.ProfileUpdateProposal
 import com.healix.app.agent.RecordDeleteProposal
+import com.healix.app.agent.ReminderChangeProposal
 import com.healix.app.agent.SettingsUpdateProposal
 import com.healix.app.db.ChatMessageEntity
 import com.healix.app.db.EventEntity
@@ -140,7 +141,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
      * 确认 → [confirmProposal] 走对应写路径；取消 → [cancelProposal] 只回填 `approved=0`。
      *
      * 类型由 `LogProposal` 泛化为 `AgentProposal`（记录 / 计划 / 目标 / 删除四类草案；
-     * 2026-10-07 P1 再扩画像 / 设置，共六类）。
+     * 2026-10-07 P1 再扩画像 / 设置、P2 再扩提醒，共七类）。
      */
     private val _proposal = MutableSharedFlow<AgentProposal>(extraBufferCapacity = 4)
     val proposal: SharedFlow<AgentProposal> = _proposal.asSharedFlow()
@@ -459,6 +460,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
      * - [RecordDeleteProposal]：软删（[EventRepository.undo]），成功后置 [undo] 供退回；
      * - [ProfileUpdateProposal]：读改写 `settings` 的 `profile_*` 键（[ProfileWriter]）；
      * - [SettingsUpdateProposal]：写 `settings` 的体格 / 日界线 / 隐私键（[SettingsWriter]）。
+     * - [ReminderChangeProposal]：`reminders` 表增 / 改 / 删（[ReminderWriter]）。
      *
      * 成功一律由本地模板回一条助理消息（零 token，避免双反馈）；失败经 [proposalToast] 提示。
      */
@@ -471,6 +473,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 is RecordDeleteProposal -> confirmRecordDelete(proposal)
                 is ProfileUpdateProposal -> confirmProfileUpdate(proposal)
                 is SettingsUpdateProposal -> confirmSettingsUpdate(proposal)
+                is ReminderChangeProposal -> confirmReminderChange(proposal)
             }
         }
     }
@@ -615,6 +618,27 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             }
 
             is SettingsWriter.Result.Error -> _proposalToast.emit(result.message)
+
+            null -> _proposalToast.emit(app.getString(R.string.receipt_apply_failed))
+        }
+    }
+
+    /**
+     * 提醒改动确认（2026-10-07 P2）：写 `reminders` 表（新增 / 修改 / 删除）。
+     *
+     * 定位在 [ReminderWriter.apply] 内**重新读库**完成（拟稿到确认之间用户可能已在
+     * 设置页手改过），此处只负责落库与回执/提示的收尾。
+     */
+    private suspend fun confirmReminderChange(proposal: ReminderChangeProposal) {
+        val app = getApplication<Application>()
+        val result = runCatching { ReminderWriter.apply(db, proposal.op) }.getOrNull()
+        when (result) {
+            is ReminderWriter.Result.Ok -> {
+                markApproved(proposal.callUid, 1)
+                persistAssistant(app.getString(R.string.receipt_reminder_applied, result.summary))
+            }
+
+            is ReminderWriter.Result.Error -> _proposalToast.emit(result.message)
 
             null -> _proposalToast.emit(app.getString(R.string.receipt_apply_failed))
         }

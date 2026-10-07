@@ -27,6 +27,7 @@ import com.healix.app.ui.PlanChangeWriter
 import com.healix.app.ui.PlanGenerator
 import com.healix.app.ui.ProfileWriter
 import com.healix.app.ui.PromptMode
+import com.healix.app.ui.ReminderWriter
 import com.healix.app.ui.SettingsWriter
 import com.healix.app.ui.TodaySummary
 import com.healix.app.ui.TrainingPlanner
@@ -77,8 +78,8 @@ data class LogProposal(
  *
  * @property date 目标日期 `yyyy-MM-dd`（今日计划类；`set_training_rest` 落到本周）
  * @property op   机器可应用的改动载荷（**规范化 JSON 串**）。取值域见
- *                [PlanChangeWriter]：`op` ∈ {`set_rest` / `patch_item` / `set_note` /
- *                `clear_note` / `set_training_rest`}
+ *                [PlanChangeWriter]：`op` ∈ {`add_item` / `remove_item` / `set_rest` /
+ *                `patch_item` / `set_note` / `clear_note` / `set_training_rest`}
  */
 data class PlanChangeProposal(
     val date: String,
@@ -134,6 +135,23 @@ data class SettingsUpdateProposal(
     override val summary: String,
 ) : AgentProposal
 
+/**
+ * 拟改**周期性提醒**（`propose_reminder_change`，2026-10-07 P2）：
+ * 新增 / 修改（名字、周期、上次日期）/ 删除 `reminders` 表里的条目。
+ *
+ * 「提醒我每 3 个月洗牙」这类诉求的落点 —— 改完写进 `reminders`，
+ * 设置页与状态页下次刷新即看到。
+ *
+ * @property op 机器可应用的改动载荷（**规范化 JSON 串**，已过拟稿期校验）。取值域见
+ *                [ReminderWriter]：`{"op":"add"|"update"|"delete","name":"…",
+ *                "match_name":"…","interval_days":N,"last_done":"yyyy-MM-dd"}`
+ */
+data class ReminderChangeProposal(
+    val op: String,
+    override val callUid: String,
+    override val summary: String,
+) : AgentProposal
+
 /** Agent 循环的结果（调用方 ChatViewModel 按分支落库 / 回退）。 */
 internal sealed interface AgentOutcome {
 
@@ -145,7 +163,7 @@ internal sealed interface AgentOutcome {
     data class Done(val text: String, val toolsUsed: Int = 0) : AgentOutcome
 
     /**
-     * 已拟稿（记录 / 计划 / 目标 / 删除 / 画像 / 设置），等用户确认。
+     * 已拟稿（记录 / 计划 / 目标 / 删除 / 画像 / 设置 / 提醒），等用户确认。
      * text 是随附说明（落库为 assistant 消息）；proposal 是待确认草案（v0.3 B6 泛化）。
      */
     data class ProposalPending(val text: String, val proposal: AgentProposal) : AgentOutcome
@@ -176,6 +194,7 @@ data class ToolPermissions(
     val writeGoal: Boolean = true,
     val writeProfile: Boolean = true,
     val writeSettings: Boolean = true,
+    val writeReminder: Boolean = true,
 ) {
     companion object {
         /** 从 `settings` 读出当前权限（默认全开）。IO 读库，调用方在协程内。 */
@@ -188,6 +207,7 @@ data class ToolPermissions(
                 writeGoal = dao.get(SettingsKeys.AI_TOOL_WRITE_GOAL) != "false",
                 writeProfile = dao.get(SettingsKeys.AI_TOOL_WRITE_PROFILE) != "false",
                 writeSettings = dao.get(SettingsKeys.AI_TOOL_WRITE_SETTINGS) != "false",
+                writeReminder = dao.get(SettingsKeys.AI_TOOL_WRITE_REMINDER) != "false",
             )
         }
     }
@@ -210,14 +230,14 @@ internal data class ToolExecResult(
 
 /**
  * 工具注册表（S3–S4；v0.3 B5 加 3 只读 + B6 加 3 写；2026-10-07 P0 再补 4 只读 +
- * P1 再补 2 写 + P2 扩 `propose_plan_change` 动作域到 7 个）。
+ * P1 再补 2 写 + P2 扩 `propose_plan_change` 动作域到 7 个、再补 1 写）。
  *
  * 设计取舍：
  * - **只读为主**：query_events / query_stats / query_plan / query_goal /
  *   query_training_week / query_review / query_warnings / query_reminders /
  *   query_settings 只查不写；写入口（propose_log / propose_plan_change /
  *   propose_goal_change / propose_record_delete / propose_profile_update /
- *   propose_settings_update）**只产草稿**（见 [AgentProposal]）
+ *   propose_settings_update / propose_reminder_change）**只产草稿**（见 [AgentProposal]）
  *   —— 有界自主的边界在这里划死。
  * - **扩动作域 vs 加新工具**：同一实体上的新增动作（如计划条目的增删）扩 `action`
  *   枚举即可，不新建工具名 —— 多一个工具名就多一处 `NAME_*` / `defs` / `execute` /
@@ -261,6 +281,11 @@ internal object ToolRegistry {
     const val NAME_PROPOSE_PROFILE_UPDATE = "propose_profile_update"
     const val NAME_PROPOSE_SETTINGS_UPDATE = "propose_settings_update"
 
+    // ── P2 结构能力（2026-10-07，同上需求）──────────────────────────────
+    // 提醒是「增删改三态」的表，与字段 allowlist 型 writer 不同构 → 独立工具 + 独立开关。
+    // 计划条目的增删则扩 [NAME_PROPOSE_PLAN_CHANGE] 的 action 域（不新建工具名）。
+    const val NAME_PROPOSE_REMINDER_CHANGE = "propose_reminder_change"
+
     /** `yyyy-MM-dd` 校验正则（与 `query_events` 既有先例同款）。 */
     private val DATE_PATTERN = Regex("""\d{4}-\d{2}-\d{2}""")
 
@@ -272,6 +297,13 @@ internal object ToolRegistry {
         GoalMetrics.TRAIN_MINUTES_PER_WEEK,
         GoalMetrics.SLEEP_H,
         GoalMetrics.WATER_ML,
+    )
+
+    /** `propose_reminder_change` 的动作域 = [ReminderWriter] 的三个 op（**同源引用，不复制字面量**）。 */
+    private val REMINDER_ACTIONS = listOf(
+        ReminderWriter.ACTION_ADD,
+        ReminderWriter.ACTION_UPDATE,
+        ReminderWriter.ACTION_DELETE,
     )
 
     /**
@@ -653,6 +685,45 @@ internal object ToolRegistry {
                 ),
             ),
         ),
+        ToolDef(
+            function = ToolFunctionDef(
+                name = NAME_PROPOSE_REMINDER_CHANGE,
+                description = "拟增 / 改 / 删一条周期性提醒（草稿，需用户确认）：" +
+                    "体检 / 洗牙 / 配镜 / 疫苗这类「每隔一段时间做一次」的事。" +
+                    "action=add 给 name + interval_days（可选 last_done）；" +
+                    "action=update 给 match_name 定位，再给要改的 name / interval_days / last_done；" +
+                    "action=delete 给 match_name 定位。" +
+                    "定位用 match_name（名字子串，命中必须唯一）。" +
+                    "仅当用户明确要求加 / 改 / 删提醒时调用。" +
+                    "草稿经用户确认后才生效，你无权直接修改。",
+                parameters = mapOf(
+                    "type" to "object",
+                    "properties" to mapOf(
+                        "action" to mapOf(
+                            "type" to "string",
+                            "description" to "动作：add=新增；update=修改；delete=删除",
+                        ),
+                        "name" to mapOf(
+                            "type" to "string",
+                            "description" to "add 的新提醒名字 / update 的新名字（改名时才给）",
+                        ),
+                        "match_name" to mapOf(
+                            "type" to "string",
+                            "description" to "update / delete 要定位的提醒名字片段（子串、不区分大小写）",
+                        ),
+                        "interval_days" to mapOf(
+                            "type" to "integer",
+                            "description" to "周期天数（add 必给；update 改周期时才给）",
+                        ),
+                        "last_done" to mapOf(
+                            "type" to "string",
+                            "description" to "可选：上次做这件事的日期 yyyy-MM-dd（给了才按它起算下次到期）",
+                        ),
+                    ),
+                    "required" to listOf("action"),
+                ),
+            ),
+        ),
     )
 
     /**
@@ -726,6 +797,12 @@ internal object ToolRegistry {
                 denied(uid)
             } else {
                 proposeSettingsUpdate(context, args, uid)
+            }
+
+            NAME_PROPOSE_REMINDER_CHANGE -> if (!perms.writeReminder) {
+                denied(uid)
+            } else {
+                proposeReminderChange(context, args, uid)
             }
 
             else -> ToolExecResult("未知工具：$name", null, uid, false)
@@ -1193,6 +1270,50 @@ internal object ToolRegistry {
         }
     }
 
+    /**
+     * 拟一条提醒改动草稿（`propose_reminder_change`，2026-10-07 P2）。
+     *
+     * 与其余拟稿工具同构：**只校验、不写库**（[ReminderWriter.describe]），
+     * 定位不到 / 非法周期 / 撞名都在这里拦下、原样回错误文本；真正落库推迟到用户确认后的
+     * [ReminderWriter.apply]。
+     *
+     * `action` 与 [ReminderWriter] 的三个 op **同名同值**（`add` / `update` / `delete`），
+     * 此处直接透传、不另设映射表 —— 两层名字一旦分叉，就会出现"模型说 add、writer 认 add_"
+     * 这类只有端到端才暴露的错。
+     */
+    private suspend fun proposeReminderChange(
+        context: Context,
+        args: JSONObject,
+        uid: String,
+    ): ToolExecResult {
+        val action = strArg(args, "action")
+        if (action !in REMINDER_ACTIONS) {
+            return ToolExecResult(
+                "action 不合法，可选：${REMINDER_ACTIONS.joinToString(" / ")}。",
+                null, uid, true,
+            )
+        }
+        val op = JSONObject().put("op", action)
+        // 只在**模型真的给了**这个参数时才写入载荷 —— `has` 判定与 `ReminderWriter.update`
+        // 的「只有变了才重算到期日」是同一个契约（缺参 ≠ 传空串）。
+        if (args.has("name")) op.put("name", strArg(args, "name"))
+        if (args.has("match_name")) op.put("match_name", strArg(args, "match_name"))
+        if (args.has("interval_days")) op.put("interval_days", args.optInt("interval_days", 0))
+        if (args.has("last_done")) op.put("last_done", strArg(args, "last_done"))
+
+        val db = HealixApp.from(context).database
+        val opJson = op.toString()
+        return when (val r = ReminderWriter.describe(db, opJson)) {
+            is ReminderWriter.Result.Ok -> draft(
+                uid,
+                "已拟好提醒改动草稿：${r.summary}。等待用户确认。",
+                ReminderChangeProposal(op = opJson, callUid = uid, summary = r.summary),
+            )
+
+            is ReminderWriter.Result.Error -> ToolExecResult(r.message, null, uid, true)
+        }
+    }
+
     // ── 辅助 ────────────────────────────────────────────────────────
 
     /**
@@ -1538,6 +1659,7 @@ internal class HealthAgent(
                     if (perms.writeGoal) add("改目标")
                     if (perms.writeProfile) add("改画像 / 资源清单")
                     if (perms.writeSettings) add("改体格与设置")
+                    if (perms.writeReminder) add("增减提醒")
                 }
                 if (writeParts.isEmpty()) {
                     "你当前只有只读权限（可查询记录 / 计划 / 目标 / 复盘 / 提醒 / 设置等数据），" +
@@ -1596,8 +1718,9 @@ internal class HealthAgent(
          * 只在各自条目里写清"仅当用户**明确要求改**时才调，只是提到事实不算"——
          * 这与 propose_log 条目当年的修正同因（当时的教训：提到「记录」二字就乱调）。
          * 2026-10-07 P2 扩展：`propose_plan_change` 的 `action` 从 5 个扩到 7 个
-         * （加 `add_item` / `remove_item`）。仍是**同一条工具**、同一个权限开关、
-         * 同一个执行器 —— 只改条目清单那一行与工具 schema。意图判据段依旧逐字未动。
+         * （加 `add_item` / `remove_item`），并新增 `propose_reminder_change` 一条拟稿工具。
+         * 前者仍是**同一条工具**（只改条目清单那一行与工具 schema）；后者是独立工具
+         * （提醒是增删改三态，与字段 allowlist 型 writer 不同构）。意图判据段依旧逐字未动。
          * 末尾由 [toolsSection] 追加一行动态权限声明。
          */
         private const val TOOLS_SECTION = """
@@ -1624,6 +1747,7 @@ internal class HealthAgent(
 - propose_record_delete：拟删一条记录（day + keyword，命中须唯一）。草稿经用户确认后才删除。
 - propose_profile_update：拟改画像 / 资源清单。field 取 allergens（忌口过敏，op=add/remove）/ pain（疼痛部位，op=add/remove）/ scene（就餐场景，op=set）/ foods（手头食物，op=set）/ meds（常备药物，op=set）/ sport（运动条件，op=set）/ sleep_bed、sleep_wake（作息时刻，op=set 且值写 HH:mm）。用户明确要求改这些偏好 / 条件时才调。草稿经用户确认后才生效。
 - propose_settings_update：拟改体格与运行设置。field 取 height（cm 整数）/ weight（kg）/ age（整数岁）/ activity（只能 1.2 / 1.375 / 1.55 / 1.725）/ day_start（0-23 整数小时）/ hide_kcal、hide_weight（true / false）。用户明确要求改时才调。草稿经用户确认后才生效。
+- propose_reminder_change：拟增 / 改 / 删一条周期性提醒（体检 / 洗牙 / 配镜 / 疫苗）。action=add 给 name + interval_days（可选 last_done）；action=update / delete 先给 match_name 定位（名字子串，命中须唯一），update 再给要改的 name / interval_days / last_done。用户明确要求加 / 改 / 删提醒时才调。草稿经用户确认后才生效。
 回答里引用的数字只能来自记录原文或工具返回。
 """
 

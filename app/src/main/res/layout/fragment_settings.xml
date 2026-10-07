@@ -426,6 +426,14 @@
                     layout="@layout/row_setting_switch"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content" />
+
+                <!-- 写权限：提醒（P2）：新增 / 修改（名字、周期、上次日期）/ 删除
+                     周期性提醒（体检 / 洗牙 / 配镜 / 疫苗）。 -->
+                <include
+                    android:id="@+id/rowAiToolWriteReminder"
+                    layout="@layout/row_setting_switch"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
             </LinearLayout>
 
             <!-- ══ 提醒 ★v4（规范 9.7 ③）══

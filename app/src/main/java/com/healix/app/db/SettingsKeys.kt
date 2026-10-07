@@ -210,6 +210,15 @@ object SettingsKeys {
      */
     const val AI_TOOL_WRITE_SETTINGS = "ai_tool_write_settings"
 
+    /**
+     * 写工具权限：**拟改周期性提醒**（`propose_reminder_change`，2026-10-07 P2）。默认开。
+     *
+     * 覆盖 `reminders` 表的新增 / 修改（名字、周期、上次日期）/ 删除。单独成键的理由：
+     * 提醒是"日程性"数据，用户可能愿意让 AI 记忌口，但不愿让 AI 自己排「每 3 个月洗牙」。
+     * 判定口径：`!= "false"`。
+     */
+    const val AI_TOOL_WRITE_REMINDER = "ai_tool_write_reminder"
+
     // ── 目标组的一次性提示（设计规范系统 9.7 / 921 行） ────────────────
     /**
      * 目标组「依据提示」是否已展示过。`"true"` / `"false"`，默认 `false`（未展示）。

@@ -90,6 +90,8 @@ data class SettingsValues(
     val aiToolWriteProfile: Boolean = true,
     /** 写工具：拟改体格与运行设置（[SettingsKeys.AI_TOOL_WRITE_SETTINGS]，P1，默认开）。 */
     val aiToolWriteSettings: Boolean = true,
+    /** 写工具：拟增减提醒（[SettingsKeys.AI_TOOL_WRITE_REMINDER]，P2，默认开）。 */
+    val aiToolWriteReminder: Boolean = true,
     /**
      * 最近一条 events(type=body) 记录的体重（F5「当前体重」行）。
      * 0 = 从未记录，UI 显示「未记录」。读的是 events 表，不是 settings。
@@ -343,6 +345,7 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
             aiToolWriteGoal = all[SettingsKeys.AI_TOOL_WRITE_GOAL] != "false",
             aiToolWriteProfile = all[SettingsKeys.AI_TOOL_WRITE_PROFILE] != "false",
             aiToolWriteSettings = all[SettingsKeys.AI_TOOL_WRITE_SETTINGS] != "false",
+            aiToolWriteReminder = all[SettingsKeys.AI_TOOL_WRITE_REMINDER] != "false",
             latestWeightKg = latestBody?.weightKg ?: 0.0,
             latestWeightDayKey = latestBody?.dayKey.orEmpty(),
             profileAllergens = parseProfileList(all[SettingsKeys.PROFILE_ALLERGENS]),

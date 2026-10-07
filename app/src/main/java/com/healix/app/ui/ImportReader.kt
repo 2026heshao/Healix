@@ -103,7 +103,6 @@ internal object ImportReader {
     private const val MAX_TEXT_LEN = 200
     private const val MAX_NAME_LEN = 60
     private const val MAX_KCAL = 20000
-    private const val MAX_INTERVAL_DAYS = 3650
     private const val MAX_WEIGHT_KG = 500.0
     private const val MAX_SLEEP_H = 24.0
 
@@ -432,7 +431,7 @@ internal object ImportReader {
                         ReminderEntity(
                             name = name,
                             intervalDays = o.optInt("interval_days", 1)
-                                .coerceIn(1, MAX_INTERVAL_DAYS),
+                                .coerceIn(1, ReminderEntity.MAX_INTERVAL_DAYS),
                             lastDoneAt = o.optionalLong("last_done_at"),
                             nextDueAt = o.optLong("next_due_at", 0L),
                             enabled = if (o.optInt("enabled", 1) != 0) 1 else 0,

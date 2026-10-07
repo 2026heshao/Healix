@@ -108,6 +108,10 @@ class SettingsFragment : Fragment() {
         CompoundButton.OnCheckedChangeListener { _, _ ->
             vm.toggleAiSwitch(SettingsKeys.AI_TOOL_WRITE_SETTINGS)
         }
+    private val aiWriteReminderListener: CompoundButton.OnCheckedChangeListener =
+        CompoundButton.OnCheckedChangeListener { _, _ ->
+            vm.toggleAiSwitch(SettingsKeys.AI_TOOL_WRITE_REMINDER)
+        }
 
     /** 左滑删除（11.3 / v8 需求 4）：目标行与提醒行共用 1 个实例 → 全局单开。 */
     private lateinit var swipe: SwipeController
@@ -227,6 +231,11 @@ class SettingsFragment : Fragment() {
             binding.rowAiToolWriteSettings,
             R.string.ai_tool_write_settings,
             aiWriteSettingsListener,
+        )
+        setupAiSwitch(
+            binding.rowAiToolWriteReminder,
+            R.string.ai_tool_write_reminder,
+            aiWriteReminderListener,
         )
 
         // ── 提醒（reminders 表）──────────────────────────────────
@@ -359,6 +368,11 @@ class SettingsFragment : Fragment() {
                         v.aiToolWriteSettings,
                         aiWriteSettingsListener,
                     )
+                    bindSwitch(
+                        binding.rowAiToolWriteReminder.switchWidget,
+                        v.aiToolWriteReminder,
+                        aiWriteReminderListener,
+                    )
                     // 写权限各行仅工具总开关开启时显示（关掉总开关 = 无工具，写权限无意义）。
                     val writeVisible = if (v.aiToolsEnabled) View.VISIBLE else View.GONE
                     binding.rowAiToolWritePlan.root.visibility = writeVisible
@@ -366,6 +380,7 @@ class SettingsFragment : Fragment() {
                     binding.rowAiToolWriteGoal.root.visibility = writeVisible
                     binding.rowAiToolWriteProfile.root.visibility = writeVisible
                     binding.rowAiToolWriteSettings.root.visibility = writeVisible
+                    binding.rowAiToolWriteReminder.root.visibility = writeVisible
                 }
             }
         }

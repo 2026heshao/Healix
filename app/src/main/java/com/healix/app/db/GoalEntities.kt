@@ -64,7 +64,22 @@ data class ReminderEntity(
     @ColumnInfo(name = "next_due_at") val nextDueAt: Long,
     @ColumnInfo(name = "enabled") val enabled: Int = 1,
     @ColumnInfo(name = "created_at") val createdAt: Long = 0,
-)
+) {
+    companion object {
+        /**
+         * `interval_days` 的**合法上界**（约 10 年）—— 唯一事实来源。
+         *
+         * 两个使用点：写入侧 `ReminderWriter`（AI 拟稿的周期校验）与导入侧 `ImportReader`
+         * （备份里 `interval_days` 的 `coerceIn` 上界）。两处**必须同口径**：否则手改一份备份
+         * 就能塞进一个写入侧会拒绝的值，同一列出现两种"合法"。
+         *
+         * 下界（1 天）无歧义，不单列常量。
+         *
+         * 加 companion 不改表结构 → 无需升 Room version。
+         */
+        const val MAX_INTERVAL_DAYS = 3650
+    }
+}
 
 /** goals.metric 的取值常量（唯一事实来源，其它文件引用这里，不要重定义）。 */
 object GoalMetrics {
