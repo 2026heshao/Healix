@@ -301,7 +301,15 @@ class RecordFragment : Fragment() {
         if (g?.set == true) {
             openGoalEditor(g)
         } else {
-            NavHost.open(requireContext(), SettingsFragment(), NavHost.PAGE_SETTINGS)
+            // focusGoal = true → 设置页**一步直达「目标」栏**，不再让用户自己下滑。
+            // 与「个人信息页 → 我的目标」两条入口共用同一参数（ARG_FOCUS_GOAL）：
+            // keep-alive 下 arguments 不同的同名页会先 remove 再 add（见 NavHost.open
+            // 复用规则），命中复用则由 SettingsFragment.onHiddenChanged 补做滚动。
+            NavHost.open(
+                requireContext(),
+                SettingsFragment.newInstance(focusGoal = true),
+                NavHost.PAGE_SETTINGS,
+            )
         }
     }
 
@@ -699,17 +707,25 @@ class RecordFragment : Fragment() {
     }
 
     /**
-     * 计划提示条（B2 后写入 header）：缺口为 0 时改为「今日已达标」；
-     * 隐藏热量数字时整条不显示（PRD §14.3，随 hideKcal collector 触发）。
+     * 计划提示条（B2 后写入 header）—— **记录页通往「计划 / 复盘」二级页的唯一入口**。
+     *
+     * 恒可见：旧版在 HIDE_KCAL 打开时把整条收起，计划页在记录页就彻底没有入口了，
+     * 只能绕「状态详情 → 运动 → 查看本周训练计划」才找得到（已实测为「找不到入口」）。
+     * PRD §14.3 的隐私口径是「不显示热量数字 / 该块不显示」，不等于「连入口一起藏」——
+     * 故隐藏热量时改为不带数字的一句「查看今日建议 ›」，入口保留、数字不泄露。
+     *
+     * 缺口为 0 时同样补上箭头后缀：只写「今日已达标」是状态陈述，用户看不出它可点、
+     * 更看不出它通往计划页（这是入口"存在但找不到"的另一半原因）。
      */
     private fun renderPlanBar() {
         val h = headerBinding ?: return
-        h.planBar.text = if (lastSummary.gap > 0) {
-            getString(R.string.plan_gap, lastSummary.gap) + "　" + getString(R.string.view_advice)
-        } else {
-            getString(R.string.plan_reached)
+        val enter = getString(R.string.view_advice)
+        h.planBar.text = when {
+            lastHideKcal -> enter
+            lastSummary.gap > 0 -> getString(R.string.plan_gap, lastSummary.gap) + "　" + enter
+            else -> getString(R.string.plan_reached) + "　" + enter
         }
-        h.planBar.visibility = if (lastHideKcal) View.GONE else View.VISIBLE
+        h.planBar.visibility = View.VISIBLE
     }
 
     /** 监督提示条（B2 后写入 header）：今日无记录时出现；-1 = Flow 尚未到达，跳过。 */

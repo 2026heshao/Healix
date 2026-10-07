@@ -102,8 +102,16 @@
 
     <!-- 卡片（新增）：surface 实底 + 16dp 圆角，阴影靠 elevation（elev_1）。
          左右 margin = screen_margin。 -->
+    <!--
+        分组卡。clipToOutline 是必需项，不是可选装饰：
+        `item_swipe_row.xml` 的滑动内容层（swipeItem）用不透明 @color/surface 直角底
+        盖住下层删除位，而它正是目标栏卡片的首个子项 —— 不裁剪时会把卡片 16dp 圆角的
+        上半边盖成直角（旧版真实缺陷：目标栏上侧没圆角，下侧正常）。裁到 bg_card 的
+        轮廓后，首行与末行都随卡片圆角收边。
+    -->
     <style name="Widget.Healix.Card" parent="">
         <item name="android:background">@drawable/bg_card</item>
+        <item name="android:clipToOutline">true</item>
         <item name="android:elevation">@dimen/card_elev_1</item>
         <item name="android:padding">@dimen/card_padding</item>
         <item name="android:layout_marginStart">@dimen/screen_margin</item>

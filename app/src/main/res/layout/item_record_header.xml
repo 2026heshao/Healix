@@ -17,6 +17,13 @@
          两态互斥、恒定单行 48dp；
       ④ 主目标行 / 计划提示条 / 监督提示条**原样保留**（功能不删）。
 
+    ★留白不变量（指标 chip 行上下对称 12dp / 12dp）：
+      上侧 12dp 由 metricsRow 自己的 paddingTop 承担，下侧 12dp 由 goalDivider 的
+      marginTop 承担，heroCard **不贡献下边距**（0dp）。三者共同保证四种显隐组合
+      （有/无 Hero × 有/无 chip 行）下 chip 行与相邻分隔线的间距恒为 12dp ——
+      Hero 卡被隐藏（HIDE_KCAL 或主目标未设）时 chip 行直接顶到固定分隔线上，
+      是旧版的真实缺陷（上紧下松）。改这几处间距前先回来读这段。
+
     id 与抽离前保持兼容：RecordFragment 经 ItemRecordHeaderBinding 以
     `headerBinding.xxx` 访问。
 -->
@@ -66,7 +73,7 @@
         android:layout_marginStart="@dimen/screen_margin"
         android:layout_marginEnd="@dimen/screen_margin"
         android:layout_marginTop="4dp"
-        android:layout_marginBottom="12dp"
+        android:layout_marginBottom="0dp"
         android:background="@drawable/bg_hero_card"
         android:clickable="true"
         android:elevation="@dimen/card_elev_1"
@@ -173,10 +180,12 @@
     <LinearLayout
         android:id="@+id/metricsRow"
         android:layout_width="match_parent"
-        android:layout_height="@dimen/metric_chip_height"
+        android:layout_height="wrap_content"
         android:gravity="center_vertical"
+        android:minHeight="@dimen/metric_chip_height"
         android:orientation="horizontal"
         android:paddingStart="@dimen/screen_margin"
+        android:paddingTop="12dp"
         android:paddingEnd="@dimen/screen_margin">
 
         <LinearLayout
@@ -393,7 +402,11 @@
             android:text="@string/goal_adjust" />
     </LinearLayout>
 
-    <!-- 计划提示条：整行可点（缺口 0 时改「今日已达标」；隐藏热量时整条不显示） -->
+    <!--
+        计划提示条：**记录页通往「计划 / 复盘」二级页的唯一入口**，整行可点、恒可见。
+        隐藏热量（HIDE_KCAL）时只摘掉 kcal 数字，入口本身保留（文案与显隐见
+        RecordFragment.renderPlanBar —— 旧版在此处整条 GONE，导致入口随隐私开关消失）。
+    -->
     <TextView
         android:id="@+id/planBar"
         style="@style/Text.Link"

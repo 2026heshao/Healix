@@ -214,19 +214,31 @@
         android:text="@string/disclaimer"
         android:textSize="12sp" />
 
-    <!-- 输 入 区：与主界面同规格。v6：bg_input_bar 已是 surface 圆角浮卡；
-         高度改用 input_field_height(48dp)，抬升到全局 tabbar 之上 -->
+    <!--
+        输 入 区：**与记录页逐字同规格**（v6 输入条浮卡化 + 原型 `.inputbar` / `.field`）。
+        几何口径（两页必须一致，改一处必同步另一处 fragment_record.xml 的同名块）：
+          · 卡片外距 = marginStart screen_margin(20dp) / marginEnd 12dp
+            （对应原型 `.inputbar{padding:10px 12px 10px 20px}`，左侧留白大于右侧）；
+          · 卡片内距 = paddingStart 16dp / paddingEnd 6dp
+            （对应原型 `.field{padding:0 6px 0 16px}`）；
+          · 高度 = input_field_height(48dp)；16dp 圆角由 bg_input_bar 提供。
+        ⚠️ 历史缺陷（2026-10-07 修）：本页此前是 match_parent 满宽 + padding 20/12
+        ——把卡片外距当内距用，卡片铺满整屏；而记录页 v6 已按原型改成浮卡，
+        两页并排时记录页输入条窄 32dp。此处补齐外距，两页卡片宽度对齐。
+    -->
     <LinearLayout
         android:id="@+id/inputBar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:layout_marginStart="@dimen/screen_margin"
+        android:layout_marginEnd="12dp"
         android:layout_marginBottom="@dimen/tab_raise"
         android:minHeight="@dimen/input_field_height"
         android:background="@drawable/bg_input_bar"
         android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:paddingStart="@dimen/screen_margin"
-        android:paddingEnd="12dp">
+        android:paddingStart="16dp"
+        android:paddingEnd="6dp">
 
         <EditText
             android:id="@+id/input"

@@ -142,6 +142,11 @@
         input_field_height(48dp)，左右留 screen_margin / 12dp 边距，不再有顶线。
         marginBottom = tab_raise：抬升到全局 tabbar 之上，不被全局导航遮挡（11.6）。
         IME 弹出时由 TabBar.bindImeGuard 把这个 margin 归零，输入条贴住键盘顶。
+
+        ★本块的几何（外距 20/12 + 内距 16/6 + 高 48dp）与助理页 fragment_assistant.xml
+          的同名 inputBar **必须逐字一致** —— 两页输入条并排出现，任何一侧单改都会
+          立刻表现为"两页输入框长度不一样"（2026-10-07 修过一次：助理页当时是满宽 +
+          把外距当内距用，卡片宽 32dp）。改这里请同步另一处。
     -->
     <LinearLayout
         android:id="@+id/inputBar"

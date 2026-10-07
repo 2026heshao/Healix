@@ -1248,7 +1248,11 @@ class SettingsFragment : Fragment() {
     companion object {
         const val MASK = "••••••••"
 
-        /** 跳转参数：true = 进入后自动滚动到「目标」栏（个人信息页「我的目标」入口）。 */
+        /**
+         * 跳转参数：true = 进入后自动滚动到「目标」栏。
+         * 两个入口共用本参数：[RecordFragment] 主目标行的「去设置 ›」、
+         * [PersonalInfoFragment] 的「我的目标」。
+         */
         const val ARG_FOCUS_GOAL = "focus_goal"
 
         /** 主目标自定义文本上限（与 GoalSetupSheet 自定义输入一致，80 字）。 */
