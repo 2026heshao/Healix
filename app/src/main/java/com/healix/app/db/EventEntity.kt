@@ -98,4 +98,17 @@ data class EventEntity(
     /** 软删除。NULL 表示未删 */
     @ColumnInfo(name = "deleted_at")
     val deletedAt: Long? = null,
-)
+) {
+    companion object {
+        /**
+         * `type` 的「其他」档 —— **全项目唯一来源**（取值集见本类 `type` 字段的 KDoc）。
+         *
+         * 两个使用点：`ImportReader`（备份里缺 `type` 时的兜底）与
+         * `PlanGenerator.todayOccupiedItems`（挑「今天临时记下的事」当已占用时段）。
+         *
+         * 收敛动因：`ImportReader` 原先的私有副本 KDoc 写着「有第二处时再收敛」，
+         * 第二处已在 2026-10-07 出现（计划链的时间冲突避让）。
+         */
+        const val TYPE_OTHER = "other"
+    }
+}

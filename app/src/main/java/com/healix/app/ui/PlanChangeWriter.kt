@@ -24,15 +24,15 @@ import org.json.JSONObject
  * ══════════════════════════════════════════════════════════════════════════
  * 所有操作都走「读原 JSON → 就地改 → 整份写回」，**绝不整份重建**：根对象里
  * `version` / `generated_at` / `source` 等未知字段原样保留（`JSONObject` 只改我们
- * 显式 put 的键）。目标结构（亲读 `PlanGenerator.kt:807-830` 核实）：
+ * 显式 put 的键）。目标结构（亲读 `PlanGenerator.kt:880-903` 核实）：
  *
  * ```
  * plan_json     = { version, generated_at, source, items:[ <Item> ], note }
  * <Item>        = { day, time, slot, type, title, detail, kcal, duration, why }
  * ```
- * - `items[].type` 的**实际取值域**（`PlanGenerator.kt` prompt L70 + `itemsOf` 兜底）=
+ * - `items[].type` 的**实际取值域**（`PlanGenerator.kt` prompt L83 + `itemsOf` 兜底）=
  *   `{ meal, exercise, sleep, habit }` —— **没有「休息」这一档**。App 里「休息 / 恢复」
- *   一向落在 `sleep`（见 `buildTimeline` 的「恢复：补水 + 早睡」与 `tailItem`），
+ *   一向落在 `sleep`（见 `buildTimeline` 的「恢复：补水 + 早睡」与 `exerciseItem`），
  *   且 `TimelineEntry` 的 `canLog = type∈{meal,exercise}` → 休息条目天然不可「记一笔」。
  *   故 [OP_SET_REST] 的固定补丁把 `type` 归一到 `sleep`。
  *

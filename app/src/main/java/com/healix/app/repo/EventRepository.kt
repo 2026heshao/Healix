@@ -702,8 +702,9 @@ class EventRepository(private val context: Context) {
      * 调用点全部用命名参数，避免顺序错位。
      *
      * @param promptVer 本次调用实际使用的 prompt 版本号。**由调用方传入** ——
-     *   抽取 = `PROMPT_VER`(v2) / 计划 = `PROMPT_VER_PLAN`(v1) / 训练 =
-     *   `PROMPT_VER_TRAINING`(v1) / 对话 = `PROMPT_VER_CHAT` / 测试 = `PROMPT_VER_NONE`。
+     *   抽取 = `PROMPT_VER` / 计划 = `PROMPT_VER_PLAN` / 训练 =
+     *   `PROMPT_VER_TRAINING` / 对话 = `PROMPT_VER_CHAT` / 测试 = `PROMPT_VER_NONE`。
+     *   （各常量的当前取值以定义处为准，此处刻意不复制值 —— 复制过的版本号会随迭代腐坏。）
      *   恒定写 `PROMPT_VER` 会让 `llm_calls.prompt_ver` 列语义失真（"哪版 prompt 效果更好"
      *   的归因会得出错误结论）。四个公开 wrapper 各自默认 `PROMPT_VER` 保持向后兼容。
      *   注：本类**不 import `ui` 包**（避免 repo → ui 反向依赖），故版本值一律由调用方透传。
@@ -962,7 +963,7 @@ const val PURPOSE_ASK = "ask"
 /**
  * 无 system prompt 的链路（设置页测试 / 复盘）的 **prompt 版本占位**。
  *
- * 这几条链路没有 prompt 版本概念，与其恒定伪造 `PROMPT_VER`(v2) 污染埋点，
+ * 这几条链路没有 prompt 版本概念，与其恒定伪造 `PROMPT_VER` 污染埋点，
  * 不如显式记 `"none"` —— 归因时一眼可辨"该行无 prompt 版本"。
  */
 const val PROMPT_VER_NONE = "none"

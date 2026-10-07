@@ -146,13 +146,6 @@ internal object ImportReader {
     private const val FIELD_WEIGHT_KG = "weight_kg"
 
     /**
-     * 事件类型的兜底值。
-     * 取值集由 `EventEntity.type` 的 KDoc 定义（meal|exercise|body|sleep|illness|other）。
-     * 没提成公共常量是因为全项目没有第二处需要它 —— 有第二处时再收敛。
-     */
-    private const val EVENT_TYPE_OTHER = "other"
-
-    /**
      * `parse_status` 的合法取值（离线队列语义，**不是错误码**）。
      *
      * 取值本身来自唯一事实来源 `EventRepository` 的 companion 常量，
@@ -533,7 +526,7 @@ internal object ImportReader {
             // 备份里缺 day_key（理论上不会，导出必带）时用本机日界线重算兜底
             dayKey = o.optString("day_key").takeIf { isDayKey(it) } ?: dayKeyOf(ts, dayStart),
             rawText = o.optString("raw_text").take(MAX_RAW_LEN),
-            type = o.optString("type").ifBlank { EVENT_TYPE_OTHER }.take(16),
+            type = o.optString("type").ifBlank { EventEntity.TYPE_OTHER }.take(16),
             timeHint = o.optString("time_hint").take(32),
             foods = o.optString("foods").ifBlank { "[]" },
             exercise = o.optString("exercise").take(MAX_TEXT_LEN),

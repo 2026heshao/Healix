@@ -3,6 +3,7 @@ package com.healix.app.ui
 import android.content.Context
 import com.healix.app.HealixApp
 import com.healix.app.db.DailyPlanEntity
+import com.healix.app.db.EventEntity
 import com.healix.app.db.GoalDefaults
 import com.healix.app.db.GoalMetrics
 import com.healix.app.db.SettingsKeys
@@ -34,8 +35,23 @@ import java.util.Locale
  *
  * v1 → v2（问题 3 方案 C）：同一次调用顺带产出**明天**的 4 条粗颗粒锚点
  * （早/午/晚/训练），items 增 `day` / `slot` 两个字段。
+ *
+ * v2 → v3（v6 走查）：计划从「以饮食为主」改为**饮食 + 运动双线** ——
+ * 今天至少 1 条运动项（例外只有生病 / 疼痛），强度按热量缺口分两档
+ * （缺口大 → 低强度短时；缺口小或已达标 → 按本周训练计划原安排），
+ * 且运动项的 detail 必须给动作与组次（禁止"运动 30 分钟"这类空描述）。
+ *
+ * v3 → v4（v6 走查 · 时间冲突）：允许用户把今天的临时安排（「下午 2 点开会」）
+ * 当作 `type = other` 的一条记录写下来 —— [buildUserContext] 会把它们作为
+ * **已占用时段**喂进来，prompt 硬规则 2 要求时间轴避开。
+ *
+ * ⚠️ 本地兜底 [buildTimeline] / [exerciseItem] 与本次 prompt 改动**同口径**：
+ *    否则断网 / 限流降级时用户看到的时间轴又会退回纯饮食（两条路径行为分叉）。
+ *
+ * ⚠️ 但**占用时段只有 AI 路径认**：兜底是固定时刻的纯模板，无法从「下午 2 点」这类
+ *    中文原文里可靠解析出时刻，故降级路径不避让 —— 这是刻意的已知限制，不是遗漏。
  */
-const val PROMPT_VER_PLAN: String = "v2"
+const val PROMPT_VER_PLAN: String = "v4"
 
 /**
  * 今日计划 system prompt（设计规范 §4.3 / 增量设计 §4.4）。
@@ -47,19 +63,25 @@ const val PROMPT_VER_PLAN: String = "v2"
  *    因此 `PROMPT_PLAN` / `PROMPT_VER_PLAN` **只存在于本文件**。
  */
 const val PROMPT_PLAN: String = """你是 Healix 的计划助手。围绕用户的目标与当下真实数据，把**今天（从现在到睡前）**要做的事排成一条时间轴，并顺带给**明天**留下粗颗粒锚点。
+今天的计划必须**饮食与运动两条线都有**：吃什么、怎么动，两项都要给出能照着做的具体内容。
 
 硬规则（逐条遵守，冲突时序号小的优先）：
 1. 只排「现在之后」的时段：已经过去的时刻不再安排（今天各项的 time 必须晚于"现在是 HH:mm"）。
-2. 结合「热量缺口」安排饮食：缺口大就把正餐+加餐都排上并给具体数量；已达标则不再堆餐，改排训练或恢复。
-3. 若今天有生病记录 → 全天改为恢复安排（清淡饮食 + 补水 + 早睡），不排任何训练。
-4. 若今日睡眠不足 6 小时或近 3 日睡眠连续偏低 → 训练降强度（减量或改轻量有氧），并优先排早睡。
-5. 有疼痛/不适部位 → 运动建议必须避开相关动作，优先恢复性建议（睡眠、补水）。有忌口/过敏 → 饮食建议必须绕开。
-6. 训练只在热量已达标或缺口很小时安排；同一天最多一条训练项，强度参考本周训练计划里"今天"那条。
-7. 禁止输出 1RM 估算、力量总分、综合评分或任何形式的打分；禁止给出药物剂量。
-8. 今天的每一项都要有明确的 time（HH:mm 24 小时制）；按时间从早到晚排序，最多 6 项。
-9. 明天只给 4 条**粗颗粒锚点**：早 / 午 / 晚 三餐 + 训练；这 4 条 day 一律写 2，time 一律写空字符串。
-10. 明天的训练锚点参考本周训练计划里"明天"那条；若那一句给的是"无"，说明明天休息或本周计划还没生成 → 写恢复/休息，不要硬排力量训练；今天有生病记录或有疼痛/不适部位时，明天的训练锚点同样写恢复。
-11. 明天是"先把位置留出来"：内容给常见分量即可，不必精确，也不要编造明天才会有的数据（明天的体重、睡眠、摄入都还没有）。
+2. 「今天已记录的其他事项」是用户今天临时记下的、不属于吃喝 / 运动 / 身体指标 / 睡眠的事情。其中**能落在具体时段上**的（如「下午 2 点开会」「三点去接孩子」「四点看医生」）一律视为**已占用时段**：计划里任何条目都不得与之重叠，必要时把相邻条目前后挪开（例如 14:00 开会 → 把 14:00 前后一小时的条目挪到 13:00 之前或 15:30 之后）；**只是事实陈述**的（如「没运动」「今天很累」）不含时段，忽略即可。上下文里没有这一段时，本条忽略。
+3. 今天的计划里**至少要有 1 条运动项**（type = exercise）；唯一的例外是第 6、7 条（生病、疼痛/不适）。
+4. 结合「热量缺口」安排饮食：缺口大就把正餐+加餐都排上并给具体数量；已达标则不再堆餐，把篇幅让给运动。
+5. 运动强度按缺口分两档（与第 4 条联动）：
+   - 缺口 > 600 kcal → 排**低强度、短时**的日常活动（餐后快走 / 拉伸 / 慢走，10-20 分钟），不排高强度力量训练；
+   - 缺口 ≤ 600 kcal（含已达标）→ 按「本周训练计划里今天那条」的**原安排**执行（动作、组数、次数照抄，不自己换动作）。
+6. 若今天有生病记录 → 全天改为恢复安排（清淡饮食 + 补水 + 早睡），**不排任何运动项**。
+7. 若今日睡眠不足 6 小时或近 3 日睡眠连续偏低 → 运动降强度（改低强度有氧或拉伸），并优先排早睡。
+8. 有疼痛/不适部位 → 运动建议必须避开相关动作，优先恢复性建议（睡眠、补水）。有忌口/过敏 → 饮食建议必须绕开。
+9. 运动项最多 2 条（1 条主项 + 至多 1 条散步/拉伸）；今天各项合计最多 6 条，按时间从早到晚排序。
+10. 禁止输出 1RM 估算、力量总分、综合评分或任何形式的打分；禁止给出药物剂量。
+11. 今天的每一项都要有明确的 time（HH:mm 24 小时制）。
+12. 明天只给 4 条**粗颗粒锚点**：早 / 午 / 晚 三餐 + 训练；这 4 条 day 一律写 2，time 一律写空字符串。
+13. 明天的训练锚点参考本周训练计划里"明天"那条；若那一句给的是"无"，说明明天休息或本周计划还没生成 → 写恢复/休息，不要硬排力量训练；今天有生病记录或有疼痛/不适部位时，明天的训练锚点同样写恢复。
+14. 明天是"先把位置留出来"：内容给常见分量即可，不必精确，也不要编造明天才会有的数据（明天的体重、睡眠、摄入都还没有）。
 
 输出要求：
 - 只输出 JSON，不要任何解释文字，不要 markdown 代码围栏。
@@ -68,12 +90,15 @@ const val PROMPT_PLAN: String = """你是 Healix 的计划助手。围绕用户�
 - slot：只对 day=2 有意义，只能取 morning（早）/ noon（午）/ evening（晚）/ train（训练）之一；day=1 的项写空字符串。
 - time：day=1 必填 HH:mm；day=2 一律空字符串（锚点不显示具体时刻）。
 - type ∈ {meal, exercise, sleep, habit}；sleep/habit 项 kcal 写 0，duration 可写"——"；day=2 的项 kcal 也一律写 0。
-- title 简短（day=1 如"晚餐""力量训练""睡觉"；day=2 写内容本身，如"燕麦牛奶 + 鸡蛋"）；
+- **运动项的 detail 必须写清「怎么做」**：动作名 + 组数×次数（力量），或 时长/距离（有氧）。
+  正面例子："深蹲 4×8 / 卧推 4×8"、"快走 30 分钟（约 3 公里）"、"全身拉伸 10 分钟"。
+  禁止："运动 30 分钟"、"适当锻炼" 这类没有内容的写法 —— 等于没排。
+- title 简短（day=1 如"晚餐""力量训练""快走""睡觉"；day=2 写内容本身，如"燕麦牛奶 + 鸡蛋"）；
   detail 给具体怎么做（数量/动作/时长）；duration 写"约 N 分钟"；why 用一句话说明为什么这样安排。
-- note 一句话总结今天的重点。
+- note 一句话总结今天的重点，饮食与运动都要提到。
 
 输出格式固定为：
-{"items": [{"day": 1, "time": "12:30", "slot": "", "type": "meal", "title": "午餐", "detail": "米饭 200g + 鸡胸 150g + 一份绿叶菜", "kcal": 650, "duration": "约 20 分钟", "why": "还差 1200 kcal，先补一半"}, {"day": 1, "time": "18:30", "slot": "", "type": "exercise", "title": "力量训练", "detail": "深蹲 4×8 / 卧推 4×8", "kcal": 200, "duration": "约 30 分钟", "why": "午餐后 6 小时，状态正好"}, {"day": 2, "time": "", "slot": "morning", "type": "meal", "title": "燕麦牛奶 + 鸡蛋", "detail": "燕麦 60g + 牛奶 300ml + 鸡蛋 2 个", "kcal": 0, "duration": "约 15 分钟", "why": "先占个位置，明天按当时的缺口再调"}, {"day": 2, "time": "", "slot": "noon", "type": "meal", "title": "米饭 + 鸡胸 + 绿叶菜", "detail": "米饭 200g + 鸡胸 150g + 一份绿叶菜", "kcal": 0, "duration": "约 20 分钟", "why": "先占个位置，明天按当时的缺口再调"}, {"day": 2, "time": "", "slot": "evening", "type": "meal", "title": "面食 + 牛肉", "detail": "面食一份 + 牛肉 120g + 一份蔬菜", "kcal": 0, "duration": "约 20 分钟", "why": "先占个位置，明天按当时的缺口再调"}, {"day": 2, "time": "", "slot": "train", "type": "exercise", "title": "深蹲 4×8 / 卧推 4×8", "detail": "按本周计划明天的安排执行", "kcal": 0, "duration": "约 30 分钟", "why": "明天是训练日，先留出位置"}], "note": "今天先补足蛋白，晚上安排一次力量；明天三餐与训练已占位"}
+{"items": [{"day": 1, "time": "12:30", "slot": "", "type": "meal", "title": "午餐", "detail": "米饭 200g + 鸡胸 150g + 一份绿叶菜", "kcal": 650, "duration": "约 20 分钟", "why": "还差 1200 kcal，先补一半"}, {"day": 1, "time": "18:30", "slot": "", "type": "meal", "title": "晚餐", "detail": "米饭 200g + 牛肉 150g + 一份绿叶菜", "kcal": 650, "duration": "约 20 分钟", "why": "补上剩下的缺口"}, {"day": 1, "time": "19:30", "slot": "", "type": "exercise", "title": "快走", "detail": "餐后快走 20 分钟（约 2 公里），心率微喘即停", "kcal": 120, "duration": "约 20 分钟", "why": "缺口还大，先做低强度活动，不占用恢复"}, {"day": 1, "time": "23:00", "slot": "", "type": "sleep", "title": "睡觉", "detail": "睡前 30 分钟放下手机", "kcal": 0, "duration": "——", "why": "近 3 天睡眠偏低，优先补觉"}, {"day": 2, "time": "", "slot": "morning", "type": "meal", "title": "燕麦牛奶 + 鸡蛋", "detail": "燕麦 60g + 牛奶 300ml + 鸡蛋 2 个", "kcal": 0, "duration": "约 15 分钟", "why": "先占个位置，明天按当时的缺口再调"}, {"day": 2, "time": "", "slot": "noon", "type": "meal", "title": "米饭 + 鸡胸 + 绿叶菜", "detail": "米饭 200g + 鸡胸 150g + 一份绿叶菜", "kcal": 0, "duration": "约 20 分钟", "why": "先占个位置，明天按当时的缺口再调"}, {"day": 2, "time": "", "slot": "evening", "type": "meal", "title": "面食 + 牛肉", "detail": "面食一份 + 牛肉 120g + 一份蔬菜", "kcal": 0, "duration": "约 20 分钟", "why": "先占个位置，明天按当时的缺口再调"}, {"day": 2, "time": "", "slot": "train", "type": "exercise", "title": "深蹲 4×8 / 卧推 4×8", "detail": "按本周计划明天的安排执行", "kcal": 0, "duration": "约 30 分钟", "why": "明天是训练日，先留出位置"}], "note": "今天餐食补足蛋白，餐后快走 20 分钟；明天三餐与训练已占位"}
 """
 
 /**
@@ -157,8 +182,23 @@ class PlanGenerator(context: Context) {
         /** 「今天」条目上限（prompt 约定）。 */
         private const val MAX_TODAY_ITEMS = 6
 
+        /** 喂给模型的「今天已记录的其他事项」条数上限（防啰嗦 / prompt 被灌爆）。 */
+        private const val MAX_OCCUPIED_ITEMS = 5
+
+        /** 单条占用事项的原文截断长度。 */
+        private const val MAX_OCCUPIED_LEN = 60
+
         /** 「明天」锚点上限（早 / 午 / 晚 / 训练，共 4 条）。 */
         private const val MAX_TOMORROW_ITEMS = 4
+
+        /**
+         * 「缺口大」的分界（kcal）：≥ 此值 → 运动降为低强度短时（见 [exerciseItem]）。
+         * 与 [PROMPT_PLAN] 硬规则 5 的「缺口 > 600 kcal」**同口径，改一处必改另一处**。
+         */
+        private const val LOW_INTENSITY_GAP = 600
+
+        /** 近 3 日**平均**睡眠低于此值（小时）→ 运动降强度（与 prompt 硬规则 7 同口径）。 */
+        private const val SLEEP_LOW_H = 6.5
 
         /**
          * 数组**扫描**上限：模型输出永不可信，防啰嗦 / prompt 被注入时返回成百条拖垮
@@ -392,6 +432,7 @@ class PlanGenerator(context: Context) {
         val todayTraining = trainingLineFor(0)
         val tomorrowTraining = trainingLineFor(1)
         val recent = recentSummary()
+        val occupied = todayOccupiedItems()
 
         return buildString {
             // 目标（用户自述）行（2026-10-05）：画像类自由文本，受 AI_DATA_FULL
@@ -406,10 +447,18 @@ class PlanGenerator(context: Context) {
             appendLine("睡眠目标：${trim(sleepH)} 小时   饮水目标：$waterMl ml")
             if (profile.isNotBlank()) appendLine(profile)
             summary.lines.forEach { appendLine(it) }
+            // 今天已记录的其他事项（v6 走查）：作为**已占用时段**喂给模型，
+            // 让它排出的时间轴避开用户自己的临时安排（如「下午 2 点开会」）。
+            // 空则整段省略 —— 不打印「无」，免得模型把空列表当成一种状态去讨论。
+            // ⚠️ 行标题必须与 prompt 硬规则 2 的措辞对得上（模型靠它找到这一段）。
+            if (occupied.isNotEmpty()) {
+                appendLine("今天已记录的其他事项（含时段的视为已占用，计划需避开）：")
+                occupied.forEach { appendLine("  $it") }
+            }
             appendLine("本周训练计划里\"今天\"那条：${todayTraining ?: "无"}")
             appendLine("本周训练计划里\"明天\"那条：${tomorrowTraining ?: "无"}")
             appendLine("最近记录摘要：$recent")
-            appendLine("请按硬规则排出今天从现在到睡前的时间轴，并附上明天的 4 条锚点。")
+            appendLine("请按硬规则排出今天从现在到睡前的时间轴（饮食 + 运动两条线都要有），并附上明天的 4 条锚点。")
         }.trim()
     }
 
@@ -417,7 +466,7 @@ class PlanGenerator(context: Context) {
      * 本周训练计划里「今天 + [offsetDays]」那天的安排（`标题 · 动作`）。
      *
      * @return 该天的安排；**本周计划尚未生成、或那天是休息日 → null**
-     *         （调用方据此区分「无」与「休息」，见 prompt 硬规则 10）。
+     *         （调用方据此区分「无」与「休息」，见 prompt 硬规则 13）。
      */
     private suspend fun trainingLineFor(offsetDays: Long): String? {
         val plan = runCatching { TrainingPlanner(appContext).loadOrGenerate(force = false) }.getOrNull()
@@ -428,6 +477,37 @@ class PlanGenerator(context: Context) {
             .filter { it.isNotBlank() }
             .joinToString(" · ")
         return line.ifBlank { null }
+    }
+
+    /**
+     * 今天已记录的「其他事项」（`events.type == other` 的原文）。
+     *
+     * 用途（v6 走查 · 时间冲突）：把用户今天的临时安排（「下午 2 点开会」）作为
+     * **已占用时段**喂给 [PROMPT_PLAN]，让重排出的时间轴自动避开。
+     *
+     * 三个刻意的边界：
+     * 1. **只取 `rawText`，不用 `ts`** —— `ts` 是「用户什么时候记的」，不是「事情什么时候发生」。
+     *    下午 1 点记「下午 2 点开会」，`ts` = 13:00 而事情在 14:00，时刻信息只在原文里。
+     * 2. **只取 `other`**：吃喝 / 运动 / 体重 / 睡眠 / 生病都不是「时段占用」。
+     * 3. **不做语义剪裁**：否定类事实（「没运动」「今天很累」）同样落在 `other`，
+     *    由 prompt 硬规则 2 要求模型自行区分「能落在时段上的」与「纯事实陈述」。
+     *
+     * 这是**唯一**把记录内容送进计划 prompt 的口子（其余上下文只给数字），
+     * 故改动它等于改计划生成的输入面，需与其他链路一起复核。
+     *
+     * @return 最多 [MAX_OCCUPIED_ITEMS] 条、每条截断到 [MAX_OCCUPIED_LEN] 的原文；无则空列表。
+     */
+    private suspend fun todayOccupiedItems(): List<String> {
+        val dayStart = dayStartHour()
+        val key = dayKeyOf(System.currentTimeMillis(), dayStart)
+        val rows = runCatching { db.eventDao().listByDay(key) }.getOrDefault(emptyList())
+        return rows.asSequence()
+            .filter { it.type == EventEntity.TYPE_OTHER }
+            .map { it.rawText.trim() }
+            .filter { it.isNotEmpty() }
+            .take(MAX_OCCUPIED_ITEMS)
+            .map { it.take(MAX_OCCUPIED_LEN) }
+            .toList()
     }
 
     /** 近 3 日（不含今天）记录摘要；无记录写「无」。 */
@@ -478,12 +558,13 @@ class PlanGenerator(context: Context) {
         }
 
         if (s.gap <= 0) {
-            return listOf(tailItem(sport, pain, slotOrNow("20:00", now)))
+            // 已达标：只留一条收尾（运动 / 恢复），结构与 v1 相同。
+            return listOf(exerciseItem(s, sport, pain, slotOrNow("20:00", now)))
         }
 
         val items = mutableListOf<TimelineItem>()
 
-        if (s.gap >= 600) {
+        if (s.gap >= LOW_INTENSITY_GAP) {
             items += TimelineItem(
                 time = slotOrNow("18:30", now),
                 type = PLAN_TYPE_MEAL,
@@ -505,7 +586,15 @@ class PlanGenerator(context: Context) {
             )
         }
 
-        val remain = s.gap - items.sumOf { it.kcal }
+        // 餐后运动 / 恢复（v6 走查新增）：让「怎么运动」这条线在**本地兜底**里也存在 ——
+        // 改前只有「热量已达标」那一条分支会给训练，缺口 > 0 时兜底计划全天纯饮食，
+        // 与 prompt 硬规则 3 要求的双线不一致（断网 / 限流降级时最明显）。
+        items += exerciseItem(s, sport, pain, slotOrNow("19:30", now))
+
+        // 只用**摄入类**条目抵扣缺口：运动项的 kcal 是消耗不是摄入 ——
+        // 改前 items 里只有晚餐（meal），全量求和恰好正确；多一条 exercise 后
+        // 若仍全量求和，缺口会被凭空多扣 120-200 kcal。
+        val remain = s.gap - items.filter { it.type == PLAN_TYPE_MEAL }.sumOf { it.kcal }
         if (remain > 200) {
             items += TimelineItem(
                 time = slotOrNow("21:00", now),
@@ -519,7 +608,7 @@ class PlanGenerator(context: Context) {
         }
 
         // 睡眠行动条：近 3 日平均睡眠不足 6.5 小时才提（有数据才建议，不猜）
-        if (s.sleepLast3.size >= 2 && s.sleepLast3.average() < 6.5) {
+        if (s.sleepLast3.size >= 2 && s.sleepLast3.average() < SLEEP_LOW_H) {
             items += TimelineItem(
                 time = sleepSlot(bedTime, now),
                 type = PLAN_TYPE_SLEEP,
@@ -534,30 +623,68 @@ class PlanGenerator(context: Context) {
         return items
     }
 
-    /** 热量已达标时的收尾条目：疼痛（F9）→ 恢复；否则训练（条件来自资源清单）。 */
-    private fun tailItem(sport: String, pain: List<String>, time: String): TimelineItem = when {
-        pain.isNotEmpty() -> TimelineItem(
-            time = time,
-            type = PLAN_TYPE_SLEEP,
-            title = "恢复：补水 + 早睡",
-            detail = "疼痛/不适部位（${pain.joinToString("、")}）相关动作今天全部避开",
-            kcal = 0,
-            duration = "——",
-            why = "恢复优先于训练（疼痛避让）",
-        )
-        else -> TimelineItem(
-            time = time,
-            type = PLAN_TYPE_EXERCISE,
-            title = "练：力量训练 30 分钟",
-            detail = if (sport.isBlank()) {
-                "深蹲 + 俯卧撑，自重就够"
-            } else {
-                "按你的条件练：${sport.lineSequence().joinToString("；")}"
-            },
-            kcal = 200,
-            duration = "约 30 分钟",
-            why = "今天热量已达标，正好安排训练",
-        )
+    /**
+     * 运动 / 恢复条目 —— **今日计划里「怎么运动」这条线的唯一产出点**。
+     *
+     * prompt 路径由 `PROMPT_PLAN` 硬规则 3 / 5 约束，本地兜底走这里，两者**同口径**：
+     * 改前此处叫 `tailItem`，只在「热量已达标」那条分支被调用 → 缺口 > 0 的日子
+     * 兜底计划全天纯饮食。名字与调用面一起改，正是为了杜绝再退回单线。
+     *
+     * 强度三档（自上而下判定）：
+     * 1. 疼痛/不适（F9）→ 不排训练，改「恢复」（type = sleep，不冒充运动记录）；
+     * 2. 缺口 ≥ [LOW_INTENSITY_GAP]，或近 3 日平均睡眠 < [SLEEP_LOW_H] → 低强度短时（餐后快走）；
+     * 3. 否则 → 按资源清单「运动条件」给力量训练，清单为空则自重。
+     *
+     * kcal 是**估算值**（口径见 [localTimeline] 的 KDoc），不是精确消耗。
+     */
+    private fun exerciseItem(
+        s: TodaySummary,
+        sport: String,
+        pain: List<String>,
+        time: String,
+    ): TimelineItem {
+        if (pain.isNotEmpty()) {
+            return TimelineItem(
+                time = time,
+                type = PLAN_TYPE_SLEEP,
+                title = "恢复：补水 + 早睡",
+                detail = "疼痛/不适部位（${pain.joinToString("、")}）相关动作今天全部避开",
+                kcal = 0,
+                duration = "——",
+                why = "恢复优先于训练（疼痛避让）",
+            )
+        }
+        val lowIntensity = s.gap >= LOW_INTENSITY_GAP ||
+            (s.sleepLast3.size >= 2 && s.sleepLast3.average() < SLEEP_LOW_H)
+        return if (lowIntensity) {
+            TimelineItem(
+                time = time,
+                type = PLAN_TYPE_EXERCISE,
+                title = "餐后快走",
+                detail = "饭后半小时快走 20 分钟（约 2 公里），心率微喘即停",
+                kcal = 120,
+                duration = "约 20 分钟",
+                why = if (s.gap >= LOW_INTENSITY_GAP) {
+                    "热量缺口还大，先做低强度活动"
+                } else {
+                    "近 3 天睡眠偏低，用低强度代替力量"
+                },
+            )
+        } else {
+            TimelineItem(
+                time = time,
+                type = PLAN_TYPE_EXERCISE,
+                title = "练：力量训练 30 分钟",
+                detail = if (sport.isBlank()) {
+                    "深蹲 4×8 + 俯卧撑 4×10，自重就够"
+                } else {
+                    "按你的条件练：${sport.lineSequence().joinToString("；")}"
+                },
+                kcal = 200,
+                duration = "约 30 分钟",
+                why = if (s.gap <= 0) "今天热量已达标，正好安排训练" else "缺口不大，按训练计划练正合适",
+            )
+        }
     }
 
     /**
@@ -618,7 +745,7 @@ class PlanGenerator(context: Context) {
             slot = PlanSlot.EVENING,
         )
 
-        // 第 4 条（训练位）四选一，优先级与 [tailItem] 同口径：生病 / 疼痛 → 恢复优先。
+        // 第 4 条（训练位）四选一，优先级与 [exerciseItem] 同口径：生病 / 疼痛 → 恢复优先。
         when {
             hasIllness || pain.isNotEmpty() -> out += TimelineItem(
                 time = "",
@@ -685,8 +812,8 @@ class PlanGenerator(context: Context) {
         s.hasIllness -> "今天记录了不适，计划已改为清淡饮食，暂不安排高强度运动。"
         s.recordCount == 0 -> "今天还没有记录，下面按默认目标给出建议。"
         s.gap <= 0 -> "今天已达标，可以安排一次力量训练。"
-        s.gap >= 1500 -> "缺口较大，建议分成晚餐和加餐两次补上。"
-        else -> "按当前缺口给出了具体数量和热量，照着吃即可。"
+        s.gap >= 1500 -> "缺口较大，晚餐和加餐分两次补上，运动先做低强度活动。"
+        else -> "按当前缺口给出了具体数量和热量，餐后安排一次运动。"
     }
 
     // ------------------------------------------------------------------
@@ -771,6 +898,69 @@ class PlanGenerator(context: Context) {
             )
         }
         return out
+    }
+
+    /**
+     * `plan_json` → 给 AI 工具（`query_plan`）读的**条目明细**多行文本。
+     *
+     * ══════════════════════════════════════════════════════════════════════════
+     * 为什么摘要必须在**本文件**产出
+     * ══════════════════════════════════════════════════════════════════════════
+     * `plan_json` 的 schema 只在本文件定义（[parseTimelineJson] / [itemsOf]）。若在
+     * `HealthAgent.queryPlan` 里另写一份解析，"条目字段叫什么、明天锚点怎么归一"
+     * 就出现两处口径 —— 改一处必漏另一处，且编译期完全不可见（本仓最贵的一类 bug）。
+     * 故这里直接**吃 [parseTimelineJson] 的输出**，不重新解析原始 JSON。
+     *
+     * ══════════════════════════════════════════════════════════════════════════
+     * 修掉的硬伤（2026-10-07，AI 能力补齐 P0）
+     * ══════════════════════════════════════════════════════════════════════════
+     * `query_plan` 旧版只回一句 `note`：模型被问「我 12 点该吃什么」时拿不到任何条目，
+     * 只能凭对话记忆编 —— 与「回答里引用的数字只能来自记录原文或工具返回」直接冲突。
+     * 更刺眼的是 `PlanChangeWriter.locate` 的 KDoc 早就写着"`title` 是用户/模型眼里的
+     * 条目身份（**`query_plan` 返回的就是它**）"，而旧版从不返回它。本次把这条隐含契约补齐。
+     *
+     * 输出口径（token 预算）：
+     * - 今天每条一行：`时间 [类型] 标题：具体做法，时长，热量（为什么）`；
+     * - 明天锚点**不逐条摊开**，只回一行条数摘要 —— 锚点本就是占位，摊开既冗余，
+     *   又容易被模型误当成"已确定的安排"；
+     * - 备注另起一行。
+     *
+     * @return 多行文本（**每行前置两空格**，供调用方拼在 `• date（来源）：` 之后）；
+     *         `plan_json` 解析不出条目（旧数据 / 纯兜底文本）时返回 null →
+     *         调用方回落 `note` 一句话。**不抛异常**。
+     */
+    fun itemsDigest(planJson: String?): String? {
+        val parsed = runCatching { parseTimelineJson(planJson) }.getOrNull() ?: return null
+        val today = parsed.items.filter { it.day != PLAN_DAY_TOMORROW }
+        val tomorrow = parsed.items.size - today.size
+        if (today.isEmpty() && tomorrow == 0) return null
+        val lines = mutableListOf<String>()
+        for (item in today) {
+            val time = item.time.ifBlank { "--:--" }
+            val dur = if (item.duration.isBlank()) "" else "，${item.duration}"
+            val kcal = if (item.kcal > 0) "，${item.kcal} kcal" else ""
+            val why = if (item.why.isBlank()) "" else "（${item.why}）"
+            lines += "  $time [${planTypeLabel(item.type)}] ${item.title}：" +
+                "${item.detail}$dur$kcal$why"
+        }
+        if (tomorrow > 0) {
+            lines += "  （另有明天 $tomorrow 条占位锚点；锚点内容当天才按真实数据细化）"
+        }
+        if (parsed.note.isNotBlank()) lines += "  备注：${parsed.note}"
+        return lines.joinToString("\n")
+    }
+
+    /**
+     * 计划条目类型的短标签（`query_plan` 摘要用；取值域见 [PROMPT_PLAN] 的 type 约定）。
+     *
+     * 刻意用单字「吃 / 动 / 睡」而不是「饮食 / 运动 / 睡眠」：摘要可能一次回 7 天计划、
+     * 每天 6 条，逐字节省下来的都是上下文预算；单字仍可零歧义区分三档。
+     */
+    private fun planTypeLabel(type: String): String = when (type) {
+        PLAN_TYPE_MEAL -> "吃"
+        PLAN_TYPE_EXERCISE -> "动"
+        PLAN_TYPE_SLEEP -> "睡"
+        else -> "其他"
     }
 
     /**
