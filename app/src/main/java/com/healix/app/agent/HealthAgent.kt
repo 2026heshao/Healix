@@ -917,7 +917,7 @@ internal class HealthAgent(
                     // 拟稿是终止性动作：草稿必须经人确认，循环到此为止
                     if (proposal != null) {
                         val note = result.content.trim().ifEmpty {
-                            context.getString(com.healix.app.R.string.proposal_note_default)
+                            proposalNote(context)
                         }
                         return AgentOutcome.ProposalPending(note, proposal)
                     }
@@ -1082,5 +1082,36 @@ internal class HealthAgent(
 - propose_record_delete：拟删一条记录（day + keyword，命中须唯一）。草稿经用户确认后才删除。
 回答里引用的数字只能来自记录原文或工具返回。
 """
+
+        /**
+         * 拟稿确认语轮换池（W1，2026-10-07 用户反馈：连续多条逐字相同显"机械感"）。
+         * 池序即轮换序；[com.healix.app.R.string.proposal_note_default] 恒为第一条。
+         * 文案保持第一人称、口语、长度近似，与既有人设一致。
+         */
+        private val PROPOSAL_NOTE_POOL = listOf(
+            com.healix.app.R.string.proposal_note_default,
+            com.healix.app.R.string.proposal_note_alt_1,
+            com.healix.app.R.string.proposal_note_alt_2,
+            com.healix.app.R.string.proposal_note_alt_3,
+        )
+
+        /** 上一次选中的池下标（进程级）：用于确定性去重，保证连续两条不撞同一文案。 */
+        @Volatile
+        private var lastNoteIdx: Int = -1
+
+        /**
+         * 取一条拟稿确认语（模型未给随附说明时的兜底文案）。
+         *
+         * **确定性依据（无随机）**：取模种子 = 拟稿产生时刻 `System.currentTimeMillis()`
+         * （即这条 assistant 消息的 createdAt 口径）。文案随 [AgentOutcome.ProposalPending]
+         * 落库一次，之后重进页面读库渲染，**同一条消息的文案必然稳定**；进程级
+         * `lastNoteIdx` 去重只保证"连续两条不撞同一句"，不引入任何随机源。
+         */
+        fun proposalNote(context: Context): String {
+            var idx = (System.currentTimeMillis() % PROPOSAL_NOTE_POOL.size).toInt()
+            if (idx == lastNoteIdx) idx = (idx + 1) % PROPOSAL_NOTE_POOL.size
+            lastNoteIdx = idx
+            return context.getString(PROPOSAL_NOTE_POOL[idx])
+        }
     }
 }

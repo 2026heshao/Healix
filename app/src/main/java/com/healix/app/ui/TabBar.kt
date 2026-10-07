@@ -87,35 +87,62 @@ internal object TabBar {
      * 键盘弹出时 WindowInsets 会把整个内容区（含锚底的 tabbar）一起顶到
      * 键盘之上 —— tabbar 悬浮在键盘上是最直观的破绽。
      *
-     * 处理：ime 可见 → tabbar 隐藏，同时把「当前 Tab 的输入条」为让位 tabbar
-     * 预留的 64dp 抬升（tab_raise marginBottom）归零，输入条贴住键盘顶；
+     * 处理：ime 可见 → tabbar 隐藏，同时把 [bars] 列表里**每一条**输入条为让位
+     * tabbar 预留的 64dp 抬升（tab_raise marginBottom）归零，输入条贴住键盘顶；
      * ime 收起 → 全部还原。选 GONE 而非 translate 动画：与 adjustResize 的
      * 同帧重排叠加动画会闪烁，瞬时显隐反而干净。
      *
-     * ⚠️ v8 关键变化：`@id/input` 现在**同时存在于**记录页 View 容器与
-     * [AssistantFragment] 两处。`hide()` 的 Fragment 视图仍 attach 在视图树上，
-     * 直接 `activity.findViewById(R.id.input)` 会命中**隐藏的那个**（结果不确定）。
-     * 所以由宿主经 [visibleInput] 提供当前可见 Tab 的输入条 —— 查询范围
-     * 限定在当前 Tab 内，结果确定。
+     * ⚠️ W2（2026-10-07 用户反馈）两处收紧：
+     * 1. **边距按列表全量还原（修 bug A）**——此前只写「当前可见 Tab」那一条：
+     *    记录页 IME 打开（margin=0）→ 切到助理 Tab（IME 关，还原事件只够到
+     *    助理条）→ 记录条**永远卡 0**，切回时 tabbar 盖住输入条。`hide()` 的
+     *    Fragment 视图仍 attach 在视图树上，改 margin 安全 → 宿主把**两条**
+     *    inputBar 容器都交给 [bars]，监听内逐条求值（先比较再写，避免无谓
+     *    requestLayout）。tabbar 显隐逻辑不变。
+     * 2. **IME 判定合并兜底（修 bug B）**——部分 ROM（Honor MagicOS 等）
+     *    adjustResize 下 ime insets 上报 bottom=0，守卫误判「键盘未开」→
+     *    tabbar 被顶起。现 `imeVisible = imeInsets || heightShrunk`：
+     *    `heightShrunk` = `android.R.id.content` 当前高度比**静息高度**
+     *    （进程内历史最大值，每次回调更新）小超过 `raisePx * 2`（≈128dp，
+     *    复用既有 dimen 避免新增常量；真机键盘高度远超此值）。宽度变化
+     *    （旋转/分屏）时以当前高度**重学**静息值，防横屏误判。
      *
-     * 限制：ime insets 精确上报需 API 30+（minSdk 29，目标机型 Magic6 Pro
-     * 为 API 34）；API 29 上拿不到 ime 可见性，行为退回现状。
+     * ⚠️ ime insets 精确上报需 API 30+（minSdk 29，目标机型 Magic6 Pro 为 API 34）；
+     *    API 29 上拿不到 ime 可见性，完全依赖高度兜底。兜底按 insets 派发时机求值，
+     *    极端 ROM 上可能晚一帧生效 —— 已知限制，真机验证项。
      */
-    fun bindImeGuard(activity: Activity, visibleInput: () -> View?) {
+    fun bindImeGuard(activity: Activity, bars: () -> List<View>) {
         val root = activity.findViewById<View>(android.R.id.content) ?: return
         val tabbar = activity.findViewById<View>(R.id.tabbar) ?: return
         val raisePx = activity.resources.getDimensionPixelSize(R.dimen.tab_raise)
+        val shrinkPx = raisePx * 2
+
+        // 静息高度（历史最大值）与上次宽度：宽度变化 = 旋转/分屏 → 以当前高度重学
+        val restHeight = intArrayOf(0)
+        val lastWidth = intArrayOf(0)
 
         ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
-            val imeVisible = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom > 0
+            val imeInsets = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom > 0
+
+            val w = root.width
+            val h = root.height
+            if (w != lastWidth[0]) {
+                // 配置变化（旋转/分屏）：旧最大值作废，以当前高度重学
+                lastWidth[0] = w
+                restHeight[0] = h
+            } else if (h > restHeight[0]) {
+                restHeight[0] = h
+            }
+            val heightShrunk = restHeight[0] > 0 && h > 0 && restHeight[0] - h > shrinkPx
+            val imeVisible = imeInsets || heightShrunk
             tabbar.visibility = if (imeVisible) View.GONE else View.VISIBLE
 
-            // 输入条 parent 的 marginBottom 归零 / 还原；重复赋值会触发
-            // 无谓的 requestLayout，所以先比较再写。
-            val bar = visibleInput()?.parent as? ViewGroup
-            val lp = bar?.layoutParams as? ViewGroup.MarginLayoutParams
-            if (lp != null) {
-                val target = if (imeVisible) 0 else raisePx
+            // 输入条 parent 的 marginBottom 归零 / 还原：对**列表里每一条**求值
+            //（修 bug A 的状态残留）；重复赋值会触发无谓的 requestLayout，先比较再写。
+            val target = if (imeVisible) 0 else raisePx
+            for (v in bars()) {
+                val bar = v.parent as? ViewGroup ?: continue
+                val lp = bar.layoutParams as? ViewGroup.MarginLayoutParams ?: continue
                 if (lp.bottomMargin != target) {
                     lp.bottomMargin = target
                     bar.layoutParams = lp

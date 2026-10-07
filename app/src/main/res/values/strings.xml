@@ -72,6 +72,11 @@
     <!-- HealthAgent propose_log 拟稿确认（S3–S4） -->
     <string name="proposal_confirm">助理拟了一条记录：「%1$s」。现在记下来吗？</string>
     <string name="proposal_note_default">我把记录拟好了，你确认一下就记下。</string>
+    <!-- 拟稿确认语轮换池（W1，2026-10-07 用户反馈：连续多条逐字相同显机械）。
+         保持第一人称、口语、长度近似；池序即轮换序，default 恒为第一条。 -->
+    <string name="proposal_note_alt_1">拟好了，看一眼没问题就落库。</string>
+    <string name="proposal_note_alt_2">记录拟好了，点确认我就记上。</string>
+    <string name="proposal_note_alt_3">拟好待确认，没问题我就记下。</string>
     <string name="quota_exhausted">今日对话次数已用完，明天再来</string>
     <string name="tool_running">查了一下记录…</string>
     <!-- 微扩展：失败重试 / 长按复制 / 会话日期切换 / 预设快捷条 -->

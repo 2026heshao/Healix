@@ -225,7 +225,8 @@ class AssistantFragment : Fragment() {
                         adapter.submit(list)
                         if (list.isNotEmpty()) {
                             binding.emptyHint.visibility = View.GONE
-                            binding.messageList.scrollToPosition(list.size - 1)
+                            // W1：展示项含时间分隔头 → 以适配器条目数定位（不再等于消息数）
+                            binding.messageList.scrollToPosition(adapter.itemCount - 1)
                         } else {
                             binding.emptyHint.visibility = View.VISIBLE
                         }
@@ -436,22 +437,76 @@ class AssistantFragment : Fragment() {
  *   TextView 用 wrap_content + background 时，padding 会被算进宽度，
  *   导致同一条消息在"短文本"和"长文本"下视觉边距不一致。
  *   外层控制对齐、内层控制留白，职责分开更稳。
+ *
+ * W1（2026-10-07 用户反馈「布局机械呆板」）：新增时间分隔行 —— 列表按
+ * [TIME_GAP_MS]（30 分钟）分节，节首插一条居中弱时间头（12sp text_3、无气泡），
+ * 打破"所有消息平铺直叙"的时间感缺失。数据侧用 sealed 展示项（[Row]），
+ * `submit(list)` 一次性预计算；拟稿确认语逐字重复问题在 HealthAgent 侧轮换。
  */
 class ChatAdapter : RecyclerView.Adapter<ChatAdapter.VH>() {
 
-    private var items: List<ChatMessageEntity> = emptyList()
+    /**
+     * 展示项（W1 时间节奏，2026-10-07 用户反馈「平铺直叙显机械」）：
+     * 首条消息前必有时间头；此后与上一条消息相隔 > [TIME_GAP_MS] 再插一条。
+     * 时间头 = 弱分隔（12sp、text_3、居中、无气泡），给列表"时间在流动"的节奏。
+     */
+    private sealed class Row {
+        /** 时间分隔头（`at` = 该组首条消息的 `createdAt`，仅用于格式化 `HH:mm`）。 */
+        data class Time(val at: Long) : Row()
+
+        /** 一条消息。 */
+        data class Msg(val m: ChatMessageEntity) : Row()
+    }
+
+    private var rows: List<Row> = emptyList()
+
+    /** `HH:mm`（同日会话内不需日期；仅主线程绑定使用，SimpleDateFormat 无并发问题）。 */
+    private val timeFormat = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+
+    /** 消息列表 → 展示项列表（首条前必有时间头；间隔 > 30 分钟再插一条）。 */
+    private fun buildRows(list: List<ChatMessageEntity>): List<Row> {
+        if (list.isEmpty()) return emptyList()
+        val out = ArrayList<Row>(list.size + 4)
+        var lastAt = 0L
+        for (m in list) {
+            if (out.isEmpty() || m.createdAt - lastAt > TIME_GAP_MS) {
+                out.add(Row.Time(m.createdAt))
+            }
+            out.add(Row.Msg(m))
+            lastAt = m.createdAt
+        }
+        return out
+    }
 
     @Suppress("NotifyDataSetChanged")
     fun submit(list: List<ChatMessageEntity>) {
-        items = list
+        rows = buildRows(list)
         notifyDataSetChanged()
     }
 
-    override fun getItemViewType(position: Int): Int =
-        if (items[position].role == "user") TYPE_USER else TYPE_ASSISTANT
+    override fun getItemCount(): Int = rows.size
+
+    override fun getItemViewType(position: Int): Int = when (val r = rows[position]) {
+        is Row.Time -> TYPE_TIME
+        is Row.Msg -> if (r.m.role == "user") TYPE_USER else TYPE_ASSISTANT
+    }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): VH {
         val ctx = parent.context
+
+        // ── 时间分隔头（W1）：居中 12sp text_3、上下 10dp、无气泡背景 ──
+        if (viewType == TYPE_TIME) {
+            val tv = android.widget.TextView(ctx).apply {
+                layoutParams = RecyclerView.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                )
+                gravity = android.view.Gravity.CENTER
+                setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 12f)
+                setTextColor(ContextCompat.getColor(ctx, R.color.text_3))
+            }
+            return VH(tv, tv)
+        }
 
         val text = android.widget.TextView(ctx).apply {
             layoutParams = ViewGroup.LayoutParams(
@@ -478,10 +533,25 @@ class ChatAdapter : RecyclerView.Adapter<ChatAdapter.VH>() {
         return VH(row, text)
     }
 
-    override fun getItemCount(): Int = items.size
-
     override fun onBindViewHolder(holder: VH, position: Int) {
-        val m = items[position]
+        when (val r = rows[position]) {
+            is Row.Time -> {
+                holder.text.text = timeFormat.format(java.util.Date(r.at))
+                // 上下各 10dp（spec W1-1）；先比较再写，避免无谓 requestLayout
+                val lp = holder.row.layoutParams as RecyclerView.LayoutParams
+                val pad = dp(holder.text.context, 10f).toInt()
+                if (lp.topMargin != pad || lp.bottomMargin != pad) {
+                    lp.topMargin = pad
+                    lp.bottomMargin = pad
+                    holder.row.layoutParams = lp
+                }
+            }
+
+            is Row.Msg -> bindMessage(holder, position, r.m)
+        }
+    }
+
+    private fun bindMessage(holder: VH, position: Int, m: ChatMessageEntity) {
         val ctx = holder.text.context
         val isUser = m.role == "user"
 
@@ -547,26 +617,28 @@ class ChatAdapter : RecyclerView.Adapter<ChatAdapter.VH>() {
         holder.text.maxWidth = maxBubble
         holder.text.layoutParams = textLp
 
+        val row = holder.row as android.widget.LinearLayout
         val rowLp = holder.row.layoutParams as RecyclerView.LayoutParams
-        holder.row.gravity = if (isUser) android.view.Gravity.END else android.view.Gravity.START
+        row.gravity = if (isUser) android.view.Gravity.END else android.view.Gravity.START
         val edgeMargin = dp(ctx, 20f).toInt()
         rowLp.marginStart = edgeMargin
         rowLp.marginEnd = edgeMargin
 
-        // 同角色 6dp（气泡本就分块，间距小些更连贯），不同角色 16dp
-        val prevRole = if (position > 0) items[position - 1].role else null
+        // 同角色 6dp（气泡本就分块，间距小些更连贯），不同角色 16dp；
+        // 时间头后的首条（前一行是 Time → prevRole=null）也用 6dp —— 头部已自带 10dp 间距
+        val prevRole = (rows.getOrNull(position - 1) as? Row.Msg)?.m?.role
         rowLp.topMargin =
             if (prevRole == null || prevRole == m.role) dp(ctx, 6f).toInt() else dp(ctx, 16f).toInt()
         holder.row.layoutParams = rowLp
 
-        // 无障碍：助理消息出现时朗读（保持原有行为）
-        if (!isUser && position == items.size - 1) {
+        // 无障碍：助理消息出现时朗读（保持原有行为；展示列表末行恒为消息）
+        if (!isUser && position == rows.size - 1) {
             holder.text.announceForAccessibility(m.content)
         }
     }
 
     class VH(
-        val row: android.widget.LinearLayout,
+        val row: View,
         val text: android.widget.TextView,
     ) : RecyclerView.ViewHolder(row)
 
@@ -651,6 +723,12 @@ class ChatAdapter : RecyclerView.Adapter<ChatAdapter.VH>() {
     private companion object {
         const val TYPE_USER = 0
         const val TYPE_ASSISTANT = 1
+
+        /** 时间分隔头 viewType（W1）。 */
+        const val TYPE_TIME = 2
+
+        /** 时间头插入阈值：相邻两条消息相隔 > 30 分钟。 */
+        const val TIME_GAP_MS = 30L * 60 * 1000
 
         fun dp(context: android.content.Context, value: Float): Float =
             value * context.resources.displayMetrics.density

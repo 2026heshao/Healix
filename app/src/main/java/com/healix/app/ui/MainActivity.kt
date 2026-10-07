@@ -9,6 +9,7 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
 import com.healix.app.R
 import com.healix.app.databinding.ActivityMainBinding
 
@@ -65,15 +66,19 @@ class MainActivity : AppCompatActivity() {
 
         currentTab = intent.getIntExtra(TabBar.EXTRA_TAB, TabBar.TAB_RECORD)
         TabBar.bind(this, currentTab) { tab -> showTab(tab) }
-        // 键盘守卫：`@id/input` 在记录页与助理页各有一份，`hide()` 的 Fragment 视图仍
-        // attach 在视图树上 → 必须按当前 Tab 解析（否则会命中隐藏的那个，结果不确定）。
+        // 键盘守卫（W2）：`@id/input` 在记录页与助理页各有一份。边距归零/还原必须
+        // 对**两条** inputBar 全量求值 —— 只写「当前可见 Tab」那条时，记录页 IME 打开
+        // （margin=0）→ 切助理 Tab 还原事件够不到记录条 → 切回时记录条贴底被 tabbar
+        // 盖住（bug A）。`hide()` 的 Fragment 视图仍 attach 在树上，改 margin 安全。
+        // 二级页盖住宿主时不该再去动被盖住的 Tab 输入条 → emptyList（语义保留）。
         TabBar.bindImeGuard(this) {
-            when {
-                // 二级页盖住整个宿主时，不该再去动被盖住的 Tab 输入条
-                NavHost.isOpen(this) -> null
-                currentTab == TabBar.TAB_RECORD -> record?.view?.findViewById(R.id.input)
-                currentTab == TabBar.TAB_ASSISTANT -> assistant?.view?.findViewById(R.id.input)
-                else -> null
+            if (NavHost.isOpen(this)) {
+                emptyList()
+            } else {
+                listOfNotNull(
+                    record?.view?.findViewById(R.id.input),
+                    assistant?.view?.findViewById(R.id.input),
+                )
             }
         }
 
@@ -256,6 +261,9 @@ class MainActivity : AppCompatActivity() {
         currentTab = target
         TabBar.select(this, target)
         applyTab(target)
+        // W2（修 bug A 状态残留）：切 Tab 后强制 insets 重放 —— 让键盘守卫按最新
+        // 的 Tab 可见性重新求值 tabbar 显隐与两条输入条边距（否则记录条可能永远卡 0）。
+        ViewCompat.requestApplyInsets(window.decorView)
     }
 
     private fun showTabImmediate(target: Int) {
@@ -286,6 +294,9 @@ class MainActivity : AppCompatActivity() {
      *  仍留在容器里但已不可见，此时必须让点击穿透回 Tab 页。 */
     private fun syncPageContainerHit() {
         binding.pageContainer.isClickable = NavHost.isOpen(this)
+        // W2：二级页开/关改变「谁可见」→ 强制 insets 重放，键盘守卫按新状态求值
+        //（二级页打开时 bars 返回 emptyList，还原交给 Tab 切换后的重放）。
+        ViewCompat.requestApplyInsets(window.decorView)
     }
 
     override fun onResume() {
