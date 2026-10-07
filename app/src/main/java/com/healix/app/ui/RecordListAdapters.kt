@@ -11,6 +11,7 @@ import com.healix.app.databinding.ItemEventBinding
 import com.healix.app.databinding.ItemRecordEmptyBinding
 import com.healix.app.databinding.ItemRecordHeaderBinding
 import com.healix.app.db.EventEntity
+import com.healix.app.notify.EventText
 
 /**
  * 记录页滚动区三段轻适配器（v0.3 B2 合并滚动区；v6 记录列表分组卡）。
