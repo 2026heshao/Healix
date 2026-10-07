@@ -63,7 +63,8 @@ class AssistantFragment : Fragment() {
 
     /**
      * 拟稿确认在 Tab 隐藏期间到达时先暂存，切回可见再弹（否则会盖在别的 Tab 上）。
-     * v0.3 B6：类型由 `LogProposal` 泛化为 [AgentProposal]（记录 / 计划 / 目标 / 删除四类草案）。
+     * v0.3 B6：类型由 `LogProposal` 泛化为 [AgentProposal]（记录 / 计划 / 目标 / 删除四类草案；
+     * 2026-10-07 P1 再扩画像 / 设置两类，共六类）。
      */
     private var pendingProposal: AgentProposal? = null
 
@@ -368,9 +369,10 @@ class AssistantFragment : Fragment() {
     }
 
     /**
-     * 拟稿确认（v0.3 B6 泛化）：记录 / 计划 / 目标 / 删除四类草案共用同一个
-     * [ActionConfirmSheet]（§1.3.3）。记录草稿沿用原「确认记录」文案（**行为不变**）；
-     * 其余三类以各自的 [AgentProposal.summary] 作正文（message = draft 的 summary）。
+     * 拟稿确认（v0.3 B6 泛化；2026-10-07 P1 扩到六类）：记录 / 计划 / 目标 / 删除 /
+     * 画像 / 设置六类草案共用同一个 [ActionConfirmSheet]（§1.3.3）。记录草稿沿用原
+     * 「确认记录」文案（**行为不变**）；其余各类以各自的 [AgentProposal.summary] 作正文
+     * （message = draft 的 summary）。
      * 确认 → [ChatViewModel.confirmProposal]；取消 / 下拖 → [ChatViewModel.cancelProposal]
      * （只回填 `tool_calls.approved = 0`，不写任何业务数据）。
      */

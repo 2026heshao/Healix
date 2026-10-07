@@ -100,6 +100,14 @@ class SettingsFragment : Fragment() {
         CompoundButton.OnCheckedChangeListener { _, _ ->
             vm.toggleAiSwitch(SettingsKeys.AI_TOOL_WRITE_GOAL)
         }
+    private val aiWriteProfileListener: CompoundButton.OnCheckedChangeListener =
+        CompoundButton.OnCheckedChangeListener { _, _ ->
+            vm.toggleAiSwitch(SettingsKeys.AI_TOOL_WRITE_PROFILE)
+        }
+    private val aiWriteSettingsListener: CompoundButton.OnCheckedChangeListener =
+        CompoundButton.OnCheckedChangeListener { _, _ ->
+            vm.toggleAiSwitch(SettingsKeys.AI_TOOL_WRITE_SETTINGS)
+        }
 
     /** 左滑删除（11.3 / v8 需求 4）：目标行与提醒行共用 1 个实例 → 全局单开。 */
     private lateinit var swipe: SwipeController
@@ -209,6 +217,16 @@ class SettingsFragment : Fragment() {
             binding.rowAiToolWriteGoal,
             R.string.ai_tool_write_goal,
             aiWriteGoalListener,
+        )
+        setupAiSwitch(
+            binding.rowAiToolWriteProfile,
+            R.string.ai_tool_write_profile,
+            aiWriteProfileListener,
+        )
+        setupAiSwitch(
+            binding.rowAiToolWriteSettings,
+            R.string.ai_tool_write_settings,
+            aiWriteSettingsListener,
         )
 
         // ── 提醒（reminders 表）──────────────────────────────────
@@ -331,11 +349,23 @@ class SettingsFragment : Fragment() {
                     bindSwitch(binding.rowAiToolWritePlan.switchWidget, v.aiToolWritePlan, aiWritePlanListener)
                     bindSwitch(binding.rowAiToolWriteRecord.switchWidget, v.aiToolWriteRecord, aiWriteRecordListener)
                     bindSwitch(binding.rowAiToolWriteGoal.switchWidget, v.aiToolWriteGoal, aiWriteGoalListener)
-                    // 写权限三行仅工具总开关开启时显示（关掉总开关 = 无工具，写权限无意义）。
+                    bindSwitch(
+                        binding.rowAiToolWriteProfile.switchWidget,
+                        v.aiToolWriteProfile,
+                        aiWriteProfileListener,
+                    )
+                    bindSwitch(
+                        binding.rowAiToolWriteSettings.switchWidget,
+                        v.aiToolWriteSettings,
+                        aiWriteSettingsListener,
+                    )
+                    // 写权限各行仅工具总开关开启时显示（关掉总开关 = 无工具，写权限无意义）。
                     val writeVisible = if (v.aiToolsEnabled) View.VISIBLE else View.GONE
                     binding.rowAiToolWritePlan.root.visibility = writeVisible
                     binding.rowAiToolWriteRecord.root.visibility = writeVisible
                     binding.rowAiToolWriteGoal.root.visibility = writeVisible
+                    binding.rowAiToolWriteProfile.root.visibility = writeVisible
+                    binding.rowAiToolWriteSettings.root.visibility = writeVisible
                 }
             }
         }

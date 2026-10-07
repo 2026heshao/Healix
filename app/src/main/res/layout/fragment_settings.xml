@@ -410,6 +410,22 @@
                     layout="@layout/row_setting_switch"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content" />
+
+                <!-- 写权限：画像 / 资源清单（P1）：忌口过敏、疼痛部位、就餐场景、
+                     手头食物、常备药物、运动条件、作息时刻。 -->
+                <include
+                    android:id="@+id/rowAiToolWriteProfile"
+                    layout="@layout/row_setting_switch"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+
+                <!-- 写权限：体格与运行设置（P1）：身高 / 体重 / 年龄 / 活动系数 /
+                     日界线 / 两个隐私开关。（AI 可见资料范围仍只由它上面那行自己控制。） -->
+                <include
+                    android:id="@+id/rowAiToolWriteSettings"
+                    layout="@layout/row_setting_switch"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
             </LinearLayout>
 
             <!-- ══ 提醒 ★v4（规范 9.7 ③）══

@@ -25,7 +25,9 @@ import com.healix.app.ui.HealixDate
 import com.healix.app.ui.PROMPT_VER_CHAT_TOOL
 import com.healix.app.ui.PlanChangeWriter
 import com.healix.app.ui.PlanGenerator
+import com.healix.app.ui.ProfileWriter
 import com.healix.app.ui.PromptMode
+import com.healix.app.ui.SettingsWriter
 import com.healix.app.ui.TodaySummary
 import com.healix.app.ui.TrainingPlanner
 import com.healix.app.ui.dowLabel
@@ -100,6 +102,38 @@ data class RecordDeleteProposal(
     override val summary: String,
 ) : AgentProposal
 
+/**
+ * 拟改**画像 / 资源清单**（`propose_profile_update`，2026-10-07 P1）：
+ * 忌口过敏 / 疼痛部位 / 就餐场景 / 手头食物 / 常备药物 / 运动条件 / 作息时刻。
+ *
+ * 「我以后不吃辣」这类最高频诉求的落点 —— 改完写进 `settings` 的 `profile_*` 键，
+ * 下一轮对话与下次生成的计划都会读到。
+ *
+ * @property op 机器可应用的改动载荷（**规范化 JSON 串**，已过拟稿期校验）。取值域见
+ *                [ProfileWriter]：`{"op":"add"|"remove"|"set","field":"…","value":"…"}`
+ */
+data class ProfileUpdateProposal(
+    val op: String,
+    override val callUid: String,
+    override val summary: String,
+) : AgentProposal
+
+/**
+ * 拟改**体格与运行设置**（`propose_settings_update`，2026-10-07 P1）：
+ * 身高 / 体重 / 年龄 / 活动系数 / 日界线 / 两个隐私开关。
+ *
+ * ⚠️ 不含 `ai_data_full`（AI 可见资料范围）—— 让 AI 提议扩大自己的可见范围属自授权，
+ *    该键只由用户在设置页亲手改。理由见 [SettingsWriter] 类 KDoc。
+ *
+ * @property op 机器可应用的改动载荷（**规范化 JSON 串**，已过拟稿期校验）。取值域见
+ *                [SettingsWriter]：`{"field":"…","value":"…"}`
+ */
+data class SettingsUpdateProposal(
+    val op: String,
+    override val callUid: String,
+    override val summary: String,
+) : AgentProposal
+
 /** Agent 循环的结果（调用方 ChatViewModel 按分支落库 / 回退）。 */
 internal sealed interface AgentOutcome {
 
@@ -111,7 +145,7 @@ internal sealed interface AgentOutcome {
     data class Done(val text: String, val toolsUsed: Int = 0) : AgentOutcome
 
     /**
-     * 已拟稿（记录 / 计划 / 目标 / 删除），等用户确认。
+     * 已拟稿（记录 / 计划 / 目标 / 删除 / 画像 / 设置），等用户确认。
      * text 是随附说明（落库为 assistant 消息）；proposal 是待确认草案（v0.3 B6 泛化）。
      */
     data class ProposalPending(val text: String, val proposal: AgentProposal) : AgentOutcome
@@ -140,6 +174,8 @@ data class ToolPermissions(
     val writePlan: Boolean = true,
     val writeRecord: Boolean = true,
     val writeGoal: Boolean = true,
+    val writeProfile: Boolean = true,
+    val writeSettings: Boolean = true,
 ) {
     companion object {
         /** 从 `settings` 读出当前权限（默认全开）。IO 读库，调用方在协程内。 */
@@ -150,6 +186,8 @@ data class ToolPermissions(
                 writePlan = dao.get(SettingsKeys.AI_TOOL_WRITE_PLAN) != "false",
                 writeRecord = dao.get(SettingsKeys.AI_TOOL_WRITE_RECORD) != "false",
                 writeGoal = dao.get(SettingsKeys.AI_TOOL_WRITE_GOAL) != "false",
+                writeProfile = dao.get(SettingsKeys.AI_TOOL_WRITE_PROFILE) != "false",
+                writeSettings = dao.get(SettingsKeys.AI_TOOL_WRITE_SETTINGS) != "false",
             )
         }
     }
@@ -171,14 +209,19 @@ internal data class ToolExecResult(
 )
 
 /**
- * 工具注册表（S3–S4；v0.3 B5 加 3 只读 + B6 加 3 写；2026-10-07 P0 再补 4 只读）。
+ * 工具注册表（S3–S4；v0.3 B5 加 3 只读 + B6 加 3 写；2026-10-07 P0 再补 4 只读 +
+ * P1 再补 2 写）。
  *
  * 设计取舍：
  * - **只读为主**：query_events / query_stats / query_plan / query_goal /
  *   query_training_week / query_review / query_warnings / query_reminders /
  *   query_settings 只查不写；写入口（propose_log / propose_plan_change /
- *   propose_goal_change / propose_record_delete）**只产草稿**（见 [AgentProposal]）
+ *   propose_goal_change / propose_record_delete / propose_profile_update /
+ *   propose_settings_update）**只产草稿**（见 [AgentProposal]）
  *   —— 有界自主的边界在这里划死。
+ * - **写工具 = 一条工具 + 一个权限开关 + 一个执行器 + 一处埋点**，四件同轮齐。
+ *   新增写工具前先自问：**这条写路径能否被用户撤销 / 覆盖？** 不可逆的（如整段
+ *   覆盖自由文本）先不要开，见 [ProfileWriter] 类 KDoc 对 `user_background` 的处理。
  * - **只读工具只补"prompt 里没有的数据"**：画像 / 体格 / 目标 / 今日数字 / 隐私开关
  *   已经由 `ChatEngine.systemPrompt`（含 `ProfileContext.build`）注入，再挂一个
  *   `query_profile` 只会让同一段文本说两遍、白烧 token。判据写在此处，新增只读前先自问。
@@ -208,6 +251,12 @@ internal object ToolRegistry {
     const val NAME_PROPOSE_PLAN_CHANGE = "propose_plan_change"
     const val NAME_PROPOSE_GOAL_CHANGE = "propose_goal_change"
     const val NAME_PROPOSE_RECORD_DELETE = "propose_record_delete"
+
+    // ── P1 写侧扩展（2026-10-07，同上需求）──────────────────────────────
+    // 两把新写入口，都走「草稿 → 用户确认」铁律，各有独立权限开关。
+    // 覆盖面在 [ProfileWriter] / [SettingsWriter] 的 FIELDS 里，此处不重复列举。
+    const val NAME_PROPOSE_PROFILE_UPDATE = "propose_profile_update"
+    const val NAME_PROPOSE_SETTINGS_UPDATE = "propose_settings_update"
 
     /** `yyyy-MM-dd` 校验正则（与 `query_events` 既有先例同款）。 */
     private val DATE_PATTERN = Regex("""\d{4}-\d{2}-\d{2}""")
@@ -519,6 +568,72 @@ internal object ToolRegistry {
                 ),
             ),
         ),
+        ToolDef(
+            function = ToolFunctionDef(
+                name = NAME_PROPOSE_PROFILE_UPDATE,
+                description = "拟改用户的画像 / 资源清单（草稿，需用户确认）。" +
+                    "field 可选：allergens=忌口/过敏/不吃（op 用 add / remove 改单条）；" +
+                    "pain=疼痛/不适部位（add / remove）；" +
+                    "scene=就餐场景（set，只能是 宿舍 / 食堂 / 外卖 / 自己做饭，或留空表示未固定）；" +
+                    "foods=手头现成的食物（set，自由文本）；" +
+                    "meds=常备药物（set，自由文本）；" +
+                    "sport=运动条件（set，自由文本，器材 + 场地 + 可用时段）；" +
+                    "sleep_bed=就寝时间（set，HH:mm）；sleep_wake=起床时间（set，HH:mm）。" +
+                    "仅当用户明确要求改这些偏好 / 条件时调用（如「我以后不吃辣」「我只有一副哑铃」" +
+                    "「我一般 1 点睡」）；用户只是提到相关事实、并未要求改的，不要调用。" +
+                    "草稿经用户确认后才生效，你无权直接修改。",
+                parameters = mapOf(
+                    "type" to "object",
+                    "properties" to mapOf(
+                        "field" to mapOf(
+                            "type" to "string",
+                            "description" to "要改的字段：allergens / pain / scene / foods / " +
+                                "meds / sport / sleep_bed / sleep_wake",
+                        ),
+                        "op" to mapOf(
+                            "type" to "string",
+                            "description" to "动作：add=加入一项；remove=移除一项；" +
+                                "set=整体覆盖（scene / foods / meds / sport / sleep_bed / sleep_wake 用 set）",
+                        ),
+                        "value" to mapOf(
+                            "type" to "string",
+                            "description" to "值：数组类字段填单个条目（如「不吃辣」）；" +
+                                "sleep_* 填 HH:mm（如 00:30）；其余填文本",
+                        ),
+                    ),
+                    "required" to listOf("field", "op", "value"),
+                ),
+            ),
+        ),
+        ToolDef(
+            function = ToolFunctionDef(
+                name = NAME_PROPOSE_SETTINGS_UPDATE,
+                description = "拟改体格与运行设置（草稿，需用户确认）。" +
+                    "field 可选：height=身高（整数 cm）；weight=体重（kg）；age=年龄（整数岁）；" +
+                    "activity=活动系数（只能是 1.2 / 1.375 / 1.55 / 1.725）；" +
+                    "day_start=日界线（0-23 的整数小时，凌晨几点之前的记录算前一天）；" +
+                    "hide_kcal=是否隐藏热量数字（true / false）；" +
+                    "hide_weight=是否隐藏体重数字（true / false）。" +
+                    "仅当用户明确要求改这些时调用（如「我 175 了」「我最近 70 公斤」" +
+                    "「把日界线改成 3 点」「帮我把热量藏起来」）。" +
+                    "草稿经用户确认后才生效，你无权直接修改。",
+                parameters = mapOf(
+                    "type" to "object",
+                    "properties" to mapOf(
+                        "field" to mapOf(
+                            "type" to "string",
+                            "description" to "要改的字段：height / weight / age / activity / " +
+                                "day_start / hide_kcal / hide_weight",
+                        ),
+                        "value" to mapOf(
+                            "type" to "string",
+                            "description" to "新值（数字写数字，开关写 true / false）",
+                        ),
+                    ),
+                    "required" to listOf("field", "value"),
+                ),
+            ),
+        ),
     )
 
     /**
@@ -580,6 +695,18 @@ internal object ToolRegistry {
                 denied(uid)
             } else {
                 proposeRecordDelete(context, args, uid)
+            }
+
+            NAME_PROPOSE_PROFILE_UPDATE -> if (!perms.writeProfile) {
+                denied(uid)
+            } else {
+                proposeProfileUpdate(context, args, uid)
+            }
+
+            NAME_PROPOSE_SETTINGS_UPDATE -> if (!perms.writeSettings) {
+                denied(uid)
+            } else {
+                proposeSettingsUpdate(context, args, uid)
             }
 
             else -> ToolExecResult("未知工具：$name", null, uid, false)
@@ -973,7 +1100,77 @@ internal object ToolRegistry {
         )
     }
 
+    /**
+     * 拟改画像 / 资源清单（`propose_profile_update`，2026-10-07 P1）。
+     *
+     * 与 [proposePlanChange] 同款两段式：这里**只读库校验、不写库** —— 把
+     * `{field, op, value}` 交给 [ProfileWriter.describe] 归一化 + 产出摘要；校验不过
+     * （未知字段 / op 不匹配 / 越界 / 重复 add）把错误文本回给模型，循环可继续、不产 draft。
+     * 真正落库推迟到用户确认后的 [ProfileWriter.apply]（届时重新读库）。
+     */
+    private suspend fun proposeProfileUpdate(
+        context: Context,
+        args: JSONObject,
+        uid: String,
+    ): ToolExecResult {
+        val opJson = JSONObject()
+            .put("field", strArg(args, "field"))
+            .put("op", strArg(args, "op"))
+            .put("value", strArg(args, "value"))
+            .toString()
+        val db = HealixApp.from(context).database
+        return when (val r = ProfileWriter.describe(context, db, opJson)) {
+            is ProfileWriter.Result.Ok -> draft(
+                uid,
+                "已拟好画像修改草稿：${r.summary}。等待用户确认。",
+                ProfileUpdateProposal(op = opJson, callUid = uid, summary = r.summary),
+            )
+
+            is ProfileWriter.Result.Error -> ToolExecResult(r.message, null, uid, true)
+        }
+    }
+
+    /**
+     * 拟改体格与运行设置（`propose_settings_update`，2026-10-07 P1）。
+     *
+     * 同 [proposeProfileUpdate]：拟稿期只校验、不写库；确认期由
+     * [SettingsWriter.apply] 落库。
+     */
+    private suspend fun proposeSettingsUpdate(
+        context: Context,
+        args: JSONObject,
+        uid: String,
+    ): ToolExecResult {
+        val opJson = JSONObject()
+            .put("field", strArg(args, "field"))
+            .put("value", strArg(args, "value"))
+            .toString()
+        val db = HealixApp.from(context).database
+        return when (val r = SettingsWriter.describe(context, db, opJson)) {
+            is SettingsWriter.Result.Ok -> draft(
+                uid,
+                "已拟好设置修改草稿：${r.summary}。等待用户确认。",
+                SettingsUpdateProposal(op = opJson, callUid = uid, summary = r.summary),
+            )
+
+            is SettingsWriter.Result.Error -> ToolExecResult(r.message, null, uid, true)
+        }
+    }
+
     // ── 辅助 ────────────────────────────────────────────────────────
+
+    /**
+     * 取一个字符串参数，**JSON null 守卫**。
+     *
+     * `JSONObject.optString` 会把 JSON `null` 读成**字面串 `"null"`**（项目里
+     * `PlanChangeWriter.sanitizePatch` 已踩过同一个坑）—— 那会让"值为空"被当成
+     * 合法文本写库。此处显式把 `null` 归一成空串，由各字段的校验决定接受与否。
+     */
+    private fun strArg(args: JSONObject, key: String): String {
+        val v = args.opt(key) ?: return ""
+        if (v == JSONObject.NULL) return ""
+        return v.toString().trim()
+    }
 
     /** `body_signals.level` 的中文档位名（取值域 `info` / `notice` / `alert`）。 */
     private fun signalLevelName(level: String): String = when (level) {
@@ -1303,9 +1500,12 @@ internal class HealthAgent(
                     if (perms.writePlan) add("改今日计划")
                     if (perms.writeRecord) add("拟记 / 删记录")
                     if (perms.writeGoal) add("改目标")
+                    if (perms.writeProfile) add("改画像 / 资源清单")
+                    if (perms.writeSettings) add("改体格与设置")
                 }
                 if (writeParts.isEmpty()) {
-                    "你当前只有只读权限（可查询记录 / 计划 / 目标 / 周训练），不能修改任何数据。"
+                    "你当前只有只读权限（可查询记录 / 计划 / 目标 / 复盘 / 提醒 / 设置等数据），" +
+                        "不能修改任何数据。"
                 } else {
                     "你可以拟改${writeParts.joinToString("、")}的草稿（均需用户确认后才会生效，你无权直接写入）。"
                 }
@@ -1354,6 +1554,11 @@ internal class HealthAgent(
          * query_review / query_warnings / query_reminders / query_settings 四个只读工具，
          * 并把 query_plan 一条改写为"逐条明细"。**意图判据段与收尾硬措辞逐字未动**
          * —— 新增的仍是"查用户自己的数据"，落在既有第 4 条查证义务的射程内，无需改判据。
+         *
+         * 2026-10-07 P1 扩展：新增 propose_profile_update / propose_settings_update 两条
+         * **拟稿**工具。它们落在既有第 1 条「要改数据」的射程内，故意图判据段仍逐字未动，
+         * 只在各自条目里写清"仅当用户**明确要求改**时才调，只是提到事实不算"——
+         * 这与 propose_log 条目当年的修正同因（当时的教训：提到「记录」二字就乱调）。
          * 末尾由 [toolsSection] 追加一行动态权限声明。
          */
         private const val TOOLS_SECTION = """
@@ -1378,6 +1583,8 @@ internal class HealthAgent(
 - propose_plan_change：拟改计划（date + action）：把某条目改成休息 / 按字段改某条目 / 改或清备注 / 把本周某天设为休息日。草稿经用户确认后才生效。
 - propose_goal_change：拟改某项目标值（metric + value）。草稿经用户确认后才生效。
 - propose_record_delete：拟删一条记录（day + keyword，命中须唯一）。草稿经用户确认后才删除。
+- propose_profile_update：拟改画像 / 资源清单。field 取 allergens（忌口过敏，op=add/remove）/ pain（疼痛部位，op=add/remove）/ scene（就餐场景，op=set）/ foods（手头食物，op=set）/ meds（常备药物，op=set）/ sport（运动条件，op=set）/ sleep_bed、sleep_wake（作息时刻，op=set 且值写 HH:mm）。用户明确要求改这些偏好 / 条件时才调。草稿经用户确认后才生效。
+- propose_settings_update：拟改体格与运行设置。field 取 height（cm 整数）/ weight（kg）/ age（整数岁）/ activity（只能 1.2 / 1.375 / 1.55 / 1.725）/ day_start（0-23 整数小时）/ hide_kcal、hide_weight（true / false）。用户明确要求改时才调。草稿经用户确认后才生效。
 回答里引用的数字只能来自记录原文或工具返回。
 """
 

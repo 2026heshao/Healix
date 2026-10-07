@@ -188,6 +188,28 @@ object SettingsKeys {
      */
     const val AI_TOOL_WRITE_GOAL = "ai_tool_write_goal"
 
+    /**
+     * 写工具权限：**拟改画像 / 资源清单**（`propose_profile_update`）。默认开（键不存在 = 开）。
+     *
+     * 覆盖 settings 表里的 `profile_*` 键：忌口过敏 / 疼痛部位 / 就餐场景 / 手头食物 /
+     * 常备药物 / 运动条件 / 就寝起床时刻。这是"我以后不吃辣"这类最高频诉求的落点。
+     *
+     * 与其它写权限同款：仅控制执行层能否产 draft，用户仍需 UI 二次确认才落库。
+     * 判定口径：`!= "false"`。
+     */
+    const val AI_TOOL_WRITE_PROFILE = "ai_tool_write_profile"
+
+    /**
+     * 写工具权限：**拟改体格与运行设置**（`propose_settings_update`）。默认开（键不存在 = 开）。
+     *
+     * 覆盖身高 / 体重 / 年龄 / 活动系数 / 日界线 / 两个隐私开关。
+     *
+     * ⚠️ **刻意不含** [AI_DATA_FULL] —— 那是"AI 能看我多少资料"的总开关，让 AI 提议
+     * 扩大自己的可见范围属于自授权漏洞，只允许用户在设置页亲手改。见
+     * `SettingsWriter` 类 KDoc 的边界说明。判定口径：`!= "false"`。
+     */
+    const val AI_TOOL_WRITE_SETTINGS = "ai_tool_write_settings"
+
     // ── 目标组的一次性提示（设计规范系统 9.7 / 921 行） ────────────────
     /**
      * 目标组「依据提示」是否已展示过。`"true"` / `"false"`，默认 `false`（未展示）。

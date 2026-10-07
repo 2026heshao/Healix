@@ -704,6 +704,8 @@
     <string name="ai_tool_write_plan">允许 AI 修改今日计划</string>
     <string name="ai_tool_write_record">允许 AI 拟记 / 删除记录</string>
     <string name="ai_tool_write_goal">允许 AI 修改目标</string>
+    <string name="ai_tool_write_profile">允许 AI 修改画像 / 资源清单</string>
+    <string name="ai_tool_write_settings">允许 AI 修改体格与运行设置</string>
 
     <!-- ── B6 拟稿确认与回执：写工具（计划 / 目标 / 删除）的二次确认与落库反馈 ── -->
     <!-- 非记录类草案（计划 / 目标 / 删除）的确认弹窗标题；记录类仍用 @string/proposal_sheet_title -->
@@ -714,7 +716,11 @@
     <string name="receipt_goal_applied">已完成：%1$s</string>
     <!-- 记录删除成功回执；%1$s = 草案 summary（如「删除 2026-10-08 的记录「…」」） -->
     <string name="receipt_record_deleted">已完成：%1$s</string>
-    <!-- 三条写路径统一的失败提示（本地模板，零 token） -->
+    <!-- 画像 / 资源清单修改成功回执（P1）；%1$s = 草案 summary（如「把「不吃辣」加入忌口/过敏」） -->
+    <string name="receipt_profile_applied">已更新：%1$s</string>
+    <!-- 体格与运行设置修改成功回执（P1）；%1$s = 草案 summary（如「把身高设为 175 cm」） -->
+    <string name="receipt_settings_applied">已更新：%1$s</string>
+    <!-- 写路径统一的失败提示（本地模板，零 token） -->
     <string name="receipt_apply_failed">操作没成功，请重试</string>
     <!-- 记录软删后的内联撤销条文案（B6 复用 UndoBar；summary 过长不宜嵌「」，故单列一条） -->
     <string name="undo_record_deleted">已删除 1 条记录，5 秒内可撤销</string>

@@ -11,7 +11,9 @@ import com.healix.app.agent.GoalChangeProposal
 import com.healix.app.agent.HealthAgent
 import com.healix.app.agent.LogProposal
 import com.healix.app.agent.PlanChangeProposal
+import com.healix.app.agent.ProfileUpdateProposal
 import com.healix.app.agent.RecordDeleteProposal
+import com.healix.app.agent.SettingsUpdateProposal
 import com.healix.app.db.ChatMessageEntity
 import com.healix.app.db.EventEntity
 import com.healix.app.db.PresetEntity
@@ -137,7 +139,8 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
      * 拟稿（S3–S4 agent / v0.3 B6 泛化）：Activity 收到后弹确认框。
      * 确认 → [confirmProposal] 走对应写路径；取消 → [cancelProposal] 只回填 `approved=0`。
      *
-     * 类型由 `LogProposal` 泛化为 `AgentProposal`（记录 / 计划 / 目标 / 删除四类草案）。
+     * 类型由 `LogProposal` 泛化为 `AgentProposal`（记录 / 计划 / 目标 / 删除四类草案；
+     * 2026-10-07 P1 再扩画像 / 设置，共六类）。
      */
     private val _proposal = MutableSharedFlow<AgentProposal>(extraBufferCapacity = 4)
     val proposal: SharedFlow<AgentProposal> = _proposal.asSharedFlow()
@@ -453,7 +456,9 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
      * - [LogProposal]：走完整抽取链（source = ai_suggestion），**不变**；
      * - [PlanChangeProposal]：读改写 `daily_plans.plan_json`（[PlanChangeWriter]）；
      * - [GoalChangeProposal]：`GoalDao.setTarget`；
-     * - [RecordDeleteProposal]：软删（[EventRepository.undo]），成功后置 [undo] 供退回。
+     * - [RecordDeleteProposal]：软删（[EventRepository.undo]），成功后置 [undo] 供退回；
+     * - [ProfileUpdateProposal]：读改写 `settings` 的 `profile_*` 键（[ProfileWriter]）；
+     * - [SettingsUpdateProposal]：写 `settings` 的体格 / 日界线 / 隐私键（[SettingsWriter]）。
      *
      * 成功一律由本地模板回一条助理消息（零 token，避免双反馈）；失败经 [proposalToast] 提示。
      */
@@ -464,6 +469,8 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 is PlanChangeProposal -> confirmPlanChange(proposal)
                 is GoalChangeProposal -> confirmGoalChange(proposal)
                 is RecordDeleteProposal -> confirmRecordDelete(proposal)
+                is ProfileUpdateProposal -> confirmProfileUpdate(proposal)
+                is SettingsUpdateProposal -> confirmSettingsUpdate(proposal)
             }
         }
     }
@@ -572,6 +579,44 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             _undo.emit(proposal)
         } else {
             _proposalToast.emit(app.getString(R.string.receipt_apply_failed))
+        }
+    }
+
+    /**
+     * 画像 / 资源清单修改确认（2026-10-07 P1）：读改写 `settings` 的 `profile_*` 键。
+     *
+     * ⚠️ 与 [confirmPlanChange] 同款：拟稿到确认之间用户可能在设置页手改过 → 这里
+     * [ProfileWriter.apply] **重新读库**（数组类的读改写一律以当前值为准），不沿用拟稿快照。
+     */
+    private suspend fun confirmProfileUpdate(proposal: ProfileUpdateProposal) {
+        val app = getApplication<Application>()
+        val result = runCatching { ProfileWriter.apply(app, db, proposal.op) }.getOrNull()
+        when (result) {
+            is ProfileWriter.Result.Ok -> {
+                markApproved(proposal.callUid, 1)
+                persistAssistant(app.getString(R.string.receipt_profile_applied, result.summary))
+            }
+
+            is ProfileWriter.Result.Error -> _proposalToast.emit(result.message)
+
+            // apply 内部已吞掉校验类异常；此处兜底 DB/IO 等意外
+            null -> _proposalToast.emit(app.getString(R.string.receipt_apply_failed))
+        }
+    }
+
+    /** 体格与运行设置修改确认（2026-10-07 P1）：写 `settings` 的身高/体重/年龄/活动系数/日界线/隐私开关。 */
+    private suspend fun confirmSettingsUpdate(proposal: SettingsUpdateProposal) {
+        val app = getApplication<Application>()
+        val result = runCatching { SettingsWriter.apply(app, db, proposal.op) }.getOrNull()
+        when (result) {
+            is SettingsWriter.Result.Ok -> {
+                markApproved(proposal.callUid, 1)
+                persistAssistant(app.getString(R.string.receipt_settings_applied, result.summary))
+            }
+
+            is SettingsWriter.Result.Error -> _proposalToast.emit(result.message)
+
+            null -> _proposalToast.emit(app.getString(R.string.receipt_apply_failed))
         }
     }
 
