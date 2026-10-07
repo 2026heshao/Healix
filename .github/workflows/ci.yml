@@ -87,6 +87,14 @@ jobs:
       - name: Kotlin/Room 静态检查
         run: python3 pipeline/check_kotlin.py
 
+      # 跨包 import 漏抄检查：check_kotlin.py 是正则型、不做符号解析，对
+      # 「代码从 A 文件迁到 B 文件、import 段没跟着走」零覆盖 —— 本地三条检查器
+      # 全绿、CI 编译才炸（run #71 实证：RecordListAdapters.kt 的
+      # `Unresolved reference 'EventText'`，3 处）。本步用「全仓顶层声明表 +
+      # 文件 import 表」双向比对，把这类错误提前到编译前的秒级暴露。
+      - name: 跨包 import 漏抄检查
+        run: python3 pipeline/check_imports.py
+
       # Python 侧合约自测：67 项断言，纯离线，不依赖网络/API key
       - name: Python 合约自测
         run: python3 pipeline/tests/test_norm.py
