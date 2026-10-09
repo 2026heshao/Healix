@@ -1095,8 +1095,13 @@ class ChatAdapter : RecyclerView.Adapter<ChatAdapter.VH>() {
         }
 
         // 查阅角标：12sp（相对正文 15sp 缩放）、text_3
+        // ⚠️ 起点必须用 rendered 的长度（去 `**` 后比原 body 短）：
+        //    v0.2.1 真机崩溃（IndexOutOfBoundsException setSpan 460..473 beyond 457）
+        //    就是这里用了 body.length —— 星号剥掉后 sb 比旧口径短，
+        //    badge/source 的 start 落到串外。collapse 前先记录 bodyLen。
+        val bodyLen = rendered.length
         if (badgeLine != null) {
-            val start = body.length + 1
+            val start = bodyLen + 1
             val end = start + badgeLine.length
             sp.setSpan(
                 android.text.style.RelativeSizeSpan(12f / 15f), start, end,
