@@ -1066,7 +1066,12 @@ class ChatAdapter : RecyclerView.Adapter<ChatAdapter.VH>() {
         badgeLine: String?,
         sourceLine: String?,
     ): CharSequence {
-        val sb = StringBuilder(body)
+        // 2026-10-09 补丁：body 先过 markdownBoldSpan —— 修 v0.2.1 验证发现的漏网：
+        // 带 `查阅：`/`来源：` 元数据的助理消息走本函数，之前 body 直接拼接，
+        // `**粗体**` 星号照样裸显（无元数据路径才有 markdown 处理，两路不一致）。
+        // 返回值可能是 SpannableString（含粗体 span），下游按 CharSequence 追加元数据行。
+        val rendered = markdownBoldSpan(body)
+        val sb = StringBuilder(rendered.toString())
         if (badgeLine != null) sb.append("\n").append(badgeLine)
         var sourceStart = -1
         if (sourceLine != null) {
@@ -1074,6 +1079,20 @@ class ChatAdapter : RecyclerView.Adapter<ChatAdapter.VH>() {
             sb.append("\n").append(sourceLine)
         }
         val sp = android.text.SpannableString(sb.toString())
+
+        // 2026-10-09：若 markdownBoldSpan 已产生 span（返回类型为 Spanned），
+        // 把正文区间内的粗体 span 原样搬到合并后的 SpannableString 上。
+        if (rendered is android.text.Spanned) {
+            val spans = rendered.getSpans(
+                0, rendered.length, android.text.style.StyleSpan::class.java,
+            )
+            for (s in spans) {
+                sp.setSpan(
+                    s, rendered.getSpanStart(s), rendered.getSpanEnd(s),
+                    android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
+                )
+            }
+        }
 
         // 查阅角标：12sp（相对正文 15sp 缩放）、text_3
         if (badgeLine != null) {
