@@ -126,6 +126,19 @@ class OpenAiCompatProvider(
         sink: StreamSink?,
         model: String,
     ): ChatResult {
+        // 2026-10-09 Key 健壮性前置校验：非法字符（如粘贴而来的密码圆点 `•` U+2022、
+        // 换行、空格）会让 OkHttp 在 `header("Authorization", …)` 处直接抛
+        // IllegalArgumentException —— 真机实测把整个进程炸掉（崩溃报告
+        // "Unexpected char 0x2022 at 7 in Authorization value"）。这种输入错误
+        // 必须在进入重试链之前拦下，转成普通 AUTH 错误文案给 UI，绝不崩进程。
+        val badChar = config.apiKey.firstOrNull { it.code == 0x2022 || it == '\n' || it == '\r' || it == ' ' }
+        if (config.apiKey.isBlank() || badChar != null) {
+            return ChatResult.Err(
+                kind = ErrKind.AUTH,
+                message = "API Key 无效（含非法字符或为空）——请到设置页重新粘贴",
+                attempts = 0,
+            )
+        }
         val payload = buildPayload(request, stream = sink != null, model = model)
         val body = try {
             payload.toString().toRequestBody(JSON_MEDIA_TYPE)
