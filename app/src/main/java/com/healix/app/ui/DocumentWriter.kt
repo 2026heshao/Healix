@@ -54,6 +54,19 @@ internal object DocumentWriter {
     enum class Kind { EXPORT, MEDICAL }
 
     /**
+     * 一次回传的结果：**归属流程** + **内容是否真的落盘**。
+     *
+     * ⚠️ 为什么必须把「写没写成功」单独带出来（2026-10-09 真机修复）：
+     *    本方法原先只返回 [Kind]，宿主便只能拿 `resultCode == RESULT_OK` 判成败 ——
+     *    而那个 `resultCode` 描述的是**系统选择器**的结果（用户没取消），
+     *    **不是写入的结果**。写入异常在下面被 `catch` 吞掉后，宿主照样弹
+     *    「已导出到所选位置」，用户拿到一个**空文件 / 不存在的文件**却被告知成功。
+     *    这与本类 KDoc 写的契约（「写失败……调用方要据此提示失败，不能静默」）
+     *    正好相反 —— 契约要的能力，原返回类型根本表达不了。
+     */
+    data class Result(val kind: Kind, val written: Boolean)
+
+    /**
      * requestCode → 待写内容。
      * 用 `ConcurrentHashMap` 是因为写入发生在 IO 线程（`openOutputStream().write`），
      * 而 `remove` 由主线程的回调发起 —— 虽然此刻实际上不会并发，但把一个
@@ -81,28 +94,35 @@ internal object DocumentWriter {
     /**
      * 宿主回传入口。
      *
-     * @return 本次回传属于哪个流程；**`null` = 不是本管道发起的**（调用方继续问下一位
-     *         处理者）。取消 / 写失败同样返回 kind —— 调用方要据此提示失败，
-     *         不能静默（"点了没反应"是比报错更糟的反馈）。
+     * @return 本次回传属于哪个流程 + 是否写入成功；**`null` = 不是本管道发起的**
+     *         （调用方继续问下一位处理者）。取消 / 写失败都返回 `written = false` ——
+     *         调用方要据此提示失败，不能静默（"点了没反应"是比报错更糟的反馈）。
      */
     fun onActivityResult(
         context: Context,
         requestCode: Int,
         resultCode: Int,
         data: Uri?,
-    ): Kind? {
+    ): Result? {
         val kind = kindOf(requestCode) ?: return null
         val payload = pending.remove(requestCode)
-        if (payload == null || resultCode != Activity.RESULT_OK || data == null) return kind
-        try {
-            context.contentResolver.openOutputStream(data)?.use { out: OutputStream ->
-                out.write(payload.toByteArray(Charsets.UTF_8))
-                out.flush()
-            }
-        } catch (_: Exception) {
-            // 吞掉：写失败由调用方的提示语呈现，不在这里弹（本类没有 UI 依赖）
+        // 取消 / 无 URI / 没有待写内容 —— 都没写，如实回报 false。
+        if (payload == null || resultCode != Activity.RESULT_OK || data == null) {
+            return Result(kind, written = false)
         }
-        return kind
+        val bytes = payload.toByteArray(Charsets.UTF_8)
+        // ⚠️ 这里**必须**把失败如实传出去，不能再像原先那样只 `catch` 掉了事。
+        //    `openOutputStream` 可能返回 null（provider 拒绝写），write/flush 也可能抛
+        //    （空间不足、provider 进程死亡）—— 三种都是"用户以为存好了、其实没有"。
+        val written = try {
+            context.contentResolver.openOutputStream(data)?.use { out: OutputStream ->
+                out.write(bytes)
+                out.flush()
+            } != null
+        } catch (_: Exception) {
+            false
+        }
+        return Result(kind, written)
     }
 
     private fun kindOf(requestCode: Int): Kind? = when (requestCode) {

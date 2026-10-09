@@ -99,6 +99,11 @@ class RecordFragment : Fragment() {
     private var lastSummary: MainSummary = MainSummary()
     private var lastHideKcal: Boolean = false
     private var lastHideWeight: Boolean = false
+    /**
+     * 每日热量目标是否由用户真实设置过（`vm.kcalTargetSet`，无兜底口径）。
+     * false 时计划条不显示 kcal 差值 —— 兜底 2500 不是用户目标，不当占位数展示。
+     */
+    private var lastKcalTargetSet: Boolean = false
 
     // ── 功能 5：首页横条（预设 + 最近记录）快照 ───────────────────────
     // 两路 Flow 到达顺序不确定，各自只写自己的快照再调一次 [renderPresetStrip]
@@ -518,6 +523,13 @@ class RecordFragment : Fragment() {
                 }
 
                 launch {
+                    vm.kcalTargetSet.collect { set ->
+                        lastKcalTargetSet = set
+                        renderPlanBar()
+                    }
+                }
+
+                launch {
                     vm.todayCount.collect { count ->
                         // 监督提示条：今日无记录时出现（被动监督，不依赖后台定时器）
                         lastTodayCount = count
@@ -665,9 +677,23 @@ class RecordFragment : Fragment() {
     /**
      * 指标 chip 行内容：运动 / 睡眠 / 体重三格值 + 20dp 迷你趋势线。
      * 信号态的衬底切换在 [renderMetricsState] 里做（两态互斥，恒单行 48dp）。
+     *
+     * 稳定性修复（2026-10-08，实测问题 7「统计卡片文字重叠/截断」）：三枚 chip
+     * 平分行宽，窄屏（< [NARROW_CHIP_ROW_DP]dp，如 MuMu 540×1010 ≈ 288dp 可用宽）
+     * 下每枚只剩 ~80dp，装不下 [32dp 折线 + 数值 + 标签] 的横排 —— 实测数值被
+     * 截成单字（"运"/"睡"）、SparklineView 的空态占位文案（"暂无记录"）直接
+     * 叠在数值上。窄屏整列隐藏折线（数值/标签独占 chip 宽），宽屏不动；
+     * 行高 48dp 不变量不受影响（折线与文字同高）。
      */
     private fun renderMetrics() {
         val h = headerBinding ?: return
+        val narrow = resources.displayMetrics.widthPixels <
+            NARROW_CHIP_ROW_DP * resources.displayMetrics.density
+        val sparkVisibility = if (narrow) View.GONE else View.VISIBLE
+        h.metricTrainSpark.visibility = sparkVisibility
+        h.metricSleepSpark.visibility = sparkVisibility
+        h.metricWeightSpark.visibility = sparkVisibility
+
         h.metricTrainValue.text =
             getString(R.string.sub_goal_train_card, lastTrain.done, lastTrain.goal)
         renderSpark(h.metricTrainSpark, lastTrainSeries)
@@ -714,6 +740,12 @@ class RecordFragment : Fragment() {
      * PRD §14.3 的隐私口径是「不显示热量数字 / 该块不显示」，不等于「连入口一起藏」——
      * 故隐藏热量时改为不带数字的一句「查看今日建议 ›」，入口保留、数字不泄露。
      *
+     * 稳定性修复（2026-10-08，「还差 2500 kcal」占位）：**未设热量目标**（用户跳过引导、
+     * `kcal_daily` 无 active 行）时，`lastSummary.target` 是 `GoalDefaults.TARGET_KCAL`
+     * 的**计算兜底**而非用户目标 —— 曾被当成差值显示成「还差 2500 kcal」。
+     * 此时与 HIDE_KCAL 同口径：只留中性引导文案，入口照旧可点。
+     * 差值数字只在 [lastKcalTargetSet] 为真时展示。
+     *
      * 缺口为 0 时同样补上箭头后缀：只写「今日已达标」是状态陈述，用户看不出它可点、
      * 更看不出它通往计划页（这是入口"存在但找不到"的另一半原因）。
      */
@@ -721,7 +753,7 @@ class RecordFragment : Fragment() {
         val h = headerBinding ?: return
         val enter = getString(R.string.view_advice)
         h.planBar.text = when {
-            lastHideKcal -> enter
+            lastHideKcal || !lastKcalTargetSet -> enter
             lastSummary.gap > 0 -> getString(R.string.plan_gap, lastSummary.gap) + "　" + enter
             else -> getString(R.string.plan_reached) + "　" + enter
         }
@@ -819,6 +851,12 @@ class RecordFragment : Fragment() {
 
         /** ConcatAdapter 根坐标偏移：header 段恒 1 条（迁移点② smoothScrollToPosition 用）。 */
         const val HEADER_ITEM_COUNT = 1
+
+        /**
+         * 指标 chip 行的窄屏阈值（dp）：低于此宽度隐藏 chip 内迷你折线。
+         * 480dp（MuMu 默认 900px / 1.875）放得下横排；288dp（540px 同密度）放不下。
+         */
+        const val NARROW_CHIP_ROW_DP = 360
     }
 }
 

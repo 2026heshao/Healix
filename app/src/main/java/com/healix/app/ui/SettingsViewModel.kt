@@ -359,6 +359,37 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
     /** 读原始值（编辑对话框回显用）。apiKey 不走这里 —— 它永远不回显。 */
     suspend fun raw(key: String): String? = settings.get(key)
 
+    /**
+     * 编辑对话框回显用的**生效值**：已写入则回原值；**未写入则回落该键的生效默认值**
+     * （2026-10-09 真机修复）。
+     *
+     * ⚠️ 为什么不能用 [raw]：列表行的右侧值取自 [SettingsValues]（**带默认值**，
+     *    `retry = 5` / `retryDelay = 1.5` / `dayStart = 4`），而 [raw] 读的是
+     *    settings 表里**真实存在的那一行** —— 用户从没改过这些项时，表里根本没有行。
+     *    于是出现这种自相矛盾的界面：**行上明明写着「4:00」，点进去输入框却是空的**，
+     *    用户既看不出当前值，也无从判断「空 = 0 还是 = 未设置」。
+     *    更糟的是直接点「确认」会把空串交给 [put] → 走 `remove(key)` 分支，
+     *    等于一次**静默的"清空"**（虽因默认值兜底而无实际危害，但语义是错的）。
+     *
+     * 回落值取自 [_values]（即 [reload] 的产物），与行渲染**同源** ——
+     * 这样「行上显示什么，点进去就编辑什么」恒成立，不会出现第二份默认值。
+     */
+    suspend fun effectiveRaw(key: String): String {
+        settings.get(key)?.let { return it }
+        val v = _values.value
+        return when (key) {
+            SettingsKeys.RETRY -> v.retry.toString()
+            SettingsKeys.RETRY_DELAY -> trimNumber(v.retryDelay)
+            SettingsKeys.DAY_START -> v.dayStart.toString()
+            // 其余键（base_url / model / …）：空就是空，不臆造默认值。
+            else -> ""
+        }
+    }
+
+    /** 数值展示口径：整数值去掉多余的 `.0`（与 `SettingsFragment.trim` 同义）。 */
+    private fun trimNumber(value: Double): String =
+        if (value == value.toLong().toDouble()) value.toLong().toString() else value.toString()
+
     /** 画像 JSON 数组 → 列表（防御性：解析失败/空串给空列表，不抛异常）。 */
     private fun parseProfileList(json: String?): List<String> =
         runCatching { com.healix.app.repo.parseFoodsJson(json.orEmpty()) }.getOrDefault(emptyList())

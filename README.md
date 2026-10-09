@@ -19,19 +19,22 @@
 | `docs/security.md` | ★ API key 生命周期、脱敏规则、签名密钥、数据丢失风险 |
 | `docs/待核实清单.md` | 未决项清单（版本号 / MagicOS 真机行为 / 功能完整度取舍） |
 | `docs/HANDOFF.md` | ★ 中断交接：CI 战绩、发布工具链、实现纪律、真机验收清单 |
-| `docs/prototype.html` | 390×844 可交互高仿真原型，**7 屏**（已同步状态详情页、训练 Tab 与直写路径） |
+| `docs/prototypes/prototype.html` | 390×844 可交互高仿真原型，**7 屏**（已同步状态详情页、训练 Tab 与直写路径） |
+| `docs/prototypes/UI-v8优化原型.html` | v8 优化原型（记录页目标区压缩 / 设置页目标栏 / 计划页时间轴） |
+| `docs/prototypes/UI-记录页目标区.html` | v8 单块原型：记录页目标区 |
 
 **仅本机**（开发文档不入 git，清单固化在 `.gitignore`）：
 
 | 文件 | 作用 |
 |---|---|
-| `docs/总方案.md` | 总纲：已验证结论、技术栈、数据模型、prompt、执行计划 |
-| `docs/功能扩展设计方案.md` | ★ PRD：扩展为「预防生病 + 运动计划 + 多维度健康」（决策已拍板；P0+P1 交付记录见第十六章） |
 | `docs/Healix设计规范系统.md` | ★ 设计令牌与组件规格（**v5**，含扩展功能 UI：状态行 / 趋势图 / 状态详情页 / 训练 Tab，可直接进 XML） |
-| `docs/功能补充与套壳选型.md` | 9 项工程缺口、可借鉴功能、Provider 抽象、交互式 Agent |
-| `docs/参考产品研究与取舍.md` | ★ 竞品研究：Fitbod / Bearable / Apple Health / Whoop 等的精华与糟粕 |
-| `docs/UI设计方案.md` | v2 设计语言（规范系统的前身） |
-| `docs/功能清单2.md` | 「让 AI 真的知道你」：对话缺陷分析与数据层补充方案（待拍板） |
+| `docs/时间轴计划-增量设计.md` | 增量改造时间轴计划（架构师视角，含红线约束） |
+| `docs/下一轮-增量设计.md` | 下一轮 5 组条目的设计与任务分解 |
+| `docs/下一轮优化提示词.md` | 实施提示词（10-04 实测反馈 4 点，含排查结论与行号） |
+| `docs/审计缺陷提示词.md` | 实施提示词（全项目只读审计 13 项，含取证与验收口径） |
+| `docs/功能落地文档-工具循环.md` | 助理工具循环（HealthAgent S3–S4）落地形态基准 |
+| `docs/v8/` | 本轮 v8 工作区：增量 PRD / 架构设计 / 交互状态规格 / 两份调研 / 未完成项 / 两张 mermaid 图 |
+| `docs/archive/` | **历史归档**（10-03 早期 PRD，已不再驱动开发，留档防丢决策依据）：`总方案` / `功能扩展设计方案` / `功能补充与套壳选型` / `参考产品研究与取舍` / `UI设计方案`（v2 前身）/ `功能清单2` |
 
 ---
 
@@ -60,8 +63,10 @@ Healix/
 │   └── res/                     # 设计令牌：colors / type / dimens / strings
 │
 ├── .github/workflows/           # ci.yml（编译+单测）/ release.yml（签名 APK）
-└── docs/                        # 入库：contract / security / 待核实清单 / HANDOFF / prototype.html
-                                  # 本机不入库：总方案 / PRD / 设计规范 v5 等 7 份开发文档（见 .gitignore）
+└── docs/                        # 入库：contract / security / 待核实清单 / HANDOFF / prototypes/*.html
+                                  # 本机不入库：设计规范 v5 / 本轮实施文档 / v8/ / archive/（见 .gitignore）
+                                  # 结构：prototypes/ = 网页原型（3 个 HTML）；archive/ = 早期 PRD 归档
+                                  #       v8/ = 本轮活跃工作区；其余 .md = 契约与实施文档
 ```
 
 ---

@@ -13,6 +13,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.healix.app.R
 import com.healix.app.databinding.FragmentPlanReviewBinding
+import com.healix.app.databinding.GroupPlanReviewReviewBinding
 import kotlinx.coroutines.launch
 
 /**
@@ -49,6 +50,49 @@ class PlanReviewFragment : PageFragment() {
         ViewModelProvider(this)[PlanReviewViewModel::class.java]
     }
 
+    /**
+     * 上次已渲染的**数据指纹**（[observe] 的幂等判据）。`null` = 尚未渲染。
+     *
+     * ⚠️ 判据是 `PlanUiState.dataFingerprint()` 而**不是**整个状态对象（2026-10-09，
+     *    真机问题 1 的 R1-1）：整对象含 `updating` / `failed` 等瞬时标志，而自动重排
+     *    只在三个位置翻转标志、数据一字未动 —— 旧判据会被击穿，一次进入计划页白跑
+     *    3 次「清空 + 逐条 re-inflate」。详见 [PlanUiState.dataFingerprint] 的 KDoc。
+     *
+     * 视图销毁时在 [onDestroyView] 复位。
+     */
+    private var renderedFingerprint: PlanUiState? = null
+
+    /**
+     * 首帧的时间轴条目是否尚未填充（2026-10-09，真机问题 1 的「转场窗口内延后填轴」）。
+     *
+     * 进入本页有 180ms 入场动画；而 [renderTimelineItems] 是 `removeAllViews()` +
+     * 逐条 `inflate` 整条时间轴。这段主线程工作量若落在动画窗口内，用户看到的就是
+     * 「滑入收尾卡一下」。故**首次**填轴延后到动画之后（复用 `StatusDetailFragment`
+     * 已有的 200ms 口径：180ms 动画 + 余量），此时页面已在屏内且动画已结束。
+     *
+     * 仅延后**首次**：此后数据变化（用户记一笔、自动重排落库）本就发生在用户
+     * 停留期间，再延后只会让「记一笔」显得迟滞。
+     */
+    private var firstItemsPending = true
+
+    /**
+     * 「回顾」组的懒建绑定（2026-10-08，性能）。
+     *
+     * 该组在 `fragment_plan_review.xml` 里是 [ViewStub]（计划 Tab 是默认页，首帧
+     * 看不到它）；**首次切到「回顾」Tab** 才 inflate。`null` = 尚未建。
+     * ⚠️ ViewStub 只能 inflate 一次（第二次会抛 `IllegalStateException`：父容器已
+     * 不认它），所以必须靠本字段做「建过就不再建」的唯一守卫。
+     */
+    private var reviewBinding: GroupPlanReviewReviewBinding? = null
+
+    /**
+     * 最近一次收到的复盘数据。
+     *
+     * 为什么需要：[observe] 的 `vm.review` collector 在本页可见期间**一直在跑**，
+     * 而回顾组的视图要等用户切 Tab 才建 —— 不缓存这一份，「切过去是空的」。
+     */
+    private var lastReview: ReviewUiState? = null
+
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
@@ -75,6 +119,12 @@ class PlanReviewFragment : PageFragment() {
 
     override fun onDestroyView() {
         super.onDestroyView()
+        // 幂等缓存与懒建绑定随视图作废：视图树没了，下次重建必须重新渲染 / 重新 inflate
+        // （否则新树会因「状态相同」被整段跳过 → 空白页；ViewStub 也无法二次 inflate）。
+        renderedFingerprint = null
+        firstItemsPending = true
+        reviewBinding = null
+        lastReview = null
         _binding = null
     }
 
@@ -100,7 +150,14 @@ class PlanReviewFragment : PageFragment() {
         binding.tabReviewUnderline.visibility = if (isPlan) View.INVISIBLE else View.VISIBLE
 
         binding.planGroup.visibility = if (isPlan) View.VISIBLE else View.GONE
-        binding.reviewGroup.visibility = if (isPlan) View.GONE else View.VISIBLE
+        // 回顾组懒建（2026-10-08，性能）：默认停在计划 Tab，首开**不为**这块
+        // `gone` 的内容付 inflate —— 那正是转场掉帧的大头。切到回顾才建，
+        // 且建完由 [ensureReviewGroup] 立即回填缓存的数据。
+        if (isPlan) {
+            reviewBinding?.reviewGroup?.visibility = View.GONE
+        } else {
+            ensureReviewGroup().reviewGroup.visibility = View.VISIBLE
+        }
 
         // 缺口行只属于计划 Tab
         binding.gapLabel.visibility = if (isPlan) View.VISIBLE else View.GONE
@@ -109,12 +166,52 @@ class PlanReviewFragment : PageFragment() {
         if (!isPlan) UndoBar.hide(binding.undoBar)
     }
 
+    /**
+     * 取「回顾」组绑定，必要时先 inflate（唯一入口，保证只 inflate 一次）。
+     *
+     * inflate 后立刻用 [lastReview] 回填 —— 数据可能早在切 Tab 之前就到了
+     * （`vm.review` 的 collector 一直在跑），不回填会看到一片空白。
+     */
+    private fun ensureReviewGroup(): GroupPlanReviewReviewBinding {
+        reviewBinding?.let { return it }
+        val view = binding.reviewStub.inflate()
+        val b = GroupPlanReviewReviewBinding.bind(view)
+        reviewBinding = b
+        lastReview?.let { bindReview(b, it) }
+        return b
+    }
+
+    /** 复盘三宫格 + 正文的绑定（懒建路径与 collector 共用，避免两处口径漂移）。 */
+    private fun bindReview(b: GroupPlanReviewReviewBinding, r: ReviewUiState) {
+        b.statIn.text = if (r.kcalIn > 0) r.kcalIn.toString() else "—"
+        b.statOut.text = if (r.kcalOut > 0) r.kcalOut.toString() else "—"
+        b.statWeight.text = if (r.weightKg > 0) trimNumber(r.weightKg) else "—"
+        b.reviewText.text = r.content.ifBlank { getString(R.string.nodata) }
+    }
+
     private fun observe() {
         viewLifecycleOwner.lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
 
                 launch {
                     vm.plan.collect { p ->
+                        // ══ 幂等渲染（2026-10-08，性能；2026-10-09 指纹化）══════════════
+                        // `vm.plan` 由多个上游（计划表 / 训练表 / 目标 / 复盘）合成，任何
+                        // 一处变化都会重发；而 [renderTimeline] 是 `removeAllViews()` +
+                        // **逐条重新 inflate** 整条时间轴。
+                        //
+                        // 判据分两层（问题 1 的 R1-1）：
+                        // ① **表头**（来源行 / 提示行 / 汇总行）成本极低且**必须**随瞬时
+                        //    标志更新（否则「正在重排…」永远不出现）→ 每次都渲染；
+                        // ② **时间轴**昂贵 → 只在**数据指纹**变化时重建。标志翻转不再
+                        //    触发整条轴重建，自动重排的 3 次发射只剩 1 次真正重建。
+                        renderPlanHeader(p)
+                        renderTrainingSummary(p)
+
+                        val fingerprint = p.dataFingerprint()
+                        if (fingerprint == renderedFingerprint) return@collect
+                        renderedFingerprint = fingerprint
+
                         // B1 滑动弹跳修复：数据变化触发的重建会把 contentScroll 的 scrollY
                         // 夹到 0。① 重建**前**记住当前滚动位置；② 渲染**结束后**用 `post`
                         // 到新子树 layout 之后统一还原（不 post 会被旧高度夹取）。
@@ -125,20 +222,39 @@ class PlanReviewFragment : PageFragment() {
                         } else {
                             getString(R.string.plan_reached)
                         }
-                        renderPlanHeader(p)
-                        renderTrainingSummary(p)
-                        renderTimeline(p)
-                        val scroll = binding.contentScroll
-                        scroll.post { scroll.scrollTo(0, savedY) }
+
+                        // 首次进页：先只摆骨架（日头 + 空态/按钮态），条目延后到入场动画
+                        // 之后填 —— 把逐条 inflate 挪出 180ms 转场窗口（问题 1 的 P1-2）。
+                        if (firstItemsPending) {
+                            firstItemsPending = false
+                            renderTimelineShell(p)
+                            val scroll = binding.contentScroll
+                            scroll.post { scroll.scrollTo(0, savedY) }
+                            // ⚠️ 回调用**指纹**闸门而不是无条件填：这 200ms 内若数据又变了，
+                            //    collect 会走下面的 renderTimeline 重建整条轴（含新条目）；
+                            //    此刻再追加旧 p 的条目就会「新旧两套叠在一起」。
+                            binding.itemContainer.postDelayed(
+                                {
+                                    if (fingerprint == renderedFingerprint) {
+                                        fillTimelineItems(p, savedY)
+                                    }
+                                },
+                                ITEMS_AFTER_TRANSITION_MS,
+                            )
+                        } else {
+                            renderTimeline(p)
+                            val scroll = binding.contentScroll
+                            scroll.post { scroll.scrollTo(0, savedY) }
+                        }
                     }
                 }
 
                 launch {
                     vm.review.collect { r ->
-                        binding.statIn.text = if (r.kcalIn > 0) r.kcalIn.toString() else "—"
-                        binding.statOut.text = if (r.kcalOut > 0) r.kcalOut.toString() else "—"
-                        binding.statWeight.text = if (r.weightKg > 0) trimNumber(r.weightKg) else "—"
-                        binding.reviewText.text = r.content.ifBlank { getString(R.string.nodata) }
+                        // 回顾组可能还没建（计划 Tab 默认页）→ 先存着，
+                        // 由 [ensureReviewGroup] 在首次切 Tab 时回填。
+                        lastReview = r
+                        reviewBinding?.let { bindReview(it, r) }
                     }
                 }
 
@@ -186,7 +302,10 @@ class PlanReviewFragment : PageFragment() {
             binding.planSourceLabel.text = getString(R.string.plan_source_line, srcName, time)
         }
 
-        // 提示行：取最相关的一条
+        // A2（2026-10-09）：文案与可见性**按同一个 hint 值提交**。
+        // 旧写法只在 `hint != null` 时写 text，可见性却在行尾无条件按 `hint` 设 ——
+        // 「本地简化 → AI 计划」切换那一帧是「文案还是旧的、控件却已消失」的半更新态，
+        // 参与问题 1 的「闪现」。现在两处同源同帧。
         val hint = when {
             p.updating -> getString(R.string.plan_auto_updating)
             // 有旧版 → 屏幕上确实还是旧版；无旧版 → 这是刚建的本地兜底，
@@ -197,12 +316,12 @@ class PlanReviewFragment : PageFragment() {
             p.source == TrainingPlanner.SOURCE_FALLBACK -> getString(R.string.mode_simplified_local)
             else -> null
         }
-        if (hint != null) binding.planModeLabel.text = hint
+        binding.planModeLabel.text = hint.orEmpty()
+        binding.planModeLabel.visibility = if (hint == null) View.GONE else View.VISIBLE
 
         // B1：**先算后写** —— 所有 visibility 决策先算好，再于行尾统一提交，
         // 消除同帧「先塌后复」的中间态（最终态与改前一致）。
         binding.planSourceLabel.visibility = if (hasPlanItems) View.VISIBLE else View.GONE
-        binding.planModeLabel.visibility = if (hint == null) View.GONE else View.VISIBLE
     }
 
     /** 本周训练汇总行 + 训练空态的低调生成入口（互斥）。 */
@@ -256,9 +375,52 @@ class PlanReviewFragment : PageFragment() {
      *
      * 一条都没有时走空态入口（问题 3 方案 C）：`今天还没有计划` + `生成今日计划`。
      */
-    private fun renderTimeline(p: PlanUiState) {
+    /**
+     * 时间轴**骨架**（2026-10-09，问题 1 的「转场窗口内延后填轴」）：
+     * 清空容器 + 摆好空态 / 按钮态，但**不填条目**。
+     *
+     * 首帧走这里，条目由 [fillTimelineItems] 在入场动画之后再填 ——
+     * 逐条 `inflate` 是这块最贵的主线程工作，占着它就会撞上 180ms 转场动画。
+     * 骨架与 [renderTimeline] 共用 [applyTimelineChrome]，两处口径不分叉。
+     */
+    private fun renderTimelineShell(p: PlanUiState) {
         binding.itemContainer.removeAllViews()
+        applyTimelineChrome(p)
+    }
 
+    /**
+     * 延后填轴：把**当时**那份状态的条目填进骨架。
+     *
+     * 传入 `p` 而不是重读 `vm.plan.value`：用户看到的首帧与随后填上的内容必须是
+     * 同一份数据，否则又会造出一次「内容整体替换」（问题 1 的 R1-3 闪现）。
+     * `_binding` 空值守卫：200ms 内用户可能已经退出本页。
+     */
+    private fun fillTimelineItems(p: PlanUiState, savedY: Int) {
+        if (_binding == null) return
+        if (p.entries.isEmpty()) return // 空态无条目可填，骨架已完整
+        val lastIndex = p.entries.lastIndex
+        var lastDay = -1
+        p.entries.forEachIndexed { index, entry ->
+            if (entry.dayIndex != lastDay) {
+                lastDay = entry.dayIndex
+                binding.itemContainer.addView(dayHeader(entry.dayIndex, p))
+            }
+            val isDayEnd = index == lastIndex || p.entries[index + 1].dayIndex != entry.dayIndex
+            binding.itemContainer.addView(entryRow(entry, isDayEnd))
+        }
+        binding.planNote.text = p.note
+        binding.planNote.visibility = if (p.note.isBlank()) View.GONE else View.VISIBLE
+        val scroll = binding.contentScroll
+        scroll.post { scroll.scrollTo(0, savedY) }
+    }
+
+    /**
+     * 时间轴的外围控件（空态入口 / 常驻重排入口互斥）—— 骨架与全量渲染共用。
+     *
+     * 抽出来的理由：这段全是「按钮文案 + 启用态 + 可见性」，与「有多少条目」无关，
+     * 两处各写一份必然漂移（正是本页此前的病根）。
+     */
+    private fun applyTimelineChrome(p: PlanUiState) {
         if (p.entries.isEmpty()) {
             binding.planEmptyRow.visibility = View.VISIBLE
             binding.planNote.visibility = View.GONE
@@ -287,20 +449,17 @@ class PlanReviewFragment : PageFragment() {
         binding.btnRerankToday.setTextColor(
             color(if (p.generatingToday) R.color.text_3 else R.color.primary),
         )
+    }
 
-        val lastIndex = p.entries.lastIndex
-        var lastDay = -1
-        p.entries.forEachIndexed { index, entry ->
-            if (entry.dayIndex != lastDay) {
-                lastDay = entry.dayIndex
-                binding.itemContainer.addView(dayHeader(entry.dayIndex, p))
-            }
-            val isDayEnd = index == lastIndex || p.entries[index + 1].dayIndex != entry.dayIndex
-            binding.itemContainer.addView(entryRow(entry, isDayEnd))
-        }
-
-        binding.planNote.text = p.note
-        binding.planNote.visibility = if (p.note.isBlank()) View.GONE else View.VISIBLE
+    /**
+     * 单条时间轴行的容器（[renderTimeline] 的「先清空」+ 骨架 + 填条目）。
+     *
+     * 一条都没有时走空态入口（问题 3 方案 C）：`今天还没有计划` + `生成今日计划`。
+     */
+    private fun renderTimeline(p: PlanUiState) {
+        renderTimelineShell(p)
+        if (p.entries.isEmpty()) return
+        fillTimelineItems(p, binding.contentScroll.scrollY)
     }
 
     /**
@@ -415,4 +574,15 @@ class PlanReviewFragment : PageFragment() {
 
     // ⚠️ 星期短名用包级 `dowLabel()`（TrainingPlanner.kt 顶层，CLDR 本地化）——
     //    本类**不得**再定义同名成员，否则成员优先会遮蔽它、且是一份硬编码中文的私本。
+
+    private companion object {
+        /**
+         * 首帧之后填充时间轴条目的延迟（毫秒）。
+         *
+         * 取 200ms 的口径与 [StatusDetailFragment] 一致：入场动画 180ms
+         * （`res/anim/in_back.xml`）+ 余量。此刻动画已结束，逐条 inflate
+         * 不再与转场抢主线程（真机问题 1 的「滑入收尾卡一下」）。
+         */
+        const val ITEMS_AFTER_TRANSITION_MS = 200L
+    }
 }

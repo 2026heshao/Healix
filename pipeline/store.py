@@ -1,6 +1,6 @@
 """SQLite 存储层（P1 竖切片的落库端）。
 
-**定稿 schema** 以 `docs/功能补充与套壳选型.md` 第六章为准 —— 这是 App 侧 Room
+**定稿 schema** 以 `docs/archive/功能补充与套壳选型.md` 第六章为准 —— 这是 App 侧 Room
 实体的镜像，两边字段必须一字不差。此文件同时也是 Kotlin 侧的对照物。
 
 Migration 纪律（借 FairTrack 实践）：本文件即 v1，无历史包袱。

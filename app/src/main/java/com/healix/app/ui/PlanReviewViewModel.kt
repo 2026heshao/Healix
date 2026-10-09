@@ -9,10 +9,13 @@ import com.healix.app.db.GoalDefaults
 import com.healix.app.db.SettingEntity
 import com.healix.app.db.SettingsKeys
 import com.healix.app.net.NetworkStatus
+import com.healix.app.notify.EventText
 import com.healix.app.parse.dayKeyOf
 import com.healix.app.parse.dayStartHourOf
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -20,6 +23,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.time.LocalDate
 
 /**
@@ -80,7 +85,36 @@ data class PlanUiState(
     val dayLabels: List<String> = emptyList(),
     /** 正在响应用户的「生成今日计划」（页内文字入口置灰）。 */
     val generatingToday: Boolean = false,
-)
+) {
+
+    /**
+     * **数据指纹**：抹掉四个「瞬时标志」后的自身（2026-10-09，真机问题 1 的 R1-1）。
+     *
+     * 为什么需要：`PlanReviewFragment` 的幂等守卫原先直接比较**整个** [PlanUiState]，
+     * 而本对象混着两类语义完全不同的字段 ——
+     * - **数据**（`entries` / `note` / `source` / `generatedAt` …）：变了必须重建视图树；
+     * - **瞬时标志**（[updating] / [failed] / [fromCache] / [quotaExhausted]）：只驱动
+     *   页顶一行提示，**一个视图都不该重建**。
+     *
+     * 而 [PlanReviewViewModel.autoRerankIfDue] 恰恰在三个位置只翻标志、数据一字未动：
+     * ```
+     * copy(updating = true, failed = false)    // ← 击穿守卫，白重建一次
+     * computeAndEmit()                         // ← 数据真变了，这次该重建
+     * copy(updating = false, ...)              // ← 又击穿守卫，白重建一次
+     * ```
+     * 于是**一次进入计划页，仅自动重排就产生 3 次「清空 + 逐条 re-inflate」**，全部落在
+     * 主线程 —— 这正是转场收尾那几帧 `Choreographer` 超时的来源。
+     *
+     * 用 `copy` 抹零而非新写一个数据类：将来往 [PlanUiState] 加**数据**字段时，
+     * 它会自动进入指纹（默认安全），不需要维护第二份字段清单。
+     */
+    fun dataFingerprint(): PlanUiState = copy(
+        updating = false,
+        failed = false,
+        fromCache = false,
+        quotaExhausted = false,
+    )
+}
 
 data class ReviewUiState(
     val kcalIn: Int = 0,
@@ -134,10 +168,44 @@ class PlanReviewViewModel(app: Application) : AndroidViewModel(app) {
      */
     private var todayJob: Job? = null
 
+    /**
+     * 「读库重算」请求通道（2026-10-09，真机问题 1 的 R1-2 串行化）。
+     *
+     * 旧实现里 [reload] / [observeToday] 各自直接调 [computeAndEmit]：两条上游
+     * （`reload` / Room Flow）互不知情，一次进入计划页可并发跑多次全量重算，
+     * 每次都发一次 `_plan` → 主线程各重建一遍视图树（这正是转场后连续 5 帧
+     * `Choreographer` 超时的来源之一）。
+     *
+     * 现在两条上游只**投递信号**，由单一收集器串行消费。
+     * `CONFLATED`：同一瞬间的多次请求只保留最后一次 —— 全量重算本就是幂等的
+     * 「读当前库 → 算 → 发」，中间的重复请求没有意义。
+     * ⚠️ [autoRerankIfDue] **不**走本通道：它重算后还要接着写 `updating` /
+     *    `failed` 标志，必须与自己的重算保持严格先后（见 [computeMutex]）。
+     */
+    private val recomputeSignal = Channel<Unit>(Channel.CONFLATED)
+
+    /**
+     * 重算互斥锁：串行化**所有** [computeAndEmit] 调用（含通道外的直调）。
+     *
+     * 为什么通道之外还要锁：`computeAndEmit` 是「读 `_plan.value` → copy → 写回」
+     * 的读改写。两条路径并发时后写者会覆盖先写者的数据字段，
+     * 且会让 [autoRerankIfDue] 刚写下的 `updating` 标志静默消失。
+     */
+    private val computeMutex = Mutex()
+
     init {
-        reload()
+        // 单一重算收集器：串行消费，天然合并重复请求。
+        viewModelScope.launch(Dispatchers.IO) {
+            for (ignored in recomputeSignal) computeAndEmit()
+        }
+        requestRecompute()
         observeToday()
         autoRerankIfDue()
+    }
+
+    /** 投递一次「读库重算」请求（合并 / 串行见 [recomputeSignal]）。 */
+    private fun requestRecompute() {
+        recomputeSignal.trySend(Unit)
     }
 
     fun showTab(tab: PlanTab) {
@@ -177,7 +245,7 @@ class PlanReviewViewModel(app: Application) : AndroidViewModel(app) {
 
     /** 本地全量重算（0 AI）。供数据变化 / 页面重建调用，也是 init 的首帧数据来源。 */
     fun reload() {
-        viewModelScope.launch(Dispatchers.IO) { computeAndEmit() }
+        requestRecompute()
     }
 
     /**
@@ -207,7 +275,9 @@ class PlanReviewViewModel(app: Application) : AndroidViewModel(app) {
         todayJob = viewModelScope.launch(Dispatchers.IO) {
             val key = runCatching { generator.todayKey() }.getOrNull() ?: return@launch
             runCatching {
-                db.eventDao().observeCountByDay(key).collect { computeAndEmit() }
+                // 只投递信号（合并 / 串行见 [recomputeSignal]）：Room Flow 在数据批量
+                // 变化时会连续发射，旧实现每次都全量重算 + 重建视图树。
+                db.eventDao().observeCountByDay(key).collect { requestRecompute() }
             }
         }
     }
@@ -219,9 +289,9 @@ class PlanReviewViewModel(app: Application) : AndroidViewModel(app) {
      *    在途的 `updating` 写入竞争（在途守卫失效）。`updating` / `generatingTraining`
      *    / `trainingFailed` 一律不在本方法里写。
      */
-    private suspend fun computeAndEmit() {
+    private suspend fun computeAndEmit() = computeMutex.withLock {
         val summary = runCatching { TodaySummary.build(getApplication()) }.getOrNull()
-            ?: return
+            ?: return@withLock
 
         // ── 复盘：本地聚合（无 AI 时用已有数字 + 说明）────────────────
         _review.value = ReviewUiState(
@@ -367,8 +437,17 @@ class PlanReviewViewModel(app: Application) : AndroidViewModel(app) {
             val summary = runCatching { TodaySummary.build(getApplication()) }.getOrNull()
                 ?: return@launch
 
+            // A4（2026-10-09）：退页守卫。`onCleared()` 能取消协程，但**取消不掉已经
+            // 进入 `Dispatchers.IO` 的 provider 往返** —— 用户退出计划页后，这次
+            // 重排仍会白跑一次网络（配额已按「一次往返一行」记账 = 「花了但没人看」）。
+            // 在真正发起往返**之前**再看一眼本协程是否还活着：已取消就直接放弃，
+            // 不落 `updating`、不调网。
+            ensureActive()
+
             _plan.value = _plan.value.copy(updating = true, failed = false)
             val result = runCatching { generator.update(key, summary) }.getOrNull()
+            // 往返期间被取消 → 同样不再回写标志位（视图已销毁，写也没人看）。
+            ensureActive()
             if (result == null) {
                 _plan.value = _plan.value.copy(updating = false, failed = true)
                 return@launch
@@ -408,10 +487,11 @@ class PlanReviewViewModel(app: Application) : AndroidViewModel(app) {
             // 口径 (a)：行为不变 —— kcal 照写（`entry.kcal`）。注意它可能来自**兜底计划的
             // 估算**（见 PlanGenerator.localTimeline 的 KDoc）；点「记一笔」前来源行已标注估算。
             val raw = "${entry.title}（${entry.detail}）"
+            val clientEventId = java.util.UUID.randomUUID().toString()
 
             db.eventDao().insertIgnore(
                 com.healix.app.db.EventEntity(
-                    clientEventId = java.util.UUID.randomUUID().toString(),
+                    clientEventId = clientEventId,
                     ts = now,
                     dayKey = dayKeyOf(now, dayStart),
                     rawText = raw,
@@ -429,6 +509,27 @@ class PlanReviewViewModel(app: Application) : AndroidViewModel(app) {
                     origin = "ai_suggestion",
                     createdAt = now,
                     updatedAt = now,
+                ),
+            )
+
+            // ⚠️ 必须发撤销条（2026-10-09 真机修复）：规范 §9.6 / §4.2「记一笔」写的是
+            //    「**直写 + 5 秒撤销** —— 与通知栏录入保持同一套逻辑」，验收清单 §1186
+            //    也明列「写入后 5 秒内出现撤销条」。
+            //    而本方法与**同页**的 [logTraining] 是两枚外观完全一样的「记一笔」按钮，
+            //    后者发撤销条、前者却静默不发 —— 用户点「加餐/快走」的记一笔后**无路可退**，
+            //    只能去记录页左滑删除。属实现漏配，不是设计取舍（本方法此前无任何
+            //    说明"此处不发撤销条"的注释）。
+            val app = getApplication<Application>()
+            _undo.tryEmit(
+                UndoPayload(
+                    clientEventId = clientEventId,
+                    typeName = EventText.typeName(app, entry.type),
+                    valueText = if (entry.kcal > 0) {
+                        app.getString(R.string.summary_kcal, entry.kcal)
+                    } else {
+                        entry.title
+                    },
+                    totalCount = 1,
                 ),
             )
             computeAndEmit()

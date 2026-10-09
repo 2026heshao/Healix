@@ -8,9 +8,15 @@
       · 内容层 = `row_setting_value`（56dp 设置行），背景 surface 保证盖住删除位。
 
     与记录列表项的差异：设置行**只有「删除」一个动作**（编辑走整行点击），
-    因此 swipeActs 只有 1 枚按钮、满程 72dp（SwipeController 的 SWIPE_ACT_DP 仍是 72，
-    2 × 72 = 144 只是它的 clamp 上限，单按钮场景自然不会滑到满程）。
+    因此 swipeActs 只有 1 枚按钮、满程 72dp。
+    ⚠️ 2026-10-09 更正：SwipeController 的满程与吸附阈值**已改为按本行实测按钮
+    宽度派生**（见 `SwipeController.rowFullOf`），不再有「2 × 72 = 144 全局 clamp」
+    一说 —— 旧注释断言「单按钮场景自然不会滑到满程」，而当时 clamp 恒为 288px，
+    该行滑到满程时右侧会白空出 144px。现在满程 = 72dp，与可见按钮严格一致。
     手势由 [com.healix.app.ui.SwipeController] 统一裁决（全局单开 + 300ms click 屏蔽）。
+    ⚠️ 触摸监听挂在**内层** `row_setting_value` 的根上（与点击同层），不是挂在
+    本文件的 swipeItem 上 —— 内层根带 SettingRow 样式（clickable=true）会消费
+    ACTION_DOWN，父级的 OnTouchListener 不会被执行（真机问题 4）。
 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/swipeWrap"

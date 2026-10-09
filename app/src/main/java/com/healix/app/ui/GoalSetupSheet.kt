@@ -46,7 +46,15 @@ class GoalSetupSheet : BottomSheetDialogFragment() {
      */
     var onDone: ((modeIndex: Int?, weightKg: Double?, customText: String?) -> Unit)? = null
 
-    private var selected: Int = SettingsViewModel.GOAL_MODE_GAIN
+    /**
+     * 当前选中的主目标模式。
+     *
+     * 稳定性修复（2026-10-08，实测问题 5）：首启引导曾默认 `= GOAL_MODE_GAIN`，
+     * 用户什么都没点，弹层一打开「增重」就是高亮加粗态 —— 观感是"系统替我选了增重"，
+     * 直接点保存就会静默写入一个用户没选过的主目标。改为 **null = 未选择**：
+     * 无高亮、保存按钮置灰，选了才可保存。编辑态仍预填当前值（语义是"改现状"）。
+     */
+    private var selected: Int? = null
 
     /** 是否经「保存」完成 —— 否则关闭一律视作跳过（见 [onDismiss]）。 */
     private var saved = false
@@ -74,8 +82,8 @@ class GoalSetupSheet : BottomSheetDialogFragment() {
         val args = arguments
         editMode = args?.getBoolean(ARG_EDIT, false) ?: false
         if (editMode) {
-            selected = args?.getInt(ARG_MODE, SettingsViewModel.GOAL_MODE_GAIN)
-                ?: SettingsViewModel.GOAL_MODE_GAIN
+            selected = (args?.getInt(ARG_MODE, SettingsViewModel.GOAL_MODE_GAIN)
+                ?: SettingsViewModel.GOAL_MODE_GAIN)
             binding.sheetTitle.setText(R.string.goal_setup_title_edit)
             binding.sheetDesc.setText(R.string.goal_setup_desc_edit)
             // 编辑态没有「跳过」的语义：关掉弹层 = 保持原样，不留一个会让人误以为"清空主目标"的入口
@@ -118,13 +126,15 @@ class GoalSetupSheet : BottomSheetDialogFragment() {
 
         binding.btnSkip.setOnClickListener { dismiss() }
         binding.btnSave.setOnClickListener {
-            val custom = selected == SettingsViewModel.GOAL_MODE_CUSTOM
+            // 未选择时不落任何东西（按钮已置灰，这里再挡一道 —— 双保险，不静默写库）
+            val mode = selected ?: return@setOnClickListener
+            val custom = mode == SettingsViewModel.GOAL_MODE_CUSTOM
             val text = binding.customField.fieldValue.text?.toString()?.trim().orEmpty()
             val w = if (custom) null
             else binding.weightField.fieldValue.text?.toString()?.trim()?.toDoubleOrNull()
             saved = true
             onDone?.invoke(
-                selected,
+                mode,
                 if (w != null && w > 0) w else null,
                 if (custom && text.isNotEmpty()) text else null,
             )
@@ -133,8 +143,12 @@ class GoalSetupSheet : BottomSheetDialogFragment() {
         binding.btnSave.bindPressScale()
     }
 
-    /** 选中项文字色 = accent + 加粗；未选中 = text_2（无彩色面，规范 §2.3）。
-     *  自定义态：隐藏体重字段、显示文本字段（体重目标对自定义主目标无意义）。 */
+    /**
+     * 选中项文字色 = accent + 加粗；未选中 = text_2（无彩色面，规范 §2.3）。
+     * **未选择**（`selected == null`，首启引导初始态）：四项全部常态，无默认高亮；
+     * 体重 / 自定义两个字段都隐藏（对哪个模式生效还不知道），保存按钮置灰不可点。
+     * 自定义态：隐藏体重字段、显示文本字段（体重目标对自定义主目标无意义）。
+     */
     private fun renderSelection() {
         val options = listOf(
             binding.optionGain to SettingsViewModel.GOAL_MODE_GAIN,
@@ -143,7 +157,7 @@ class GoalSetupSheet : BottomSheetDialogFragment() {
             binding.optionCustom to SettingsViewModel.GOAL_MODE_CUSTOM,
         )
         for ((view, mode) in options) {
-            val on = mode == selected
+            val on = selected == mode
             view.setTextColor(
                 ContextCompat.getColor(
                     requireContext(),
@@ -152,9 +166,13 @@ class GoalSetupSheet : BottomSheetDialogFragment() {
             )
             view.setTypeface(null, if (on) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
         }
-        val isCustom = selected == SettingsViewModel.GOAL_MODE_CUSTOM
-        binding.weightField.root.visibility = if (isCustom) View.GONE else View.VISIBLE
-        binding.customField.root.visibility = if (isCustom) View.VISIBLE else View.GONE
+        binding.weightField.root.visibility =
+            if (selected != null && selected != SettingsViewModel.GOAL_MODE_CUSTOM) View.VISIBLE else View.GONE
+        binding.customField.root.visibility =
+            if (selected == SettingsViewModel.GOAL_MODE_CUSTOM) View.VISIBLE else View.GONE
+        // 未选择时保存置灰：防"直接点保存 → 静默写入一个用户没选过的主目标"
+        binding.btnSave.isEnabled = selected != null
+        binding.btnSave.alpha = if (selected != null) 1f else 0.5f
     }
 
     override fun onDestroyView() {

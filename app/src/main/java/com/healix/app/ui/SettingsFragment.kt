@@ -23,6 +23,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.healix.app.HealixApp
 import com.healix.app.R
 import com.healix.app.databinding.FragmentSettingsBinding
+import com.healix.app.databinding.GroupSettingsAiBinding
 import com.healix.app.databinding.ItemSwipeRowBinding
 import com.healix.app.databinding.RowSettingSwitchBinding
 import com.healix.app.databinding.RowSettingValueBinding
@@ -117,6 +118,35 @@ class SettingsFragment : Fragment() {
     private lateinit var swipe: SwipeController
 
     /**
+     * 目标组上次渲染的输入签名（[renderGoals] 的幂等判据）。`null` = 尚未渲染。
+     * 视图销毁时在 [onDestroyView] 复位 —— 否则重建后的新视图树会因「签名相同」被跳过渲染。
+     */
+    private var renderedGoalsKey: Triple<List<GoalEntity>, String, String>? = null
+
+    /** 提醒组上次渲染的列表（[renderReminders] 的幂等判据）。[onDestroyView] 复位。 */
+    private var renderedReminders: List<ReminderEntity>? = null
+
+    /**
+     * AI 组（[ViewStub] 懒建，2026-10-08）已 inflate 的绑定；`null` = 尚未建。
+     *
+     * ⚠️ ViewStub **只能 inflate 一次**（第二次会抛 `IllegalStateException`：父容器已
+     * 不再持有它），所以本字段就是「建过就不再建」的唯一守卫。
+     */
+    private var aiGroup: GroupSettingsAiBinding? = null
+
+    /**
+     * 最近一次收到的设置值快照。
+     *
+     * 为什么需要：`vm.values` 的 collector 在本页可见期间一直在跑，而 AI 组要等转场
+     * 结束才建 —— 不缓存这一份，AI 组的开关会停在布局默认态（总开关默认关、写权限行
+     * 可见性全错），与真实设置对不上。
+     */
+    private var lastValues: SettingsValues? = null
+
+    /** 最近一次的规则条数（同 [lastValues]，供 AI 组懒建时回填规则库行右侧值）。 */
+    private var lastRuleCount: Int? = null
+
+    /**
      * 宿主 Activity 作用域的 [MainViewModel]：**只**用于「目标栏 → 主目标首启引导」的
      * 落库（[MainViewModel.completeGoalSetup]），避免把同一段 ensure+写值逻辑复制一份。
      * 与 [RecordFragment] 取到的是**同一个实例**（`ViewModelProvider(requireActivity())`）。
@@ -188,55 +218,16 @@ class SettingsFragment : Fragment() {
         binding.rowKcalGoal.chevron.visibility = View.VISIBLE
         binding.rowKcalGoal.root.setOnClickListener { editGoalKcal() }
 
-        // ── AI 可见资料范围（SettingsKeys.AI_DATA_FULL 总开关的 UI 入口）──
-        // checked = aiDataFull 本身（不取反）；行点击 = 同义拨动开关（放大触控目标，
-        // 与 kcal 行同款）。
-        binding.rowAiDataSwitch.label.setText(R.string.ai_data_toggle)
-        binding.rowAiDataSwitch.switchWidget.setOnCheckedChangeListener(aiDataSwitchListener)
-        binding.rowAiDataSwitch.root.setOnClickListener {
-            val sw = binding.rowAiDataSwitch.switchWidget
-            sw.isChecked = !sw.isChecked // 触发监听 → toggleAiDataFull，与直拨同一写链
-        }
-
-        // ── AI 组：规则库入口 + 工具 / 写权限开关（v0.3 B4/B5/B6）──
-        // 规则库入口：进二级页增删改启停排序（页面自带「添加规则」）。
-        binding.rowAiRules.label.setText(R.string.rules_title)
-        binding.rowAiRules.chevron.visibility = View.VISIBLE
-        binding.rowAiRules.root.setOnClickListener {
-            NavHost.open(requireContext(), RulesFragment(), NavHost.PAGE_RULES)
-        }
-        // 工具总开关 + 三个写权限开关：均为「默认开」，行点击 = 同义拨动开关（放大触控目标）。
-        setupAiSwitch(binding.rowAiTools, R.string.ai_tools_toggle, aiToolsSwitchListener)
-        setupAiSwitch(
-            binding.rowAiToolWritePlan,
-            R.string.ai_tool_write_plan,
-            aiWritePlanListener,
-        )
-        setupAiSwitch(
-            binding.rowAiToolWriteRecord,
-            R.string.ai_tool_write_record,
-            aiWriteRecordListener,
-        )
-        setupAiSwitch(
-            binding.rowAiToolWriteGoal,
-            R.string.ai_tool_write_goal,
-            aiWriteGoalListener,
-        )
-        setupAiSwitch(
-            binding.rowAiToolWriteProfile,
-            R.string.ai_tool_write_profile,
-            aiWriteProfileListener,
-        )
-        setupAiSwitch(
-            binding.rowAiToolWriteSettings,
-            R.string.ai_tool_write_settings,
-            aiWriteSettingsListener,
-        )
-        setupAiSwitch(
-            binding.rowAiToolWriteReminder,
-            R.string.ai_tool_write_reminder,
-            aiWriteReminderListener,
-        )
+        // ── AI 组（AI 可见资料范围 + 规则库入口 + 工具 / 写权限开关）──────
+        // ⚠️ 2026-10-08 起这一组是 **ViewStub 懒建**（见 `layout/group_settings_ai.xml`
+        //    的头注释）：它整块在首屏之外、最重（9 个 include / ~37 view），原实现
+        //    写在同一布局里 → 每次首开都要为当场看不到的内容付全额 inflate，正是
+        //    二级页转场起手掉帧的大头。这里只接两个「何时建」的触发源，真正的接线
+        //    在 [setupAiGroup]：
+        //      ① 定时：转场 180ms + 余量之后再建（此刻它仍在屏幕外，用户无感）；
+        //      ② 兜底：用户一开始下滑就立刻建 —— 绝不允许出现「滚到了还是空的」。
+        binding.settingsScroll.setOnScrollChangeListener { _, _, _, _, _ -> ensureAiGroup() }
+        binding.settingsScroll.postDelayed({ ensureAiGroup() }, AI_GROUP_INFLATE_DELAY_MS)
 
         // ── 提醒（reminders 表）──────────────────────────────────
         // v8 需求 4：不再预置默认提醒，仅保留「添加提醒」入口；行支持左滑删除。
@@ -284,6 +275,15 @@ class SettingsFragment : Fragment() {
 
     override fun onDestroyView() {
         super.onDestroyView()
+        // 幂等渲染的缓存随视图一起作废：视图树没了，下次重建必须重新渲染
+        // （否则新树会因「签名相同」被整段跳过 → 空白页）。
+        renderedGoalsKey = null
+        renderedReminders = null
+        // AI 组的懒建绑定同理作废：ViewStub 随视图一起没了，下次必须重新 inflate
+        // （缓存的绑定指向已 detach 的旧视图树，继续用会静默改一个看不见的界面）。
+        aiGroup = null
+        lastValues = null
+        lastRuleCount = null
         _binding = null
     }
 
@@ -330,6 +330,118 @@ class SettingsFragment : Fragment() {
         sw.setOnCheckedChangeListener(listener)
     }
 
+    // ── AI 组（ViewStub 懒建，2026-10-08）─────────────────────────────
+
+    /**
+     * 取 AI 组绑定，必要时先 inflate（**唯一入口**，保证只 inflate 一次）。
+     *
+     * inflate 后立刻 [setupAiGroup]（接监听 + 用缓存快照回填），因此无论数据先到
+     * 还是视图先建，最终状态都对得上。视图未建 / 已销毁时返回 `null`（转场后由
+     * `postDelayed` / 首次下滑触发，但那两个时刻视图可能已经不在了）。
+     */
+    private fun ensureAiGroup(): GroupSettingsAiBinding? {
+        aiGroup?.let { return it }
+        if (_binding == null) return null
+        val b = GroupSettingsAiBinding.bind(binding.aiGroupStub.inflate())
+        aiGroup = b
+        setupAiGroup(b)
+        return b
+    }
+
+    /**
+     * AI 组接线（原 `onViewCreated` 里那一段，搬到 inflate 之后执行）。
+     *
+     * 顺序要点：先把控件接好，再用缓存快照回填 —— 数据可能早在建组之前就到了。
+     */
+    private fun setupAiGroup(b: GroupSettingsAiBinding) {
+        // AI 可见资料范围（SettingsKeys.AI_DATA_FULL 总开关的 UI 入口）：
+        // checked = aiDataFull 本身（不取反）；行点击 = 同义拨动开关（放大触控目标）。
+        b.rowAiDataSwitch.label.setText(R.string.ai_data_toggle)
+        b.rowAiDataSwitch.switchWidget.setOnCheckedChangeListener(aiDataSwitchListener)
+        b.rowAiDataSwitch.root.setOnClickListener {
+            val sw = b.rowAiDataSwitch.switchWidget
+            sw.isChecked = !sw.isChecked // 触发监听 → toggleAiDataFull，与直拨同一写链
+        }
+
+        // 规则库入口：进二级页增删改启停排序（页面自带「添加规则」）。
+        b.rowAiRules.label.setText(R.string.rules_title)
+        b.rowAiRules.chevron.visibility = View.VISIBLE
+        b.rowAiRules.root.setOnClickListener {
+            NavHost.open(requireContext(), RulesFragment(), NavHost.PAGE_RULES)
+        }
+
+        // 工具总开关 + 六个写权限开关：均为「默认开」，行点击 = 同义拨动开关。
+        setupAiSwitch(b.rowAiTools, R.string.ai_tools_toggle, aiToolsSwitchListener)
+        setupAiSwitch(b.rowAiToolWritePlan, R.string.ai_tool_write_plan, aiWritePlanListener)
+        setupAiSwitch(b.rowAiToolWriteRecord, R.string.ai_tool_write_record, aiWriteRecordListener)
+        setupAiSwitch(b.rowAiToolWriteGoal, R.string.ai_tool_write_goal, aiWriteGoalListener)
+        setupAiSwitch(b.rowAiToolWriteProfile, R.string.ai_tool_write_profile, aiWriteProfileListener)
+        setupAiSwitch(
+            b.rowAiToolWriteSettings,
+            R.string.ai_tool_write_settings,
+            aiWriteSettingsListener,
+        )
+        setupAiSwitch(
+            b.rowAiToolWriteReminder,
+            R.string.ai_tool_write_reminder,
+            aiWriteReminderListener,
+        )
+
+        refreshAiGroup()
+    }
+
+    /** 用缓存快照回填 AI 组；组未建时是廉价 no-op。 */
+    private fun refreshAiGroup() {
+        val b = aiGroup ?: return
+        lastValues?.let { bindAiGroup(b, it) }
+        lastRuleCount?.let { n ->
+            b.rowAiRules.value.text = if (n == 0) {
+                getString(R.string.rules_entry_none)
+            } else {
+                getString(R.string.rules_entry_count, n)
+            }
+        }
+    }
+
+    /**
+     * AI 组回填（从 `vm.values` collector 抽出的那一段，口径逐条不变）。
+     *
+     * 开关一律「先摘监听 → setChecked → 挂回」防写回环；写权限六行仅在工具总开关
+     * 开启时显示（关掉总开关 = 无工具，写权限无意义）。
+     */
+    private fun bindAiGroup(b: GroupSettingsAiBinding, v: SettingsValues) {
+        // AI 可见资料范围：checked = aiDataFull 本身（**不取反**，与 kcal 行语义相反）。
+        b.rowAiDataSwitch.switchWidget.setOnCheckedChangeListener(null)
+        b.rowAiDataSwitch.switchWidget.isChecked = v.aiDataFull
+        b.rowAiDataSwitch.switchWidget.setOnCheckedChangeListener(aiDataSwitchListener)
+        bindSwitch(b.rowAiTools.switchWidget, v.aiToolsEnabled, aiToolsSwitchListener)
+        bindSwitch(b.rowAiToolWritePlan.switchWidget, v.aiToolWritePlan, aiWritePlanListener)
+        bindSwitch(b.rowAiToolWriteRecord.switchWidget, v.aiToolWriteRecord, aiWriteRecordListener)
+        bindSwitch(b.rowAiToolWriteGoal.switchWidget, v.aiToolWriteGoal, aiWriteGoalListener)
+        bindSwitch(
+            b.rowAiToolWriteProfile.switchWidget,
+            v.aiToolWriteProfile,
+            aiWriteProfileListener,
+        )
+        bindSwitch(
+            b.rowAiToolWriteSettings.switchWidget,
+            v.aiToolWriteSettings,
+            aiWriteSettingsListener,
+        )
+        bindSwitch(
+            b.rowAiToolWriteReminder.switchWidget,
+            v.aiToolWriteReminder,
+            aiWriteReminderListener,
+        )
+        val writeVisible = if (v.aiToolsEnabled) View.VISIBLE else View.GONE
+        b.rowAiToolWritePlan.root.visibility = writeVisible
+        b.rowAiToolWriteRecord.root.visibility = writeVisible
+        b.rowAiToolWriteGoal.root.visibility = writeVisible
+        b.rowAiToolWriteProfile.root.visibility = writeVisible
+        b.rowAiToolWriteSettings.root.visibility = writeVisible
+        b.rowAiToolWriteReminder.root.visibility = writeVisible
+    }
+
     private fun observe() {
         viewLifecycleOwner.lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -348,51 +460,21 @@ class SettingsFragment : Fragment() {
                     binding.rowKcalSwitch.switchWidget.setOnCheckedChangeListener(null)
                     binding.rowKcalSwitch.switchWidget.isChecked = !v.hideKcal
                     binding.rowKcalSwitch.switchWidget.setOnCheckedChangeListener(kcalSwitchListener)
-                    // AI 可见资料范围：checked = aiDataFull 本身（**不取反**，与 kcal 行语义相反）。
-                    // 先摘监听再回填再挂回：程序化 setChecked 不得触发 toggleAiDataFull（防写回环）。
-                    binding.rowAiDataSwitch.switchWidget.setOnCheckedChangeListener(null)
-                    binding.rowAiDataSwitch.switchWidget.isChecked = v.aiDataFull
-                    binding.rowAiDataSwitch.switchWidget.setOnCheckedChangeListener(aiDataSwitchListener)
-                    // AI 工具与写权限开关（v0.3 B5/B6）：先摘监听再回填再挂回（防写回环）。
-                    bindSwitch(binding.rowAiTools.switchWidget, v.aiToolsEnabled, aiToolsSwitchListener)
-                    bindSwitch(binding.rowAiToolWritePlan.switchWidget, v.aiToolWritePlan, aiWritePlanListener)
-                    bindSwitch(binding.rowAiToolWriteRecord.switchWidget, v.aiToolWriteRecord, aiWriteRecordListener)
-                    bindSwitch(binding.rowAiToolWriteGoal.switchWidget, v.aiToolWriteGoal, aiWriteGoalListener)
-                    bindSwitch(
-                        binding.rowAiToolWriteProfile.switchWidget,
-                        v.aiToolWriteProfile,
-                        aiWriteProfileListener,
-                    )
-                    bindSwitch(
-                        binding.rowAiToolWriteSettings.switchWidget,
-                        v.aiToolWriteSettings,
-                        aiWriteSettingsListener,
-                    )
-                    bindSwitch(
-                        binding.rowAiToolWriteReminder.switchWidget,
-                        v.aiToolWriteReminder,
-                        aiWriteReminderListener,
-                    )
-                    // 写权限各行仅工具总开关开启时显示（关掉总开关 = 无工具，写权限无意义）。
-                    val writeVisible = if (v.aiToolsEnabled) View.VISIBLE else View.GONE
-                    binding.rowAiToolWritePlan.root.visibility = writeVisible
-                    binding.rowAiToolWriteRecord.root.visibility = writeVisible
-                    binding.rowAiToolWriteGoal.root.visibility = writeVisible
-                    binding.rowAiToolWriteProfile.root.visibility = writeVisible
-                    binding.rowAiToolWriteSettings.root.visibility = writeVisible
-                    binding.rowAiToolWriteReminder.root.visibility = writeVisible
+                    // AI 组（v0.3 B5/B6）：先摘监听再回填再挂回（防写回环）。
+                    // ⚠️ 该组是 ViewStub 懒建（首屏之外，转场后才 inflate）——
+                    //    这里只缓存快照，真正回填见 [refreshAiGroup]。
+                    lastValues = v
+                    refreshAiGroup()
                 }
             }
         }
         // 规则库条数（v0.3 B4）：入口行右侧值，随规则增删即时刷新。
+        // ⚠️ 入口行在 AI 组里（ViewStub 懒建）→ 这里只缓存，回填见 [refreshAiGroup]。
         viewLifecycleOwner.lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 vm.ruleCount.collect { n ->
-                    binding.rowAiRules.value.text = if (n == 0) {
-                        getString(R.string.rules_entry_none)
-                    } else {
-                        getString(R.string.rules_entry_count, n)
-                    }
+                    lastRuleCount = n
+                    refreshAiGroup()
                 }
             }
         }
@@ -456,6 +538,16 @@ class SettingsFragment : Fragment() {
                 kotlinx.coroutines.flow.combine(vm.goals, vm.values) { list, v ->
                     Triple(list, v.goalStatement, v.customGoalText)
                 }.collect { (list, statement, customGoalText) ->
+                    // ══ 幂等渲染（2026-10-08，性能）══════════════════════════════
+                    // `vm.values` 会因**与目标无关**的字段（配额计数、模型服务、AI 开关…）
+                    // 变化而重发 → combine 随之重发 → 原实现在每次重发都
+                    // `removeAllViews()` + 整组重新 inflate。二级页转场只有 180ms，
+                    // 这段重复重建若落在窗口内，用户看到的就是「滑入收尾卡一两下」。
+                    // 签名（列表 + 自述 + 自定义目标文本）相同即整段跳过 ——
+                    // 顺带保住用户已滑开的行状态、不必每次 closeAll。
+                    val key = Triple(list, statement, customGoalText)
+                    if (key == renderedGoalsKey) return@collect
+                    renderedGoalsKey = key
                     renderGoals(list, statement, customGoalText)
                 }
             }
@@ -463,7 +555,12 @@ class SettingsFragment : Fragment() {
         // 提醒：reminders 表动态渲染（可增删，规范 9.7 ③）
         viewLifecycleOwner.lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
-                vm.reminders.collect { list -> renderReminders(list) }
+                vm.reminders.collect { list ->
+                    // 幂等渲染（同上口径）：列表未变不重建整组行。
+                    if (list == renderedReminders) return@collect
+                    renderedReminders = list
+                    renderReminders(list)
+                }
             }
         }
     }
@@ -571,8 +668,19 @@ class SettingsFragment : Fragment() {
             row.swipeRow.label.setText(goalLabelRes(slot))
             row.swipeRow.value.text = goalValueText(slot, active, goalStatement)
             row.swipeRow.chevron.visibility = View.VISIBLE
-            row.swipeItem.setOnTouchListener { v, ev ->
-                swipe.onTouch(v, ev)
+            // ⚠️ 触摸必须与点击挂在**同一层**（真机问题 4，2026-10-09）：
+            //   内层 `row_setting_value` 根带 SettingRow 样式 → 继承 ListRow 的
+            //   `clickable=true`，它会消费 ACTION_DOWN。而 ViewGroup 只在「没有子视图
+            //   接收事件」时才会走到自己的 dispatchTouchEvent，所以挂在父级 swipeItem
+            //   上的 OnTouchListener **永远不会被调用** —— 设置行的左滑从未生效过，
+            //   抬手反而触发内层 click 弹出编辑层。
+            //   现在 onTouch 与 onClick 同挂内层 root：OnTouchListener 先于 onTouchEvent
+            //   执行，返回 false 再让 click / 滚动照旧。
+            //   ⚠️ 手势对象仍传 `swipeItem`：SwipeController 要靠它定位 underlay
+            //      （swipeWrap 的 index 1 = 内容层），传内层 root 会找不到下层按钮、
+            //      满程也会错回落到 2 枚按钮宽。
+            row.swipeRow.root.setOnTouchListener { _, ev ->
+                swipe.onTouch(row.swipeItem, ev)
                 false // 不消费：点击 / 滚动照旧
             }
             row.actDelete.setOnClickListener {
@@ -598,8 +706,9 @@ class SettingsFragment : Fragment() {
             row.swipeRow.label.setText(R.string.custom_goal_label)
             row.swipeRow.value.text = customGoalText
             row.swipeRow.chevron.visibility = View.VISIBLE
-            row.swipeItem.setOnTouchListener { v, ev ->
-                swipe.onTouch(v, ev)
+            // 触摸与点击同层（同 ② 次目标行，见该处注释）
+            row.swipeRow.root.setOnTouchListener { _, ev ->
+                swipe.onTouch(row.swipeItem, ev)
                 false // 不消费：点击 / 滚动照旧
             }
             row.actDelete.setOnClickListener {
@@ -958,8 +1067,9 @@ class SettingsFragment : Fragment() {
             row.swipeRow.value.setTextColor(
                 ContextCompat.getColor(requireContext(), if (due) R.color.accent else R.color.text_2),
             )
-            row.swipeItem.setOnTouchListener { v, ev ->
-                swipe.onTouch(v, ev)
+            // 触摸与点击同层（同 renderGoals 的次目标行，见该处注释）
+            row.swipeRow.root.setOnTouchListener { _, ev ->
+                swipe.onTouch(row.swipeItem, ev)
                 false // 不消费：点击 / 滚动照旧
             }
             row.actDelete.setOnClickListener {
@@ -1137,7 +1247,10 @@ class SettingsFragment : Fragment() {
 
     private fun editText(key: String, labelRes: Int) {
         viewLifecycleOwner.lifecycleScope.launch {
-            val current = vm.raw(key).orEmpty()
+            // 与 editInt / editDecimal 同一条口径：回显「生效值」而不是表里的裸值。
+            // 当前只用 base_url / model（无默认值，两者等价），统一走这里是为了
+            // 以后新增「带默认值的文本键」时不会再踩同一个坑（2026-10-09）。
+            val current = vm.effectiveRaw(key)
             val input = EditText(requireContext()).apply {
                 setText(current)
                 inputType = InputType.TYPE_CLASS_TEXT
@@ -1157,7 +1270,9 @@ class SettingsFragment : Fragment() {
      */
     private fun editInt(key: String, labelRes: Int, range: IntRange? = null) {
         viewLifecycleOwner.lifecycleScope.launch {
-            val current = vm.raw(key).orEmpty()
+            // ⚠️ effectiveRaw（不是 raw）：未写入过的键要回落到**行上显示的默认值**，
+            //    否则「行写着 4:00、点进去空框」（2026-10-09 真机修复，见该处 KDoc）。
+            val current = vm.effectiveRaw(key)
             val input = EditText(requireContext()).apply {
                 setText(current)
                 inputType = InputType.TYPE_CLASS_NUMBER
@@ -1188,7 +1303,8 @@ class SettingsFragment : Fragment() {
 
     private fun editDecimal(key: String, labelRes: Int) {
         viewLifecycleOwner.lifecycleScope.launch {
-            val current = vm.raw(key).orEmpty()
+            // 同 editInt：回落行上显示的生效默认值（2026-10-09 真机修复）。
+            val current = vm.effectiveRaw(key)
             val input = EditText(requireContext()).apply {
                 setText(current)
                 inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
@@ -1348,5 +1464,19 @@ class SettingsFragment : Fragment() {
         /** 热量目标值域（v8 问题 2a，规范 ②·边界）：越界输入忽略，不写库。 */
         private const val KCAL_MIN = 100
         private const val KCAL_MAX = 9999
+
+        /**
+         * AI 组（[ViewStub]）的 inflate 延迟（毫秒）。
+         *
+         * ⚠️ 本段注释里**不能出现**「斜杠 + 星号」连写（例如写文件通配路径）——
+         * Kotlin 的块注释**可嵌套**，注释正文里一个无意的 `斜杠星号` 会再开一层，
+         * 结果是把 [companion object] 剩下的内容整段吞掉（表现为编译期
+         * `Missing '}'` + `Unclosed comment`）。要指代目录就写到目录为止。
+         *
+         * 取 260ms 的理由：二级页转场动画 180ms（`res/anim/` 下各 XML 的 duration），
+         * 留 80ms 余量保证**动画 + 内容首次回填都已完成**再建这一组 —— 此刻它仍在
+         * 首屏之外，用户看不到任何变化，代价从「转场窗口内」挪到「静置期」。
+         */
+        private const val AI_GROUP_INFLATE_DELAY_MS = 260L
     }
 }

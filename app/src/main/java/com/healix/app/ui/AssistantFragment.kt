@@ -68,6 +68,17 @@ class AssistantFragment : Fragment() {
      */
     private var pendingProposal: AgentProposal? = null
 
+    /**
+     * 本次消息发射是否来自「我自己刚发送」—— 置位后下一次 [observe] 的 messages
+     * 发射会把那条 user 消息顶到可视区顶部（真机问题 2(a)）。
+     *
+     * 为什么用标志而不是比较 id：`vm.send()` 返回时新行还没落库（persist-first 是
+     * 异步的），拿不到 id；而 messages 的首次发射可能**不止**含这一条（Room Flow
+     * 批量发射），用「最后一次发射里最后一条 user 消息」作为锚点更稳。
+     * 一次性消费：用掉即复位，后续 AI 回复的发射走常规「贴底跟随」。
+     */
+    private var pendingSelfAnchor: Boolean = false
+
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
@@ -165,16 +176,23 @@ class AssistantFragment : Fragment() {
     /**
      * 微扩展 B：会话日期菜单。列出所有有消息的日期（倒序），点选切换只读查看。
      * 历史会话禁用输入与发送（发送永远写今天的会话）。
+     *
+     * ⚠️ 数据源 [ChatViewModel.sessionDates] 是 `Eagerly` 共享的（见该处注释）——
+     *    本方法读 `.value` 即为真值。**不得**给它换回 `WhileSubscribed`：
+     *    那种共享模式下无订阅者时上游不启动，`.value` 恒为初始 `emptyList()`，
+     *    而全仓只有本方法读它 → 菜单永远提前 return（真机表现：「点『今天』毫无反应」，
+     *    且无任何异常日志，最容易被误判为"功能没做"）。
      */
     private fun showSessionMenu(anchor: View) {
         val dates = vm.sessionDates.value
         if (dates.isEmpty()) return
         val popup = androidx.appcompat.widget.PopupMenu(requireContext(), anchor)
         dates.forEach { date ->
-            popup.menu.add(HealixDate.sessionLabel(java.time.LocalDate.parse(date))).setOnMenuItemClickListener {
-                vm.selectSession(date)
-                true
-            }
+            popup.menu.add(HealixDate.sessionLabel(java.time.LocalDate.parse(date)))
+                .setOnMenuItemClickListener {
+                    vm.selectSession(date)
+                    true
+                }
         }
         popup.show()
     }
@@ -191,6 +209,8 @@ class AssistantFragment : Fragment() {
         // 被守卫拦下的返回 false，原文必须留在输入框。
         val accepted = vm.send(content)
         if (accepted) {
+            // 2(a)：这条消息落库后要被顶到可视区顶部（一次性标志，见字段 KDoc）
+            pendingSelfAnchor = true
             // P2-9 发送点击轻触觉
             binding.btnSend.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
             binding.input.setText("")
@@ -223,16 +243,49 @@ class AssistantFragment : Fragment() {
 
                 launch {
                     vm.messages.collect { list ->
+                        val wasAtBottom = isListAtBottom()
                         adapter.submit(list)
                         if (list.isNotEmpty()) {
                             binding.emptyHint.visibility = View.GONE
-                            // W1：展示项含时间分隔头 → 以适配器条目数定位（不再等于消息数）
-                            binding.messageList.scrollToPosition(adapter.itemCount - 1)
+                            // A1（2026-10-09）：落库路径与流式路径**口径统一** ——
+                            // 旧实现这里无条件 `scrollToPosition(itemCount - 1)`，
+                            // 而流式路径有 [isListAtBottom] 守卫。于是用户上翻回看历史
+                            // 时，任何一条新消息（含 AI 回复落库）都会把他硬拽回底部。
+                            // 现在只在**原本就贴底**（或本次发的是自己刚发的消息）时跟随。
+                            // 2(a)：自己刚发的消息 → 顶到可视区顶部，让 AI 回复
+                            // 从上往下长，而不是把气泡顶在屏幕中间。
+                            if (pendingSelfAnchor) {
+                                pendingSelfAnchor = false
+                                scrollLastUserToTop()
+                            } else if (wasAtBottom) {
+                                binding.messageList.scrollToPosition(adapter.itemCount - 1)
+                            }
                         } else {
                             binding.emptyHint.visibility = View.VISIBLE
                         }
                         // 快捷问答三行：只在"今天的空会话"出现；历史会话一律不出现
                         updateQuickGroup(list.isNotEmpty())
+                    }
+                }
+
+                // 流式正文（2026-10-08）：增量到达 → 刷新末尾临时气泡并跟随到底。
+                // ⚠️ 只在「原本就贴着底部」时自动滚动 —— 用户上翻回看时不该被拽回去。
+                launch {
+                    vm.streaming.collect { text ->
+                        val atBottom = isListAtBottom()
+                        adapter.setStreaming(text)
+                        if (atBottom && !text.isNullOrEmpty() && adapter.itemCount > 0) {
+                            binding.messageList.scrollToPosition(adapter.itemCount - 1)
+                        }
+                    }
+                }
+
+                // 中间轮丢弃（2026-10-09，问题 2(b)(c)）：工具轮顺手写的正文要**立刻**
+                // 撤下。不能指望 streaming 的收口语义 —— 那条路径在等落库消息接住，
+                // 而中间轮根本没有落库消息会来，气泡会一直挂着。
+                launch {
+                    vm.streamDiscard.collect {
+                        adapter.discardStreaming()
                     }
                 }
 
@@ -401,6 +454,53 @@ class AssistantFragment : Fragment() {
     }
 
     /**
+     * 消息列表是否贴着底部（末尾两条之内即算贴底）。
+     *
+     * 流式增量只在贴底时自动跟随滚动 —— 用户上翻回看历史消息时，不该被每一段增量
+     * 拽回底部（那会让"边生成边读旧消息"变得不可能）。
+     */
+    private fun isListAtBottom(): Boolean {
+        if (_binding == null) return false
+        val lm = binding.messageList.layoutManager as? LinearLayoutManager ?: return true
+        return lm.findLastVisibleItemPosition() >= adapter.itemCount - 2
+    }
+
+    /**
+     * 把自己刚发出的那条 user 消息顶到**可视区顶部**（真机问题 2(a)）。
+     *
+     * 为什么不能只写 `scrollToPositionWithOffset(row, 0)`：本列表是
+     * `LinearLayoutManager(stackFromEnd = true)`，**内容不足一屏时整体贴底** ——
+     * 此时可滚动距离为 0，任何 offset 都会被夹回去，用户看到气泡仍停在屏幕中间
+     * （实测约 y=770 / 1600，上方整片空白）。
+     *
+     * 所以按「内容是否够一屏」分流：
+     * - **够一屏** → `scrollToPositionWithOffset(row, 0)` 真能把它顶到顶；
+     * - **不够一屏** → 关掉 `stackFromEnd`（内容改为顶部对齐），此时该行天然就是
+     *   顶部第一行，随后 AI 回复向下生长，正好是期望的阅读方向。
+     *
+     * 行号必须由 [ChatAdapter.lastUserRowIndex] 提供：W1 之后列表混着时间分隔头，
+     * 消息下标 ≠ adapter position（直接用消息数会滚错行）。
+     */
+    private fun scrollLastUserToTop() {
+        if (_binding == null) return
+        val lm = binding.messageList.layoutManager as? LinearLayoutManager ?: return
+        val row = adapter.lastUserRowIndex()
+        if (row < 0) return
+        binding.messageList.post {
+            if (_binding == null) return@post
+            // ⚠️ 每次**按当前内容重新裁决**，而不是一次性关掉就完事：
+            //    `stackFromEnd` 一旦永久置 false，长对话下次进入会停在**最旧**一条，
+            //    破坏「打开即看最新消息」的既有行为。
+            //    内容 ≤ 一屏 → 贴底布局无从上滚，改顶部对齐（问题 2(a) 主因）；
+            //    内容够一屏 → 恢复贴底布局，再用 offset 把该行顶到顶。
+            val contentShort = binding.messageList.computeVerticalScrollRange() <=
+                binding.messageList.height
+            lm.stackFromEnd = !contentShort
+            lm.scrollToPositionWithOffset(row, 0)
+        }
+    }
+
+    /**
      * 时段 → 第 2 行快捷问句资源（左闭右开：早[5,11) 午[11,14)
      * 下午[14,18) 晚[18,23) 深夜[23,5)）。小时取本机 24h 制时间。
      */
@@ -479,6 +579,20 @@ class ChatAdapter : RecyclerView.Adapter<ChatAdapter.VH>() {
 
     private var rows: List<Row> = emptyList()
 
+    /**
+     * 流式临时气泡（2026-10-08）：尚未落库的助理正文。
+     *
+     * `null` / 空串 = 不显示。列表末尾会额外挂一条 [TYPE_ASSISTANT] 行渲染它，
+     * [itemCount] = [rows]`.size + 1`（仅当它可见）。
+     */
+    private var streamText: String? = null
+
+    /** 流式是否已收口（VM 把 streaming 置回 `null`）。见 [submit] 的交接口径。 */
+    private var streamDone: Boolean = false
+
+    /** 临时气泡当前是否挂在末尾。所有索引计算都以它为准。 */
+    private var streamVisible: Boolean = false
+
     /** `HH:mm`（同日会话内不需日期；仅主线程绑定使用，SimpleDateFormat 无并发问题）。 */
     private val timeFormat = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
 
@@ -497,20 +611,135 @@ class ChatAdapter : RecyclerView.Adapter<ChatAdapter.VH>() {
         return out
     }
 
+    /**
+     * 最后一条 **user** 消息在展示项里的下标，没有返回 -1。
+     *
+     * 2(a) 的定位锚点：发出自己的消息后要把它顶到可视区顶部，而 W1 之后列表里
+     * 混着时间分隔头，消息下标与 adapter position 不再相等 —— 必须拿到**真实行号**，
+     * 否则会滚错位置。
+     */
+    fun lastUserRowIndex(): Int =
+        rows.indexOfLast { it is Row.Msg && it.m.role == ROLE_USER }
+
+    /**
+     * 落库消息更新。
+     *
+     * ⚠️ 流式交接（2026-10-08）：临时的流式气泡**不靠调用方掐时机撤下** —— 落库消息
+     * 与「清流式态」是两条异步流（Room Flow 发射 vs StateFlow 置 `null`），谁先到
+     * 不确定。若流式态先清、消息后到，中间会有一两帧**两边都没有** → 气泡闪一下。
+     * 故：只有 [streamDone] 为真**且**本次 [submit] 到达时才撤临时气泡
+     * （成功时正文被落库消息「接住」，降级时落的是本地模板、接不住也一并撤）。
+     */
     @Suppress("NotifyDataSetChanged")
     fun submit(list: List<ChatMessageEntity>) {
         rows = buildRows(list)
+        if (streamDone) {
+            streamText = null
+            streamDone = false
+        }
+        streamVisible = streamRowShouldShow()
         notifyDataSetChanged()
     }
 
-    override fun getItemCount(): Int = rows.size
+    /**
+     * 流式正文更新（`null` = 本轮流式收口）。
+     *
+     * 收口时**不立刻**撤气泡：落库消息可能还在路上（见 [submit]）。真正的撤下时机
+     * 是下一次 [submit]。
+     */
+    fun setStreaming(text: String?) {
+        if (text == null) {
+            streamDone = true
+            // 没有正文（例如未配置 / 断网这类在调用前就返回的路径）→ 无气泡可留，直接撤。
+            if (streamText.isNullOrEmpty()) {
+                streamText = null
+                streamDone = false
+            }
+        } else {
+            streamText = text
+            streamDone = false
+        }
+        refreshStreamRow()
+    }
 
-    override fun getItemViewType(position: Int): Int = when (val r = rows[position]) {
-        is Row.Time -> TYPE_TIME
-        is Row.Msg -> when (r.m.role) {
-            ROLE_USER -> TYPE_USER
-            ROLE_TOOL -> TYPE_TOOL
-            else -> TYPE_ASSISTANT
+    /** 临时气泡**是否该显示**：有正文，且落库消息尚未接住它。 */
+    private fun streamRowShouldShow(): Boolean {
+        val t = streamText
+        if (t.isNullOrEmpty()) return false
+        return !persistedCatchesUp(t)
+    }
+
+    /**
+     * 立刻撤下临时气泡（中间轮丢弃，问题 2(b)(c)）。
+     *
+     * 与 [setStreaming]`(null)` 的区别：那条路径会把 [streamDone] 置位、**等**下一次
+     * [submit] 来接住正文（防正常落库时闪烁）；本方法用于「这段正文永远不会落库」
+     * 的场合，故直接清干净并立即移除该行。
+     */
+    fun discardStreaming() {
+        if (!streamVisible && streamText == null) return
+        streamText = null
+        streamDone = false
+        if (!streamVisible) return
+        streamVisible = false
+        // 气泡恒为末行：此刻 itemCount 已因 streamVisible 转 false 而少一，
+        // 故被移除的下标就是 `rows.size`（= 当前 itemCount）。
+        val idx = rows.size
+        if (idx in 0..itemCount) notifyItemRemoved(idx) else notifyDataSetChanged()
+    }
+
+    /** 落库列表里最后一条**助理**消息是否已经以这段流式正文开头（含来源 / 查阅后缀行）。 */
+    private fun persistedCatchesUp(streamed: String): Boolean {
+        val last = rows.asReversed().firstOrNull { it is Row.Msg } as? Row.Msg ?: return false
+        val m = last.m
+        return m.role != ROLE_USER && m.role != ROLE_TOOL && m.content.startsWith(streamed)
+    }
+
+    /**
+     * 按最新状态同步临时气泡的挂载（只做最小通知，不整表刷新）。
+     *
+     * ⚠️ 下标说明（问题 2 的 P2）：临时气泡**恒为最后一行**，故其位置就是
+     * `rows.size`；但 [submit] 会整体重建 [rows] 并 `notifyDataSetChanged()`，
+     * 若两条路径交错，裸下标可能与 RecyclerView 当下的条目数不一致 ——
+     * 那会让通知越界（RecyclerView 直接抛 IndexOutOfBounds，或把末行二次绑定）。
+     * 这里先按 `rows.size` 与当前 itemCount 交叉校验，越界则退化为整表刷新
+     * （安全兜底，且此路径在正常时序下不会走到）。
+     */
+    private fun refreshStreamRow() {
+        val should = streamRowShouldShow()
+        if (should == streamVisible) {
+            // 挂载态没变：仍在显示则只重绑末尾那一行（正文变了），否则无需通知。
+            if (should) {
+                val idx = rows.size
+                if (idx in 0 until itemCount) notifyItemChanged(idx) else notifyDataSetChanged()
+            }
+            return
+        }
+        val idx = rows.size
+        // 期望插入位 = 当前条目数（气泡追加在末尾）；期望移除位 = 末位。
+        val expected = if (should) itemCount else itemCount - 1
+        if (idx != expected) {
+            // 与 RecyclerView 的条目数不一致（[rows] 刚被 [submit] 换过）→
+            // 不做增量通知，交给整表刷新重建，避免越界 / 二次绑定。
+            streamVisible = should
+            notifyDataSetChanged()
+            return
+        }
+        streamVisible = should
+        if (should) notifyItemInserted(idx) else notifyItemRemoved(idx)
+    }
+
+    override fun getItemCount(): Int = rows.size + if (streamVisible) 1 else 0
+
+    override fun getItemViewType(position: Int): Int {
+        if (streamVisible && position == rows.size) return TYPE_ASSISTANT
+        return when (val r = rows[position]) {
+            is Row.Time -> TYPE_TIME
+            is Row.Msg -> when (r.m.role) {
+                ROLE_USER -> TYPE_USER
+                ROLE_TOOL -> TYPE_TOOL
+                else -> TYPE_ASSISTANT
+            }
         }
     }
 
@@ -591,6 +820,12 @@ class ChatAdapter : RecyclerView.Adapter<ChatAdapter.VH>() {
     }
 
     override fun onBindViewHolder(holder: VH, position: Int) {
+        // 末尾的流式临时气泡（未落库）走独立渲染 —— 它没有 ChatMessageEntity，
+        // 也不该走「末行元数据剥离 / 长按复制 / 无障碍朗读」那套落库消息才有的逻辑。
+        if (streamVisible && position == rows.size) {
+            bindStreaming(holder)
+            return
+        }
         when (val r = rows[position]) {
             is Row.Time -> {
                 holder.text.text = timeFormat.format(java.util.Date(r.at))
@@ -610,6 +845,47 @@ class ChatAdapter : RecyclerView.Adapter<ChatAdapter.VH>() {
                 bindMessage(holder, position, r.m)
             }
         }
+    }
+
+    /**
+     * 流式临时气泡（2026-10-08）：外观与**助理气泡逐项一致**（`surface` 实底 +
+     * `card_elev_1` + 靠左 + 同最大宽度 / 留白 / 间距），差别只有三点 —— 它没有
+     * 落库消息的元数据行、不提供长按复制（正文未定稿，复制半截没意义）、
+     * 不做无障碍朗读（每次增量变动都读一遍是灾难）。
+     */
+    private fun bindStreaming(holder: VH) {
+        val ctx = holder.text.context
+        holder.text.text = streamText.orEmpty()
+        holder.text.setBackgroundResource(R.drawable.bg_bubble_assistant)
+        holder.text.setTextColor(ContextCompat.getColor(ctx, R.color.text_1))
+        holder.text.elevation = ctx.resources.getDimension(R.dimen.card_elev_1)
+
+        holder.text.isLongClickable = false
+        holder.text.setOnLongClickListener(null)
+        holder.text.movementMethod = null
+        holder.text.maxWidth =
+            (ctx.resources.displayMetrics.widthPixels * TOOL_MAX_WIDTH).toInt()
+
+        val textLp = holder.text.layoutParams as android.widget.LinearLayout.LayoutParams
+        textLp.width = android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+        textLp.weight = 0f
+        holder.text.layoutParams = textLp
+
+        val row = holder.row as android.widget.LinearLayout
+        val rowLp = holder.row.layoutParams as RecyclerView.LayoutParams
+        row.gravity = android.view.Gravity.START
+        val edgeMargin = dp(ctx, 20f).toInt()
+        rowLp.marginStart = edgeMargin
+        rowLp.marginEnd = edgeMargin
+        // 与 bindMessage 同口径：上一行同角色 6dp、不同角色 16dp。
+        val prevRole = (rows.lastOrNull() as? Row.Msg)?.m?.role
+        rowLp.topMargin =
+            if (prevRole == null || prevRole == ROLE_ASSISTANT) {
+                dp(ctx, 6f).toInt()
+            } else {
+                dp(ctx, 16f).toInt()
+            }
+        holder.row.layoutParams = rowLp
     }
 
     private fun bindMessage(holder: VH, position: Int, m: ChatMessageEntity) {
@@ -833,6 +1109,9 @@ class ChatAdapter : RecyclerView.Adapter<ChatAdapter.VH>() {
         /** 消息角色（`ChatMessageEntity.role`）。 */
         const val ROLE_USER = "user"
         const val ROLE_TOOL = "tool"
+
+        /** 助理消息角色（流式临时气泡的间距口径要与它对齐）。 */
+        const val ROLE_ASSISTANT = "assistant"
 
         /** 拟稿确认工具名 —— 工具反馈条据此显示「待确认」后缀。 */
         const val TOOL_PROPOSE = "propose_log"

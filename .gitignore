@@ -60,14 +60,15 @@ venv/
 .ci_log_*.txt
 
 # 开发文档不入库（用户 2026-10-03 指定：开发文档只在本机 docs/ 归档，不进 git）
-# ⚠️ 新增开发文档时在此补充；docs/ 下 contract / security / HANDOFF / prototype 仍入库
-docs/总方案.md
-docs/功能扩展设计方案.md
-docs/功能补充与套壳选型.md
-docs/参考产品研究与取舍.md
-docs/UI设计方案.md
+# ⚠️ 新增开发文档时在此补充；docs/ 下 contract / security / HANDOFF / prototypes 仍入库
+# 2026-10-05 整理：docs/ 内早期 PRD 已移入 archive/，路径同步更新
+docs/archive/总方案.md
+docs/archive/功能扩展设计方案.md
+docs/archive/功能补充与套壳选型.md
+docs/archive/参考产品研究与取舍.md
+docs/archive/UI设计方案.md
+docs/archive/功能清单2.md
 docs/Healix设计规范系统.md
-docs/功能清单2.md
 docs/下一轮优化提示词.md
 docs/下一轮-增量设计.md
 docs/功能落地文档-工具循环.md

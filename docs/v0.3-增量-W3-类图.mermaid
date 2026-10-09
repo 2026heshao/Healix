@@ -1,0 +1,111 @@
+classDiagram
+    %% Healix v0.3 增量设计（第三波 B2）— 类图
+    %% 生成：2026-10-06 架构师（高见远）。修订：2026-10-06（BP-1…BP-6 裁定后）。
+    %% 与 docs/v0.3-增量设计-W3-2026-10-06.md §3.1/§3.2 同源。
+    %% 注：未覆盖 docs/class-diagram.mermaid 及 W1/W2 的 v0.3-增量-* 图。
+
+    class Fragment
+    class RecordFragment {
+        -_binding FragmentRecordBinding
+        -eventAdapter EventAdapter
+        -headerAdapter RecordHeaderAdapter
+        -emptyAdapter RecordEmptyAdapter
+        -headerBinding ItemRecordHeaderBinding
+        -concatAdapter ConcatAdapter
+        -swipe SwipeController
+        -HEADER_ITEM_COUNT = 1
+        +onViewCreated()
+        -observe()
+        -renderGoalArea()
+        -renderPrimaryRow()
+        -renderCards()
+        -renderGapRow()
+        -renderPresetStrip()
+        -deleteWithUndo()
+    }
+    Fragment <|-- RecordFragment
+
+    class ConcatAdapter {
+        +adapters List
+        +itemCount
+    }
+
+    class RecordHeaderAdapter {
+        -onHeaderBound
+        +getItemCount() 1
+        +onCreateViewHolder() VH
+        +onBindViewHolder() Unit
+    }
+    class HeaderVH {
+        +b ItemRecordHeaderBinding
+    }
+    class RecordEmptyAdapter {
+        -empty Boolean
+        +setEmpty(v Boolean)
+        +getItemCount() Int
+        +onCreateViewHolder() VH
+        +onBindViewHolder() Unit
+    }
+    class EmptyVH {
+        +b ItemRecordEmptyBinding
+    }
+    class EventAdapter {
+        +hideKcal Boolean
+        +submit(list)
+    }
+    class ItemRecordHeaderBinding {
+        +goalArea
+        +presetScroll
+        +presetDivider
+        +statusRow
+        +nudgeBar
+        +planBar
+    }
+    class ItemRecordEmptyBinding {
+        +emptyHint
+        +emptyExample
+    }
+    class FragmentRecordBinding {
+        +topBar
+        +offlineBar
+        +undoBar
+        +inputBar
+    }
+
+    RecordFragment --> ConcatAdapter : 装配（3 段）
+    ConcatAdapter o-- RecordHeaderAdapter : 段 0
+    ConcatAdapter o-- EventAdapter : 段 1（BP-3 零改动）
+    ConcatAdapter o-- RecordEmptyAdapter : 段 2（BP-1 footer）
+    RecordHeaderAdapter --> HeaderVH
+    RecordHeaderAdapter --> ItemRecordHeaderBinding : inflate + 回传 onHeaderBound
+    RecordEmptyAdapter --> EmptyVH
+    RecordEmptyAdapter --> ItemRecordEmptyBinding : inflate
+    RecordFragment ..> ItemRecordHeaderBinding : headerBinding 渲染目标
+    RecordFragment --> EventAdapter : 偏移用 itemCount 子坐标
+    RecordFragment ..> RecordEmptyAdapter : setEmpty(list.isEmpty())
+    RecordFragment ..> FragmentRecordBinding : _binding 固定区
+
+    class SwipeController {
+        +onTouch(item, event)
+        +closeIfOutside(hit)
+        +closeAll()
+        +clickAllowed()
+    }
+    class UndoBar {
+        +bind(container, left, action, text, announce, onUndo)
+        +DURATION_MS = 5000
+    }
+    class InputBarHeightAnimator {
+        +bind(input, bar, onGrow)
+    }
+
+    RecordFragment --> SwipeController : binding.list 监听器（零改动）
+    RecordFragment ..> UndoBar : undoBar 固定元素 不进 RecyclerView
+    RecordFragment ..> InputBarHeightAnimator : onGrow 加 HEADER_ITEM_COUNT 偏移
+    EventAdapter ..> SwipeController : 每行 swipeItem.onTouch
+
+    note for RecordHeaderAdapter "new：承载 item_record_header.xml；首绑回传 binding"
+    note for RecordEmptyAdapter "new：仅事件为空时占 1 项；承载 item_record_empty.xml"
+    note for EventAdapter "unchanged：ConcatAdapter 直接包裹"
+    note for ItemRecordHeaderBinding "滚动区 6 段（BP-2 收窄）"
+    note for FragmentRecordBinding "固定区 顶栏 + offlineBar + undoBar + inputBar"

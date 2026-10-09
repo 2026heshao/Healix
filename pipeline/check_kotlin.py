@@ -414,6 +414,84 @@ def code_lines(text: str) -> list[str]:
     return strip_comments(text).splitlines()
 
 
+def check_block_comment_balance() -> None:
+    """块注释必须配平 —— **Kotlin 块注释可嵌套**，这条是 2026-10-08 的真编译错误逼出来的。
+
+    ══════════════════════════════════════════════════════════════════════
+    实证（本地四道检查器全绿，只有 CI 编译炸）
+    ══════════════════════════════════════════════════════════════════════
+    在一条 KDoc 正文里指代资源目录时，顺手写了「目录名 + 斜杠 + 星号 + 扩展名」，
+    于是注释正文里出现了一个无意的「斜杠 + 星号」序列 → Kotlin 据此**再开一层**
+    块注释 → 外层 KDoc 永远等不到属于它的 `*/` → 同一文件里从该行往后的
+    代码（含 `companion object` 的收尾大括号）**整段被当注释吞掉**：
+
+        e: SettingsFragment.kt:1447:42 Missing '}'
+        e: SettingsFragment.kt:1459:1 Unclosed comment
+
+    四个检查器全部漏过，原因是**没有任何一条在数注释深度**：
+      * `check_imports.strip_comments` / 本文件的 `strip_comments` 都用
+        非嵌套正则 `/\*.*?\*/`（`.*?` 收第一个 `*/`）；
+      * `_iter_code_chars` 原实现同理（`find("*/")`），本文件已修为数深度；
+      * 报错形态还是最误导人的那种 —— 报的行号（1447）在真正的坑（1452）**之前**。
+
+    ══════════════════════════════════════════════════════════════════════
+    判据为什么只能是「配平」而不是「出现即报」
+    ══════════════════════════════════════════════════════════════════════
+    注释正文里出现「斜杠 + 星号」**只要后面有配对的 `*/` 就完全合法** ——
+    例如本文档自身、或任何讲解 `/* */` 写法的说明。所以「出现即报」会误伤
+    合法注释；「未闭合」才是那条真错。字符串字面量里的序列要跳过（`"/*"` 不是注释）。
+    """
+    for kt in sorted(JAVA.rglob("*.kt")):
+        text = kt.read_text(encoding="utf-8")
+        stack: list[int] = []
+        i, n, line = 0, len(text), 1
+        while i < n:
+            ch = text[i]
+            if ch == "\n":
+                line += 1
+                i += 1
+                continue
+            if text.startswith("/*", i):
+                stack.append(line)
+                i += 2
+                continue
+            if text.startswith("*/", i):
+                if stack:
+                    stack.pop()
+                i += 2
+                continue
+            if stack:
+                # 注释正文里不再识别行注释 / 字符串（Kotlin 也不识别）
+                i += 1
+                continue
+            if text.startswith("//", i):
+                j = text.find("\n", i)
+                i = n if j < 0 else j
+                continue
+            if text.startswith('"""', i):
+                j = text.find('"""', i + 3)
+                i = n if j < 0 else j + 3
+                continue
+            if ch in ('"', "'"):
+                i += 1
+                while i < n and text[i] != ch:
+                    if text[i] == "\\":
+                        i += 1
+                    i += 1
+                i += 1
+                continue
+            i += 1
+
+        for ln in stack:
+            errors.append(
+                f"{rel(kt)}:{ln}: 块注释未闭合 —— Kotlin 块注释**可嵌套**，"
+                f"注释正文里一个无意的「斜杠 + 星号」（例如写资源通配路径）"
+                f"会再开一层，把该行往后的代码整段吞掉（表现为 "
+                f"`Missing '}}'` + `Unclosed comment`）。"
+                f"改法：注释正文里指代目录就写到目录为止，不要带星号"
+            )
+
+
 def check_shadowed_R() -> None:
     """禁止 `val R = com.healix.app.R` 这类遮蔽。
 
@@ -1112,8 +1190,21 @@ def _iter_code_chars(text: str):
             i = n if j < 0 else j
             continue
         if text.startswith("/*", i):
-            j = text.find("*/", i + 2)
-            i = n if j < 0 else j + 2
+            # ⚠️ Kotlin 的块注释**可嵌套**（与 Java 不同）→ 必须数深度。
+            #    2026-10-08 实测：非嵌套写法（`find("*/")` 收第一个）会把
+            #    「注释里无意写出的 斜杠+星号」当成注释提前结束，
+            #    于是注释剩余正文被当代码喂给下游检查器 → 静默错判。
+            depth = 1
+            i += 2
+            while i < n and depth > 0:
+                if text.startswith("/*", i):
+                    depth += 1
+                    i += 2
+                elif text.startswith("*/", i):
+                    depth -= 1
+                    i += 2
+                else:
+                    i += 1
             continue
         if text.startswith('"""', i):
             j = text.find('"""', i + 3)
@@ -1621,6 +1712,7 @@ def main() -> int:
     check_projection_types(tables)
     check_view_binding()
     check_shadowed_R()
+    check_block_comment_balance()
     check_set_items_argument()
     check_suspend_calls()
     check_undefined_self_calls()

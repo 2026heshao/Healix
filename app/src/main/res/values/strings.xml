@@ -337,7 +337,10 @@
 
     <!-- 意见 / 提示 -->
     <string name="quota_exhausted_short">今日配额已用尽</string>
-    <string name="no_provider_config">未配置模型服务，请到设置页填写</string>
+    <!-- 记录页 offlineBar「未配置」语义：整条可点 → 直达设置页（点哪里→到哪里的动作序列） -->
+    <string name="no_provider_config">未配置模型服务 · 点此去设置 ›</string>
+    <!-- 助理页未配置：落在对话流里的文本气泡（不可点），必须写清完整路径引导 -->
+    <string name="no_provider_config_chat">我还没连接模型服务：请到「我的 → 设置 → 模型服务」填写接口地址、模型名与 API Key，配置后即可对话。</string>
     <string name="yes">是</string>
     <string name="no">否</string>
 
@@ -376,6 +379,15 @@
 
     <!-- ── 记录级状态（PRD 15.5：失败 ≠ 错误，用中性色不用 negative） ── -->
     <string name="state_unrecognized">未识别 · 点此补充</string>
+    <!-- 未识别 + 原因（记录卡片三态之二；原因取自 events.last_error 的前缀分类） -->
+    <string name="state_unrecognized_reason">未识别（%1$s）· 点此补充</string>
+    <!-- last_error 前缀 → 用户可读原因 -->
+    <string name="parse_reason_provider">未配置模型服务</string>
+    <string name="parse_reason_offline">记录时离线</string>
+    <string name="parse_reason_timeout">解析超时</string>
+    <string name="parse_reason_schema">AI 未从原文识别出内容</string>
+    <string name="parse_reason_auth">服务鉴权失败，请检查 API Key</string>
+    <string name="parse_reason_other">AI 解析失败</string>
     <string name="state_save_failed">未能保存，请重试</string>
 
     <!-- ── 首页多维状态行（规范 9.2：两态互斥，恒定 48dp） ── -->

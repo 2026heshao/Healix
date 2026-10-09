@@ -1,0 +1,98 @@
+%% Healix v0.3 增量设计（第三波 B2）— 调用流程（4 张）
+%% 生成：2026-10-06 架构师（高见远）。修订：2026-10-06（BP-1…BP-6 裁定后）。
+%% 与 docs/v0.3-增量设计-W3-2026-10-06.md §3.3 同源。
+%% 注：未覆盖 docs/sequence-diagram.mermaid 及 W1/W2 的 v0.3-增量-* 图。
+
+%% ─────────────────────────────────────────────────────────────
+%% 图 1：首帧 —— header 绑定 + 补渲染（flows 可能先于 header 到达）
+%% ─────────────────────────────────────────────────────────────
+sequenceDiagram
+    autonumber
+    participant RF as RecordFragment
+    participant RV as RecyclerView(list)
+    participant HA as RecordHeaderAdapter
+    participant EA as RecordEmptyAdapter
+    participant FM as Flow(homeGoal/presets/...)
+
+    RF->>RV: layoutManager = LinearLayoutManager
+    RF->>RV: adapter = ConcatAdapter(headerAdapter, eventAdapter, emptyAdapter)
+    RF->>RF: observe() 启动收集
+    FM-->>RF: 先到的最新值 → 写快照
+    RF->>RF: renderGoalArea()（headerBinding == null → 早退）
+    RV->>HA: onCreateViewHolder（首次 layout 后）
+    HA->>HA: inflate ItemRecordHeaderBinding
+    HA-->>RF: onHeaderBound(binding) → headerBinding = b
+    RF->>RF: 补渲染（幂等）：renderGoalArea / renderPresetStrip / 三 bar + statusRow
+    Note right of RF: 纯本地、0 AI；重复渲染成本远低于首帧空白
+    FM-->>RF: events 空/非空
+    RF->>EA: setEmpty(list.isEmpty())
+    EA->>EA: getItemCount 由 0/1 切换 → footer 显隐
+
+%% ─────────────────────────────────────────────────────────────
+%% 图 2：按在 header 上 → 收起已滑开行（迁移点①，零改动）
+%% ─────────────────────────────────────────────────────────────
+sequenceDiagram
+    autonumber
+    participant U as 用户
+    participant RV as RecyclerView(list)
+    participant SC as SwipeController
+
+    Note over U,SC: 前置：某事件行已左滑露出 编辑/删除
+    U->>RV: 按在 header（目标区 / 状态行 / preset 条）
+    RV->>RV: onInterceptTouchEvent(ACTION_DOWN)
+    RV->>RV: child = findChildViewUnder(x, y)  → header 子视图
+    RV->>SC: closeIfOutside(child)
+    SC->>SC: openRow.parent 链不含 child → snap(openRow, 0f)
+    SC-->>U: 已滑开行回弹
+    Note right of RV: 监听器仍挂在 binding.list（= 本 RecyclerView），未迁移
+
+%% ─────────────────────────────────────────────────────────────
+%% 图 3：输入条增高 → 按 header 偏移滚到底（迁移点②）
+%% ─────────────────────────────────────────────────────────────
+sequenceDiagram
+    autonumber
+    participant U as 用户
+    participant ET as EditText(input)
+    participant IA as InputBarHeightAnimator
+    participant RF as RecordFragment(onGrow)
+    participant RV as RecyclerView(list)
+
+    U->>ET: 输入换行（1 行 → 3 行）
+    ET-->>IA: addOnLayoutChangeListener（height 变高）
+    IA->>RF: onGrow()（仅增高时）
+    RF->>RF: eventsLast = eventAdapter.itemCount - 1
+    alt eventsLast >= 0（有事件）
+        RF->>RV: smoothScrollToPosition(eventsLast + HEADER_ITEM_COUNT)
+        Note right of RF: 根坐标 = 子坐标 + 1(header)；末行仍可见
+    else 无事件（空列表）
+        RF->>RF: 不动（保持旧语义）
+    end
+    IA->>IA: 200ms 曲线把 ET 实测高度插值到 inputBar.height（末尾还原 WRAP_CONTENT）
+    Note over IA,RV: inputBar 与 TabBar.bindImeGuard 共用同一 LayoutParams，每帧重读回写
+
+%% ─────────────────────────────────────────────────────────────
+%% 图 4：事件清空 → 空态 footer 切换（BP-1；替换原 emptyState 覆盖层）
+%% ─────────────────────────────────────────────────────────────
+sequenceDiagram
+    autonumber
+    participant VM as MainViewModel
+    participant RF as RecordFragment(observe)
+    participant EA as EventAdapter
+    participant ER as RecordEmptyAdapter
+    participant CA as ConcatAdapter
+    participant RV as RecyclerView(list)
+
+    VM-->>RF: events 发射（list）
+    RF->>EA: submit(list)
+    RF->>ER: setEmpty(list.isEmpty())
+    alt list 为空
+        ER->>ER: empty = true → getItemCount = 1
+        ER->>CA: notifyDataSetChanged()
+        CA->>RV: 末段补出 footer（item_record_empty）
+        Note right of RV: footer 在 header 之下（wrap_content + padding），非整块居中
+    else list 非空
+        ER->>ER: empty = false → getItemCount = 0
+        ER->>CA: notifyDataSetChanged()
+        CA->>RV: 末段移除 footer
+    end
+    Note over RF,RV: 原 binding.emptyState.visibility 写入（:358-360）删除

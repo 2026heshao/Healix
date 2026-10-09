@@ -209,6 +209,18 @@ class StatusDetailFragment : Fragment() {
             row.errorText.visibility = View.GONE
             row.divider.visibility =
                 if (index == section.recent.size - 1) View.GONE else View.VISIBLE
+            // ⚠️ 必须**显式隐藏下层操作按钮**（2026-10-09 真机修复）：
+            //   本页复用 `item_event.xml`，而那份布局的 `swipeActs`（编辑 + 删除 两枚
+            //   72dp 按钮）是**常驻子视图**，默认 `translationX = 0` 就停在行右端。
+            //   记录页靠 `SwipeController.resetRow()` 在 bind 时把它们推到屏右外
+            //   （见 RecordListAdapters），而本页**没有 SwipeController**（只读清单，
+            //   不接编辑路径）→ 从不复位 → 两枚按钮**永久可见**。
+            //   又因内容层 `swipeItem` 的背景是 `?attr/selectableItemBackground`
+            //   （静止态透明），行内 `timeLabel` 便直接叠在「删除」按钮上 ——
+            //   真机表现为「时间戳画在删除按钮里、正文被裁掉一截」。
+            //   本页既然不提供编辑/删除，就整块 `GONE`（比只推走更彻底：
+            //   推走仍占满高，且后续若有人给本行加点击会又踩同一个坑）。
+            row.swipeActs.visibility = View.GONE
             row.root.isClickable = false
             row.root.isFocusable = false
             binding.exerciseRecentContainer.addView(row.root)

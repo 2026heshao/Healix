@@ -13,6 +13,7 @@ import com.healix.app.net.ChatResult
 import com.healix.app.net.ErrKind
 import com.healix.app.net.OpenAiCompatProvider
 import com.healix.app.net.ProviderConfig
+import com.healix.app.net.StreamSink
 import com.healix.app.net.ToolCall
 import com.healix.app.net.ToolDef
 import com.healix.app.net.ToolFunctionDef
@@ -1501,6 +1502,21 @@ internal object ToolRegistry {
  * - **每次** provider 往返经 [EventRepository.recordChatCall] 记一条 `llm_calls`
  *   （purpose=ask，配额不变式：一次往返恰好一行、失败也记、禁补记）；
  * - **每次**工具调用经 [recordToolCall] 记一条 `tool_calls`（独立新表，**不进** `llm_calls`）。
+ *
+ * ══════════════════════════════════════════════════════════════════════════
+ * 流式（2026-10-08）
+ * ══════════════════════════════════════════════════════════════════════════
+ * [run] 接受可选的 [StreamSink]：有则每轮走 `chatStream`（正文边生成边推给 UI），
+ * 无则走 `chat`（行为与改前逐字相同）。
+ *
+ * **可见性判据**：只有「最终答复轮」的正文该给用户看 —— 即
+ * 「**不产生工具调用**的那一轮」或「**产生拟稿**（propose_*）的那一轮」。
+ * 实现方式是在每轮开始前 `sink.onReset()` 清空累积：中间轮（查数据）随手写的
+ * 几句会随下一轮重置而丢弃，而终止轮（Done / ProposalPending）之后不再有下一轮，
+ * 其正文原样保留。**不靠模型自觉**。
+ *
+ * ⚠️ 流式**不改埋点**：`llm_calls` 仍是「一次往返一行」，`tool_calls` 同理 ——
+ *    流式只改传输形态，不改调用次数。
  */
 internal class HealthAgent(
     private val context: Context,
@@ -1518,6 +1534,17 @@ internal class HealthAgent(
         knowledge: String,
         /** 用户自定义输出偏好规则（v0.3 B4）：与单轮同源注入，空 = 不注入。 */
         userRules: String = "",
+        /**
+         * 流式增量接收端（2026-10-08）。`null` = 非流式（既有行为，逐字不变）。
+         *
+         * **轮次边界**：每轮 provider 往返开始前先 [StreamSink.onReset] —— 工具循环
+         * 里模型可能调多轮，只有**产出最终答复的那一轮**的正文该给用户看；上一轮的
+         * 中间文本（模型顺手写的几句）必须作废。见 [run] 内注释。
+         *
+         * ⚠️ 追加在形参**末尾**且是接口类型（非函数类型）→ 既有调用点零改动、
+         * 不触发「尾随 λ 纪律」。
+         */
+        sink: StreamSink? = null,
     ): AgentOutcome {
         val provider = OpenAiCompatProvider(config)
         val deadline = System.currentTimeMillis() + WALL_CLOCK_MS
@@ -1529,6 +1556,7 @@ internal class HealthAgent(
         // `PromptMode.TOOL` 走压缩版「说话方式」+ 省略「今天的已知数字」（去重，数字改由
         // query_stats 按需取），人格/硬边界/隐私规则仍同源（不出现第二套人格）。
         // 用户规则同样作用于工具路径（PV-1）。工具说明段（含动态权限声明）追加在其后。
+        // ⚠️ prompt 字节一字未改 → 不递增 PROMPT_VER_CHAT_TOOL（流式只改传输形态）。
         messages += ChatMessage(
             role = "system",
             content = ChatEngine.systemPrompt(
@@ -1552,19 +1580,26 @@ internal class HealthAgent(
         while (steps < MAX_STEPS) {
             if (System.currentTimeMillis() >= deadline) return AgentOutcome.Failed
 
+            // 轮次边界：本轮的正文增量取代上一轮（上一轮若是"查数据"轮，
+            // 它随手写的中间文本不属于最终答复，必须丢弃）。
+            sink?.onReset()
+
             val startedAt = System.currentTimeMillis()
-            val result = provider.chat(
-                ChatRequest(
-                    messages = messages.toList(),
-                    tools = ToolRegistry.defs,
-                    // 工具路径用 TOOL_TEMPERATURE(0.4)：比单轮 0.7 更克制，减少多步调用漂移；
-                    // 抽取链 0.3 / 训练链 0.4 一字不动（对齐 PRD §6.4 B）。
-                    temperature = TOOL_TEMPERATURE,
-                    timeoutMs = TIMEOUT_MS,
-                    // 循环内重试降为 2 次：墙钟预算优先给"走完多步"而不是"单步死磕"
-                    maxRetries = 2,
-                ),
+            val request = ChatRequest(
+                messages = messages.toList(),
+                tools = ToolRegistry.defs,
+                // 工具路径用 TOOL_TEMPERATURE(0.4)：比单轮 0.7 更克制，减少多步调用漂移；
+                // 抽取链 0.3 / 训练链 0.4 一字不动（对齐 PRD §6.4 B）。
+                temperature = TOOL_TEMPERATURE,
+                timeoutMs = TIMEOUT_MS,
+                // 循环内重试降为 2 次：墙钟预算优先给"走完多步"而不是"单步死磕"
+                maxRetries = 2,
             )
+            val result = if (sink != null) {
+                provider.chatStream(request, sink)
+            } else {
+                provider.chat(request)
+            }
             recordRoundTrip(config, result, System.currentTimeMillis() - startedAt)
 
             when (result) {
@@ -1576,6 +1611,8 @@ internal class HealthAgent(
                 is ChatResult.Ok -> {
                     if (result.toolCalls.isEmpty()) {
                         val text = result.content.trim()
+                        // 终止轮：本轮正文就是最终答复 → 明确告知 sink 保留（不丢弃）。
+                        sink?.onRoundEnd(hasToolCalls = false)
                         return if (text.isEmpty()) {
                             AgentOutcome.Failed
                         } else {
@@ -1616,8 +1653,16 @@ internal class HealthAgent(
                         val note = result.content.trim().ifEmpty {
                             proposalNote(context)
                         }
+                        // 拟稿轮是**终止轮**（其正文就是给用户看的答复）→ 保留不丢弃。
+                        sink?.onRoundEnd(hasToolCalls = false)
                         return AgentOutcome.ProposalPending(note, proposal)
                     }
+
+                    // 走到这里 = 纯中间轮（只查数据，正文不属于最终答复）→ 当刻撤下，
+                    // 别让用户先看到再看着它被抹掉（真机问题 2(b)(c)）。裁决点在**轮末**
+                    // 而非下一轮开头：后者要等工具执行完 + 又一次 provider 往返，用户
+                    // 早已看过那段文字 —— 这正是「写着写着突然换掉」的来源。
+                    sink?.onRoundEnd(hasToolCalls = true)
 
                     val signature = result.toolCalls
                         .joinToString("|") { "${it.function.name}:${it.function.arguments}" }

@@ -1,6 +1,6 @@
 """Provider 抽象层 + OpenAI 兼容实现（S1 的 Python 侧先行验证版）。
 
-设计对齐 `docs/功能补充与套壳选型.md` 9.1：
+设计对齐 `docs/archive/功能补充与套壳选型.md` 9.1：
 - 一个接口 + 一个实现，覆盖智谱 / DeepSeek / OpenRouter / SiliconFlow 等
   OpenAI 兼容端点（差异只有 baseUrl / model / key 三个字符串）
 - baseUrl 与 model **零硬编码**，必须由调用方传入
@@ -128,7 +128,10 @@ PROVIDER_PRESETS: Final[dict[str, dict[str, str]]] = {
     "deepseek": {
         "name": "DeepSeek",
         "base_url": "https://api.deepseek.com",
-        "model": "deepseek-chat",
+        # N-8（2026-10-08 用户拍板）：优先 deepseek-flash；端点不支持时
+        # App 侧（ProviderConfig.effectiveFallbackModel）自动回落 deepseek-chat。
+        # 与 Kotlin 侧 LlmProvider.ProviderPresets 保持一致。
+        "model": "deepseek-flash",
     },
     "openrouter": {
         "name": "OpenRouter",

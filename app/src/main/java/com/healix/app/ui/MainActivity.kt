@@ -54,8 +54,26 @@ class MainActivity : AppCompatActivity() {
             // 结果无需处理：拒绝则落到「我的」页的手动引导
         }
 
-    /** 进程级标记：避免每次 onResume 反复弹（用户拒绝后不再骚扰）。 */
+    /** 进程级标记：避免同一次进程存续期内 onResume 反复弹。 */
     private var askedNotifPermission = false
+
+    /**
+     * 跨进程的「已询问过通知权限」标记（稳定性修复 2026-10-08）。
+     *
+     * 为什么不用 settings 表：[onResume] 在首帧前就要做同步判定，而 settings 表是
+     * Room（异步）；且该标记是纯内部状态、不是用户可配置项，进 settings 表还会
+     * 随导出/导入搬运，语义不对。普通 SharedPreferences（私有目录）同步可读、
+     * 覆盖安装（`install -r`）不丢 —— 正好覆盖「覆盖安装后首启又弹一次」的实测问题。
+     *
+     * 口径：**只在真正弹出系统对话框前写入**。已授权路径不依赖它
+     * （checkSelfPermission 恒过）；拒绝过的用户不再自动骚扰，落到「我的」页手动引导。
+     */
+    private val notifAskedPrefs by lazy {
+        getSharedPreferences(PREFS_FLAGS, MODE_PRIVATE)
+    }
+
+    private fun hasAskedNotifPermission(): Boolean =
+        notifAskedPrefs.getBoolean(PREF_NOTIF_ASKED, false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -114,6 +132,11 @@ class MainActivity : AppCompatActivity() {
         })
 
         maybeShowLastCrash()
+
+        // 二级页布局预热（2026-10-08，性能）：主线程空闲期把高频二级页的布局各热一遍，
+        // 消掉「每次启动后**第一次**进入某页」那份冷 inflate（类加载 / 资源解析 / JIT）。
+        // 挂在 IdleHandler 上 → 队列不空就完全不执行，不抢首帧与用户输入（见 PagePrewarm）。
+        PagePrewarm.schedule(this)
     }
 
     /**
@@ -235,10 +258,14 @@ class MainActivity : AppCompatActivity() {
         @Suppress("DEPRECATION")
         super.onActivityResult(requestCode, resultCode, data)
         val uri = data?.data
-        val docKind = DocumentWriter.onActivityResult(this, requestCode, resultCode, uri)
-        if (docKind != null) {
-            val ok = resultCode == RESULT_OK
-            val msgRes = when (docKind) {
+        val docResult = DocumentWriter.onActivityResult(this, requestCode, resultCode, uri)
+        if (docResult != null) {
+            // ⚠️ 判据用 `docResult.written`，**不是** `resultCode == RESULT_OK`（2026-10-09 修复）：
+            //    resultCode 只说明"用户没在选择器里取消"，写入本身可能已经失败
+            //    （provider 拒绝 / 空间不足 / openOutputStream 返回 null）。
+            //    原先只看 resultCode → 写失败也弹「已导出到所选位置」，是**假成功**。
+            val ok = docResult.written
+            val msgRes = when (docResult.kind) {
                 DocumentWriter.Kind.EXPORT ->
                     if (ok) R.string.export_success else R.string.export_failed
                 DocumentWriter.Kind.MEDICAL ->
@@ -334,10 +361,16 @@ class MainActivity : AppCompatActivity() {
 
         // 通知权限（G1）：Android 13+ 首次进入申请一次。POST_NOTIFICATIONS 未授予时
         // QuickInputService 的前台通知会被系统静默丢弃 → 「通知栏速记」入口整片消失。
+        // 稳定性修复（2026-10-08）：原实现只有进程级 askedNotifPermission —— 每次冷启动
+        // （含覆盖安装后）只要权限仍未授予就再弹一次系统对话框。改为「系统对话框真正
+        // 弹出前」写持久化标记：弹过一次（无论允许/拒绝）就不再自动弹；
+        // 已授权路径本来就会被 checkSelfPermission 挡住，不依赖该标记。
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !askedNotifPermission) {
             askedNotifPermission = true
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
-                    != PackageManager.PERMISSION_GRANTED) {
+                    != PackageManager.PERMISSION_GRANTED && !hasAskedNotifPermission()
+            ) {
+                notifAskedPrefs.edit().putBoolean(PREF_NOTIF_ASKED, true).apply()
                 notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
             }
         }
@@ -347,6 +380,12 @@ class MainActivity : AppCompatActivity() {
         /** 桌面小工具「记一笔」：打开本页并聚焦速记框（小工具侧 extra，
          *  见 HealixWidgetProvider.logIntent；冷启动由记录页 300ms 自动聚焦兜底）。 */
         const val EXTRA_FOCUS_INPUT = "healix.extra.FOCUS_INPUT"
+
+        /** 内部标记 SharedPreferences 文件名（非用户配置，不进 settings 表）。 */
+        private const val PREFS_FLAGS = "healix_flags"
+
+        /** 通知权限「已弹出过系统对话框」标记键（见 [hasAskedNotifPermission]）。 */
+        private const val PREF_NOTIF_ASKED = "post_notifications_asked"
 
         // 三个常驻 Tab Fragment 的 tag（= 类名，dumpsys 调试时一眼可辨）。
         private const val TAG_RECORD = "RecordFragment"

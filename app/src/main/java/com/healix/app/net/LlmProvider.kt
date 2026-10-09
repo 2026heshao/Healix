@@ -1,7 +1,7 @@
 package com.healix.app.net
 
 /**
- * Provider 抽象层（对齐 `docs/功能补充与套壳选型.md` 9.1 与 Python 侧 `pipeline/provider.py`）。
+ * Provider 抽象层（对齐 `docs/archive/功能补充与套壳选型.md` 9.1 与 Python 侧 `pipeline/provider.py`）。
  *
  * 设计要点：
  * - 一个接口 + 一个实现（OpenAiCompatProvider），覆盖智谱 / DeepSeek / OpenRouter / SiliconFlow。
@@ -143,6 +143,73 @@ data class ProviderConfig(
     fun isUsable(): Boolean =
         baseUrl.isNotBlank() && model.isNotBlank() && apiKey.isNotBlank() &&
             !baseUrl.startsWith("[待核实") && !model.startsWith("[待核实")
+
+    /**
+     * 模型不被端点支持时的**兜底模型**（N-8，2026-10-08）。空串 = 无兜底。
+     *
+     * 需求：DeepSeek 优先用 `deepseek-flash`，API 不支持（400 Model Not Exist）
+     * 则自动回落 `deepseek-chat`；模型名在设置页始终可编辑。判定挂在
+     * [baseUrl] 上（含 `api.deepseek.com` 即 DeepSeek 官方端点），不新增
+     * settings 键 —— 兜底是**端点的属性**，不是用户配置；主模型是什么
+     * （flash / chat / 将来新名）由用户在设置页自由改，兜底只在
+     * 「主模型 ≠ 兜底模型」时才存在。
+     */
+    val effectiveFallbackModel: String
+        get() {
+            if (!baseUrl.contains(DEEPSEEK_HOST)) return ""
+            if (model.isBlank() || model == DEEPSEEK_FALLBACK_MODEL) return ""
+            return DEEPSEEK_FALLBACK_MODEL
+        }
+
+    companion object {
+        /** DeepSeek 官方 API 域名（预设 baseUrl = https://api.deepseek.com）。 */
+        const val DEEPSEEK_HOST = "api.deepseek.com"
+
+        /** DeepSeek 长期稳定的模型别名（官方文档核实，见 [ProviderPresets] 头注释）。 */
+        const val DEEPSEEK_FALLBACK_MODEL = "deepseek-chat"
+    }
+}
+
+/**
+ * 流式增量的接收端（2026-10-08）。
+ *
+ * 为什么不直接把增量拼进返回值：流式的全部意义就是「边生成边显示」，增量必须
+ * 在**调用进行中**推出去，而不是等 `chat()` 返回 —— 所以走回调，不走返回值。
+ *
+ * 回调在**网络 IO 线程**触发（不在主线程），实现方需自行保证线程安全。
+ */
+interface StreamSink {
+
+    /**
+     * 新的一轮模型调用开始：此前累积的增量一律作废。
+     *
+     * 为什么需要它：工具循环（[com.healix.app.agent.HealthAgent]）一轮里可能调
+     * **多次**模型 —— 只有产出最终答复的那一轮正文该给用户看，上一轮的中间文本
+     * 必须丢掉。`net` 层自身从不发这个事件（它只看得到一次调用），
+     * 由 agent 在每轮开始前发出。
+     *
+     * 默认空实现：单轮路径不关心轮次边界。
+     */
+    fun onReset() {}
+
+    /** 收到一段增量正文（已解码）。可能为空串，实现方需容忍。 */
+    fun onDelta(text: String)
+
+    /**
+     * 一轮模型调用**结束**时的裁决（2026-10-09，真机问题 2 的中间轮泄漏）。
+     *
+     * [onReset] 只在「下一轮开始前」清场，而**终止轮没有下一轮** —— 于是中间轮
+     * （查数据那轮）模型顺手写的正文，会一直显示到它被下一轮抹掉为止，用户先看到
+     * 再看着它消失（实测「写着写着突然换掉 / 新旧文字叠在一起」）。
+     *
+     * 本回调把裁决点**前移**到轮末：由 agent（唯一知道本轮产没产工具调用的地方）
+     * 在每轮结束时明确告知，实现方据此决定本轮累积是保留还是**整轮丢弃**。
+     * `hasToolCalls = true` 表示这是中间轮，其正文不属于最终答复。
+     *
+     * 默认空实现：单轮路径（[com.healix.app.ui.ChatEngine.replyStream]）本就没有
+     * 多轮概念，行为与改前逐字相同。
+     */
+    fun onRoundEnd(hasToolCalls: Boolean) {}
 }
 
 /** Provider 接口。无状态实现，可安全复用。 */
@@ -160,6 +227,29 @@ interface LlmProvider {
      * - FATAL_HTTP_CODES 与 AUTH 不重试
      */
     suspend fun chat(request: ChatRequest): ChatResult
+
+    /**
+     * 单次对话（流式）。语义与 [chat]**逐条一致** —— 同样的显式超时、退避重试、
+     * 错误分类、脱敏、**绝不抛异常**；差别只有两点：
+     *
+     * 1. 正文增量在生成过程中经 [sink] 推出（边生成边显示）；
+     * 2. 返回值里的 `content` 仍是**完整正文**（与 [chat] 同口径），调用方结束时
+     *    用返回值落库即可，无需自己拼接增量。
+     *
+     * ⚠️ **重试策略的一处收紧**：本方法在**已经吐出过增量**后不再重试 —— 重试会把
+     * 同一段正文再吐一遍，用户看到的是重复内容。此前的增量不作废（拼不回干净状态），
+     * 失败直接以 [ChatResult.Err] 返回，由调用方走降级链。
+     *
+     * ⚠️ **超时口径**：整体 `callTimeout` 放宽到 [STREAM_CALL_TIMEOUT_MS]（流式响应
+     * 天然比一次性响应长），但 `connectTimeout` / `readTimeout` 仍取 `request.timeoutMs`
+     * —— 后者在流式下是**块间空闲超时**，断流仍会在一个 timeoutMs 内被发现。
+     */
+    suspend fun chatStream(request: ChatRequest, sink: StreamSink): ChatResult
+
+    companion object {
+        /** 流式请求的整体墙钟上限（毫秒）：一次性请求的 `callTimeout` 对长流太短。 */
+        const val STREAM_CALL_TIMEOUT_MS: Long = 120_000L
+    }
 }
 
 /**
@@ -194,7 +284,11 @@ object ProviderPresets {
         "deepseek" to PresetEntry(
             name = "DeepSeek",
             baseUrl = "https://api.deepseek.com",
-            model = "deepseek-chat",
+            // N-8（2026-10-08 用户拍板）：优先 deepseek-flash；若端点不支持
+            // （400 Model Not Exist），OpenAiCompatProvider 经
+            // ProviderConfig.effectiveFallbackModel 自动回落 deepseek-chat，
+            // 无需用户改配置。模型名始终可在设置页编辑。
+            model = "deepseek-flash",
         ),
         "openrouter" to PresetEntry(
             name = "OpenRouter",

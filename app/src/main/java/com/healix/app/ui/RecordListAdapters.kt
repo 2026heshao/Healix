@@ -63,7 +63,10 @@ internal class RecordEmptyAdapter : RecyclerView.Adapter<RecordEmptyAdapter.VH>(
     fun setEmpty(v: Boolean) {
         if (v == empty) return
         empty = v
-        notifyDataSetChanged()
+        // A6（2026-10-09）：本适配器恒为「0 或 1 条」，用整表刷新（notifyDataSetChanged）
+        // 去切换这一行是纯浪费 —— 它会让 RecyclerView 对所有已挂载的 VH 走一遍全量重绑，
+        // 且丢失默认动画。改按行通知（本类条数只在 0/1 之间跳，下标恒为 0）。
+        if (v) notifyItemInserted(0) else notifyItemRemoved(0)
     }
 
     override fun getItemCount(): Int = if (empty) 1 else 0
@@ -173,9 +176,9 @@ class EventAdapter(
             // ── 复用防残留：滑开态 ViewHolder 被复用到新 item 时，swipeItem
             //    可能带着上一次的 -144dp 平移。bind 前先取消残留动画、归位平移，
             //    并解除 SwipeController 对这个视图的滑开跟踪。──
-            b.swipeItem.animate().cancel()
-            b.swipeItem.translationX = 0f
-            swipe.release(b.swipeItem)
+            // 稳定性修复（2026-10-08）：resetRow 同时把下层按钮复位到屏右外
+            //（按钮常驻原位 + 内容层透明 = 文字与按钮重叠，见 SwipeController 注释）。
+            swipe.resetRow(b.swipeItem)
 
             // ── v6 左滑：拖拽跟随 + 按压缩放，同一个触摸监听承载两种反馈 ──
             b.swipeItem.setOnTouchListener { v, ev ->
@@ -237,7 +240,14 @@ class EventAdapter(
                         b.errorText.setTextColor(ContextCompat.getColor(ctx, R.color.error))
                         b.errorText.setOnClickListener { onRetry(e) }
                     } else {
-                        b.errorText.setText(R.string.state_unrecognized)
+                        // 稳定性修复（2026-10-08）：last_error 里明明有原因（未配置 /
+                        // 离线 / 超时……），卡片却只显示固定的「未识别」——用户无从判断
+                        // 是该去填配置还是等联网。按 last_error 前缀分类透出原因；
+                        // 「点此补充」入口不变（整行可点 → 编辑弹窗，见下）。
+                        b.errorText.text = ctx.getString(
+                            R.string.state_unrecognized_reason,
+                            parseReasonLabel(ctx, e.lastError),
+                        )
                         b.errorText.setTextColor(ContextCompat.getColor(ctx, R.color.text_2))
                         // 「补充」= 进编辑弹窗，交给整行的 onEdit 处理
                         b.errorText.setOnClickListener(null)
@@ -257,6 +267,30 @@ class EventAdapter(
             }
         }
     }
+
+    /**
+     * `events.last_error` 前缀 → 用户可读原因（稳定性修复 2026-10-08）。
+     *
+     * 写端口径见 `EventRepository.submit`：
+     * - `"provider_not_configured: ..."`（未配置，本地判定，没走到网络）
+     * - `"offline: ..."`（通知栏路径离线直败）
+     * - `"schema_invalid: ..."`（AI 返回了但解析不出事件）
+     * - `"{kind.lowercase()}: message"`（网络层失败，kind ∈ http/auth/timeout/network/…）
+     *
+     * 判据用**前缀**不用 contains —— 错误 message 里可能恰好出现同样字样（与
+     * `MainViewModel.isNetworkError` 同一套取舍）。未列出的前缀一律兜底
+     * [R.string.parse_reason_other]，不把原始错误串直接给用户（可能含模型原文）。
+     */
+    private fun parseReasonLabel(ctx: android.content.Context, lastError: String?): String =
+        when {
+            lastError == null -> ctx.getString(R.string.parse_reason_other)
+            lastError.startsWith("provider_not_configured") -> ctx.getString(R.string.parse_reason_provider)
+            lastError.startsWith("offline") -> ctx.getString(R.string.parse_reason_offline)
+            lastError.startsWith("schema_invalid") -> ctx.getString(R.string.parse_reason_schema)
+            lastError.startsWith("timeout") -> ctx.getString(R.string.parse_reason_timeout)
+            lastError.startsWith("auth") -> ctx.getString(R.string.parse_reason_auth)
+            else -> ctx.getString(R.string.parse_reason_other)
+        }
 
     private companion object {
         const val PARSE_PENDING = "pending"

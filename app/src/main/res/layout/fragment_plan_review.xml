@@ -353,98 +353,17 @@
                 </LinearLayout>
             </LinearLayout>
 
-            <!-- 复盘 Tab 内容：三宫格用文字对齐 -->
-            <LinearLayout
-                android:id="@+id/reviewGroup"
+            <!--
+                复盘 Tab 内容（2026-10-08）：ViewStub 懒建 —— 默认停在「计划」Tab，
+                首帧不必为这块 gone 的内容付 inflate。内容见
+                `layout/group_plan_review_review.xml`（原样搬运，零改动）。
+                inflate 时机 = 首次切到「回顾」Tab（PlanReviewFragment.selectTab）。
+            -->
+            <ViewStub
+                android:id="@+id/reviewStub"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:visibility="gone"
-                tools:visibility="visible">
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="24dp"
-                    android:baselineAligned="true"
-                    android:orientation="horizontal"
-                    android:paddingStart="@dimen/screen_margin"
-                    android:paddingEnd="@dimen/screen_margin">
-
-                    <LinearLayout
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:orientation="vertical">
-
-                        <TextView
-                            android:id="@+id/statIn"
-                            style="@style/Text.Numeral"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:textSize="28sp"
-                            tools:text="2180" />
-
-                        <TextView
-                            style="@style/Text.Caption"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="@string/review_stat_kcal_in" />
-                    </LinearLayout>
-
-                    <LinearLayout
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:orientation="vertical">
-
-                        <TextView
-                            android:id="@+id/statOut"
-                            style="@style/Text.Numeral"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:textSize="28sp"
-                            tools:text="1860" />
-
-                        <TextView
-                            style="@style/Text.Caption"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="@string/review_stat_kcal_out" />
-                    </LinearLayout>
-
-                    <LinearLayout
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:orientation="vertical">
-
-                        <TextView
-                            android:id="@+id/statWeight"
-                            style="@style/Text.Numeral"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:textSize="28sp"
-                            tools:text="58.2" />
-
-                        <TextView
-                            style="@style/Text.Caption"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="@string/review_stat_weight" />
-                    </LinearLayout>
-                </LinearLayout>
-
-                <TextView
-                    android:id="@+id/reviewText"
-                    style="@style/Text.Body"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:paddingStart="@dimen/screen_margin"
-                    android:paddingEnd="@dimen/screen_margin"
-                    android:paddingTop="24dp"
-                    tools:text="今天热量盈余 320 kcal，达到增重目标。" />
-            </LinearLayout>
+                android:layout="@layout/group_plan_review_review" />
         </LinearLayout>
     </ScrollView>
 

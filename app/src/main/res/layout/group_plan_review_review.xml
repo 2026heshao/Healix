@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    「回顾」Tab 内容（2026-10-08 从 `fragment_plan_review.xml` 原样切出）。
+
+    为什么独立成文件：计划页**默认停在「计划」Tab**，回顾组在首帧是
+    `visibility="gone"` —— 原实现把它写在同一个布局里，等于每次首开都要为一块
+    用户当时根本看不到的内容付 inflate 代价（真机实测二级页事务消息 18–24ms
+    > 16.7ms 帧预算 → 转场起手必掉 1 帧，见 `docs/v8/专项-二级页转场卡顿-2026-10-05.md`）。
+    改为 ViewStub 懒建：**首次切到「回顾」Tab 时才 inflate**（用户点了才付，
+    代价落在交互后而非转场窗口内）。
+
+    ⚠️ 纯搬运：所有尺寸 / 样式 / 间距 / 文案与切出前**逐字一致**，只把原
+       `<LinearLayout android:id="@+id/reviewGroup">` 升级为本文件的根节点。
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/reviewGroup"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical">
+
+    <!-- 复盘 Tab 内容：三宫格用文字对齐 -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="24dp"
+        android:baselineAligned="true"
+        android:orientation="horizontal"
+        android:paddingStart="@dimen/screen_margin"
+        android:paddingEnd="@dimen/screen_margin">
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/statIn"
+                style="@style/Text.Numeral"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textSize="28sp"
+                tools:text="2180" />
+
+            <TextView
+                style="@style/Text.Caption"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/review_stat_kcal_in" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/statOut"
+                style="@style/Text.Numeral"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textSize="28sp"
+                tools:text="1860" />
+
+            <TextView
+                style="@style/Text.Caption"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/review_stat_kcal_out" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/statWeight"
+                style="@style/Text.Numeral"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textSize="28sp"
+                tools:text="58.2" />
+
+            <TextView
+                style="@style/Text.Caption"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/review_stat_weight" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/reviewText"
+        style="@style/Text.Body"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingStart="@dimen/screen_margin"
+        android:paddingEnd="@dimen/screen_margin"
+        android:paddingTop="24dp"
+        tools:text="今天热量盈余 320 kcal，达到增重目标。" />
+</LinearLayout>

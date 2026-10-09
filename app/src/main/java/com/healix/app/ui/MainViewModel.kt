@@ -218,6 +218,28 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 ?: GoalDefaults.TARGET_KCAL
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), GoalDefaults.TARGET_KCAL)
 
+    /**
+     * 每日热量目标是否**由用户真实设置过**（无兜底）。
+     *
+     * 稳定性修复（2026-10-08，首页「还差 2500 kcal」占位）：[targetKcalFlow] 在
+     * `kcal_daily` 行缺失时回落 [GoalDefaults.TARGET_KCAL] —— 那是**计算兜底**，
+     * 不是用户目标。用户跳过首启引导后（goals 空表）首页计划条曾拿 2500 充当
+     * 差值显示「还差 2500 kcal」，观感就是"没设目标却被塞了个默认目标"。
+     * 消费方（`RecordFragment.renderPlanBar`）据此决定是否展示 kcal 差值：
+     * false 时只留「查看今日建议 →」中性入口（计划页入口必须恒可达，不整条藏）。
+     *
+     * 判据与 [targetKcalFlow] 同源同参：active `kcal_daily` 行（targetValue > 0）
+     * 或迁移窗口期的历史 settings 键 `TARGET_KCAL`（> 0）。初始值 false =
+     * 未证实设置过（宁可不显示数字，也不显示占位数）。
+     */
+    val kcalTargetSet: StateFlow<Boolean> = combine(
+        db.goalDao().observeByMetric(GoalMetrics.KCAL_DAILY),
+        db.settingsDao().observe(SettingsKeys.TARGET_KCAL),
+    ) { goal, legacy ->
+        (goal?.targetValue?.takeIf { v -> v > 0.0 } != null) ||
+            (legacy?.toIntOrNull()?.takeIf { v -> v > 0 } != null)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
     // ==================================================================
     // 多维状态行（设计规范系统 §9.2）
     // ==================================================================

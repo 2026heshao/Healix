@@ -8,6 +8,7 @@ import com.healix.app.net.ChatRequest
 import com.healix.app.net.ChatResult
 import com.healix.app.net.OpenAiCompatProvider
 import com.healix.app.net.ProviderConfig
+import com.healix.app.net.StreamSink
 import com.healix.app.rules.FoodPool
 
 /**
@@ -90,12 +91,51 @@ internal object ChatEngine {
     )
 
     /**
-     * 单轮回复。**不抛异常** —— 失败时返回本地模板回答并标记 Degraded。
+     * 单轮回复（非流式入口）。**不抛异常** —— 失败时返回本地模板回答并标记 Degraded。
      *
-     * `suspend`：内部要调 `provider.chat()`（挂起函数，网络 IO）。
-     * 调用方（ChatViewModel）本身已在协程里，直接调用即可。
+     * 实现**整体委托** [replyStream]（`sink = null`）—— 单轮逻辑只此一份，
+     * 绝不为了加流式而复制第二套分支。
      */
     suspend fun reply(
+        context: Context,
+        config: ProviderConfig,
+        sessionDate: String,
+        userText: String,
+        history: List<ChatMessageEntity>,
+        background: String = "",
+        knowledge: String = "",
+        userRules: String = "",
+    ): Reply {
+        return replyStream(
+            context = context,
+            config = config,
+            sessionDate = sessionDate,
+            userText = userText,
+            history = history,
+            background = background,
+            knowledge = knowledge,
+            userRules = userRules,
+            sink = null,
+        )
+    }
+
+    /**
+     * 单轮回复（流式，2026-10-08）。
+     *
+     * 与 [reply]**同一条实现**，只多一个 [sink]：正文增量在模型生成过程中推出去，
+     * 让 UI 边收边显示。[Reply.text] 仍是完整正文 —— 落库口径与非流式逐字相同。
+     *
+     * ⚠️ 开头会先 [StreamSink.onReset]：本方法每次调用都是一次全新的答复，
+     * 之前（例如 agent 失败轮）残留在 sink 里的增量必须作废。
+     *
+     * ⚠️ **prompt 字节一字未改** → 不递增 [PROMPT_VER_CHAT] / [PROMPT_VER_CHAT_TOOL]
+     *    （流式只改传输形态与显示方式，不改发给模型的内容）。金样本守卫
+     *    （`pipeline/prompt_golden.py`）继续有效。
+     *
+     * `sink` 是**接口**（非函数类型）且追加在形参**末尾** —— 既有调用点零改动，
+     * 也不触发「尾随 λ 纪律」。
+     */
+    suspend fun replyStream(
         context: Context,
         config: ProviderConfig,
         sessionDate: String,
@@ -111,12 +151,13 @@ internal object ChatEngine {
         /**
          * 用户自定义输出偏好规则（v0.3 B4）。空串 = 无规则，prompt 里整段省略
          * （输出与无此参数的旧版**逐字节相同**）。由 [ChatViewModel] 在 IO 线程读出后传入。
-         *
-         * ⚠️ 追加在形参**末尾**，且非函数类型 → 不触发「尾随 λ 纪律」；既有调用点零改动。
          */
         userRules: String = "",
+        sink: StreamSink? = null,
     ): Reply {
         val provider = OpenAiCompatProvider(config)
+        // 新一轮答复开始：清掉 sink 里可能残留的上一轮增量（agent 失败回退等路径）。
+        sink?.onReset()
 
         val messages = buildList {
             add(
@@ -134,17 +175,17 @@ internal object ChatEngine {
             add(ChatMessage(role = "user", content = userText))
         }
 
-        val startedAt = System.currentTimeMillis()
-        val result = provider.chat(
-            ChatRequest(
-                messages = messages,
-                timeoutMs = TIMEOUT_MS,
-                maxRetries = MAX_RETRIES,
-                // 对话要"活"：0.3 是抽取 JSON 的参数，聊天用它必然每问同答。
-                // 只动聊天链路 —— 抽取链（EventRepository 0.3 / TrainingPlanner 0.4）不动。
-                temperature = 0.7,
-            ),
+        val request = ChatRequest(
+            messages = messages,
+            timeoutMs = TIMEOUT_MS,
+            maxRetries = MAX_RETRIES,
+            // 对话要"活"：0.3 是抽取 JSON 的参数，聊天用它必然每问同答。
+            // 只动聊天链路 —— 抽取链（EventRepository 0.3 / TrainingPlanner 0.4）不动。
+            temperature = 0.7,
         )
+
+        val startedAt = System.currentTimeMillis()
+        val result = if (sink != null) provider.chatStream(request, sink) else provider.chat(request)
         val latencyMs = System.currentTimeMillis() - startedAt
 
         return when (result) {

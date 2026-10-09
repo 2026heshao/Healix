@@ -345,96 +345,20 @@
                     android:layout_height="wrap_content" />
             </LinearLayout>
 
-            <!-- ══ AI 可见资料范围 ★2026-10-05（规范 9.7 ①）══
-                 SettingsKeys.AI_DATA_FULL 的唯一 UI 入口：开关行 checked = aiDataFull 本身。 -->
-            <TextView
-                style="@style/Widget.Healix.SectionTitle"
+            <!--
+                ══ AI 可见资料范围 + AI 工具与写权限 ★ViewStub 懒建（2026-10-08）══
+                这一组是设置页最重的一块（9 个 include / ~37 view，含 SwitchMaterial）
+                且整组在**首屏之外** —— 原实现写在同一个布局里，等于每次首开都为一块
+                当场看不到的内容付全额 inflate，正是二级页转场起手掉帧的大头
+                （见 `docs/v8/专项-二级页转场卡顿-2026-10-05.md` §4.0 续2）。
+                内容见 `layout/group_settings_ai.xml`（原样搬运，零改动）。
+                inflate 时机 = 转场结束后 / 用户开始下滑（SettingsFragment.ensureAiGroup）。
+            -->
+            <ViewStub
+                android:id="@+id/aiGroupStub"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="@string/group_ai_data" />
-
-            <LinearLayout
-                style="@style/Widget.Healix.Card"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="0dp">
-
-                <include
-                    android:id="@+id/rowAiDataSwitch"
-                    layout="@layout/row_setting_switch"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content" />
-
-                <!-- D3 文案（v0.3 B6）：关掉可见资料范围后仍可查询记录，说清边界。 -->
-                <TextView
-                    android:id="@+id/aiDataNote"
-                    style="@style/Text.Caption"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:paddingStart="@dimen/screen_margin"
-                    android:paddingEnd="@dimen/screen_margin"
-                    android:paddingBottom="8dp"
-                    android:text="@string/ai_data_note"
-                    android:textColor="@color/text_3" />
-
-                <!-- 规则库入口（v0.3 B4）：二级页加/删/改/启停/排序。 -->
-                <include
-                    android:id="@+id/rowAiRules"
-                    layout="@layout/row_setting_value"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content" />
-
-                <!-- AI 工具总开关（v0.3 B5）：关 = 退回单轮，不调用任何工具。 -->
-                <include
-                    android:id="@+id/rowAiTools"
-                    layout="@layout/row_setting_switch"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content" />
-
-                <!-- 写权限三开关（v0.3 B6）：仅工具总开关开启时显示。 -->
-                <include
-                    android:id="@+id/rowAiToolWritePlan"
-                    layout="@layout/row_setting_switch"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content" />
-
-                <include
-                    android:id="@+id/rowAiToolWriteRecord"
-                    layout="@layout/row_setting_switch"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content" />
-
-                <include
-                    android:id="@+id/rowAiToolWriteGoal"
-                    layout="@layout/row_setting_switch"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content" />
-
-                <!-- 写权限：画像 / 资源清单（P1）：忌口过敏、疼痛部位、就餐场景、
-                     手头食物、常备药物、运动条件、作息时刻。 -->
-                <include
-                    android:id="@+id/rowAiToolWriteProfile"
-                    layout="@layout/row_setting_switch"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content" />
-
-                <!-- 写权限：体格与运行设置（P1）：身高 / 体重 / 年龄 / 活动系数 /
-                     日界线 / 两个隐私开关。（AI 可见资料范围仍只由它上面那行自己控制。） -->
-                <include
-                    android:id="@+id/rowAiToolWriteSettings"
-                    layout="@layout/row_setting_switch"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content" />
-
-                <!-- 写权限：提醒（P2）：新增 / 修改（名字、周期、上次日期）/ 删除
-                     周期性提醒（体检 / 洗牙 / 配镜 / 疫苗）。 -->
-                <include
-                    android:id="@+id/rowAiToolWriteReminder"
-                    layout="@layout/row_setting_switch"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content" />
-            </LinearLayout>
+                android:layout="@layout/group_settings_ai" />
 
             <!-- ══ 提醒 ★v4（规范 9.7 ③）══
                  读写落在 reminders 表。行是动态渲染的（可增删 + 左滑删除）。 -->

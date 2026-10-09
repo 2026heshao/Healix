@@ -366,7 +366,7 @@ data class TimelineEntry(
 
 **优先级：P1**
 
-**现状**：`docs/参考产品研究与取舍.md`（2026-10-03 旧版竞品研究）已有 Fitbod / Bearable / Apple Health / 荣耀运动健康 / Whoop-Oura-Garmin 的取舍结论；设计规范 `docs/Healix设计规范系统.md`。
+**现状**：`docs/archive/参考产品研究与取舍.md`（2026-10-03 旧版竞品研究）已有 Fitbod / Bearable / Apple Health / 荣耀运动健康 / Whoop-Oura-Garmin 的取舍结论；设计规范 `docs/Healix设计规范系统.md`。
 
 **目标交互（动作序列）**
 1. 用户在一次「记录」完成后，能看到与其相关的、可核对的事实型反馈（沿用既有"可验算数字"纪律）。

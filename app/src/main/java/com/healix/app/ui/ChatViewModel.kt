@@ -22,6 +22,7 @@ import com.healix.app.db.SettingsKeys
 import com.healix.app.db.ensureActiveGoal
 import com.healix.app.net.NetworkStatus
 import com.healix.app.net.ProviderConfig
+import com.healix.app.net.StreamSink
 import com.healix.app.parse.loadsLenient
 import com.healix.app.repo.KnowledgeHit
 import com.healix.app.repo.ProfileContext
@@ -70,6 +71,14 @@ sealed interface ChatUiState {
  *   [retryAvailable]，未配置/断网/配额不置 —— 重试救不了那些，提示条不该骗人点。
  *   重试 = 用上一条 user 消息重跑管线，**不重复落库 user 行**
  *   （`withoutTrailingDuplicate` 保证发给模型的历史里它只出现一次）。
+ *
+ * ## 流式输出（2026-10-08）
+ * 两条链路（单轮 / 工具）都走流式：正文增量经 [streaming] 逐段给 UI，落库口径与
+ * 非流式**完全一致**（[ChatEngine.Reply.text] 仍是完整正文）。埋点不受影响 ——
+ * 一次 provider 往返仍恰好一行 `llm_calls`（流式只改传输形态，不改调用次数）。
+ *
+ * ⚠️ 流式**不是新增分支**：非流式的唯一差别是 `sink = null`，两条路径共用同一份
+ *    prompt 组装、重试、降级逻辑（见 [ChatEngine.replyStream] / [HealthAgent.run]）。
  */
 class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
@@ -107,6 +116,148 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     private val _uiState = MutableStateFlow<ChatUiState>(ChatUiState.Idle)
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
 
+    /**
+     * 本轮答复的**流式增量正文**（2026-10-08）。UI 据此渲染一条尚未落库的临时气泡。
+     *
+     * 取值约定：
+     * - `null` = 当前没有流式进行中（气泡应撤下）；
+     * - 空串 = 流式已开始但还没有正文（UI 只显示状态行，不显示空气泡）；
+     * - 非空 = 已收到的正文（**全量**，不是增量片段 —— 拼接在 [streamSink] 里做完，
+     *   UI 侧不必自己累积，避免两处各拼一份而漂移）。
+     *
+     * ⚠️ 与 `messages` 的交接**不靠时序**：落库完成后本值置 `null`，但 UI 侧会一直
+     *    保留临时气泡到「落库消息真正接住这段正文」为止（见 `ChatAdapter`）——
+     *    否则 Room Flow 的异步发射会让气泡闪一下再出现。
+     */
+    private val _streaming = MutableStateFlow<String?>(null)
+    val streaming: StateFlow<String?> = _streaming.asStateFlow()
+
+    /**
+     * 中间轮丢弃信号（2026-10-09，真机问题 2(b)(c)）。
+     *
+     * `_streaming` 收口（置 `null`）的 UI 语义是「**等落库消息接住**再撤气泡」——
+     * 这条规则是为正常结束防闪而设的。但中间轮的正文是**被丢弃**的：不会有任何
+     * 落库消息来接住它，若沿用同一路径，临时气泡会一直挂到下一次 `submit()`。
+     * 故用一个自增计数单独表达「立刻撤，别等落库」。
+     */
+    private val _streamDiscard = MutableStateFlow(0)
+    val streamDiscard: StateFlow<Int> = _streamDiscard.asStateFlow()
+
+    /**
+     * 流式增量落点（传给 [ChatEngine] / [HealthAgent]）。
+     *
+     * 从 IO 线程回调（[com.healix.app.net.StreamSink] 约定），`MutableStateFlow` 本身线程安全。
+     *
+     * ══════════════════════════════════════════════════════════════════════════
+     * 2026-10-09 修复（真机问题 2(b)(c)：气泡显示错乱 / 新旧文字串行）
+     * ══════════════════════════════════════════════════════════════════════════
+     * 三个缺陷叠加成了用户看到的「写着写着突然换掉 / 新旧文字叠在一起」：
+     *
+     * ① **空串中间态可见**：旧 [onReset] 发的是 `""`，而 `""` **不等于 `null`** ——
+     *    `ChatAdapter.streamRowShouldShow()` 只看「非空且有正文」，`""` 会被判为
+     *    「不该显示」，于是每轮边界都 `notifyItemRemoved` + 随后 `notifyItemInserted`。
+     *    默认 `DefaultItemAnimator` 会给这对 remove/insert 播**交叉淡入淡出**——
+     *    被移除的旧文字与新增的新文字在动画期间**同屏**，这正是「文字重叠」的来源。
+     *    现在轮边界**不再发布任何值**（只清缓冲），气泡只在真有正文时出现。
+     *
+     * ② **中间轮正文泄漏**：中间轮（产 `tool_calls` 那轮）模型顺手写的正文会经
+     *    [onDelta] 推给 UI 并**显示出来**，直到指数级更晚的「下一轮 [onReset]」
+     *    才被抹掉（那要等工具执行完 + 又一次 provider 往返）。现在靠
+     *    [StreamSink.onRoundEnd] 在**本轮结束的当刻**就把它撤下。
+     *
+     * ③ **轮次判据不靠模型自觉**：是否该显示由 agent 按「本轮有没有产工具调用」
+     *    显式裁决，不由正文内容猜。
+     */
+    private val streamSink = ChatStreamSink()
+
+    /**
+     * 流式增量落点（传给 [ChatEngine] / [HealthAgent]）。
+     *
+     * 从 IO 线程回调（[com.healix.app.net.StreamSink] 约定），`MutableStateFlow` 本身线程安全。
+     *
+     * ══════════════════════════════════════════════════════════════════════════
+     * 2026-10-09 修复（真机问题 2(b)(c)：气泡显示错乱 / 新旧文字串行）
+     * ══════════════════════════════════════════════════════════════════════════
+     * 三个缺陷叠加成了用户看到的「写着写着突然换掉 / 新旧文字叠在一起」：
+     *
+     * ① **空串中间态可见**：旧 [onReset] 发的是 `""`，而 `""` **不等于 `null`** ——
+     *    `ChatAdapter.setStreaming("")` 会把 `streamText` 置成空串并触发一次
+     *    `refreshStreamRow()`：它先算出「不该显示」，于是 `notifyItemRemoved`；
+     *    下一段增量到达又 `notifyItemInserted`。默认 `DefaultItemAnimator` 会给这对
+     *    remove/insert 播**交叉淡入淡出** —— 被移除的旧文字与新增的新文字在动画
+     *    期间同屏，这正是「新旧文字重叠」的来源。现在轮边界**不发布任何值**。
+     *
+     * ② **中间轮正文泄漏**：中间轮（产 `tool_calls` 那轮）模型顺手写的正文会经
+     *    [onDelta] 推给 UI 并**显示出来**，直到下一轮 [onReset] 才被抹掉（那要等
+     *    工具执行完 + 又一次 provider 往返）。现在靠 [onRoundEnd] 在**本轮结束的
+     *    当刻**就撤下。
+     *
+     * ③ **轮次判据不靠模型自觉**：是否该显示由 agent 按「本轮有没有产工具调用」
+     *    显式裁决，不由正文内容猜。
+     */
+    private inner class ChatStreamSink : StreamSink {
+
+        /** 本轮已累积的正文。**只**是本轮 —— 轮边界裁决由 [onRoundEnd] 做。 */
+        private val round = StringBuilder()
+
+        /**
+         * 本轮流式已被判**丢弃**（中间轮）。丢弃后到下一轮 [onReset] 之间的迟到
+         * 增量一律不得复活气泡 —— 否则工具执行期间的尾巴包会让中间轮正文重新冒出。
+         */
+        private var discarded = false
+
+        /** 整个回答已收口（落库交棒完成）。收口后不再接受任何增量。 */
+        private var closed = false
+
+        override fun onReset() {
+            // 开新一轮：只清**缓冲**与丢弃标记，**不碰**已发布的 UI 文本。
+            // 旧实现这里发 `""` → 造出一帧「可见但空白」的气泡（缺陷 ①）。
+            // 新一轮正文会在首个 [onDelta] 到达时自然替换旧文本。
+            round.setLength(0)
+            discarded = false
+        }
+
+        override fun onDelta(text: String) {
+            if (discarded || closed) return
+            round.append(text)
+            _streaming.value = round.toString()
+        }
+
+        override fun onRoundEnd(hasToolCalls: Boolean) {
+            if (!hasToolCalls) return // 终止轮：正文原样留给用户看，交棒由落库路径负责
+            // 中间轮：本轮正文不属于最终答复 → **当刻**撤下，不再拖到下一轮 onReset
+            // （那要等工具执行完 + 又一次 provider 往返，用户早已看过这段文字）。
+            round.setLength(0)
+            discarded = true
+            _streaming.value = null
+            // ⚠️ 光把 `_streaming` 置 null **不够**：UI 侧的收口语义是「等落库消息接住
+            // 再撤气泡」（防正常落库时的闪烁），而中间轮**根本没有**落库消息会来，
+            // 于是那个气泡会一直挂到下一次 `submit()` 才消失 —— 等于没修。
+            // 故另发一条「丢弃」信号，让 UI 立刻撤下。
+            _streamDiscard.value++
+        }
+
+        /**
+         * 本次回答收口（[persistAssistant] 落库后调用）。
+         *
+         * 置 `closed` 后迟到的增量一律丢弃 —— 否则会在落库消息之后冒出一条幽灵气泡
+         * （保留改前 `_streaming.value = null` 的守卫语义）。
+         */
+        fun close() {
+            closed = true
+            round.setLength(0)
+            _streaming.value = null
+        }
+
+        /** 新一轮用户发送 / 重试：整体复位（含 [closed]）。 */
+        fun restart() {
+            closed = false
+            discarded = false
+            round.setLength(0)
+            _streaming.value = null
+        }
+    }
+
     /** 上一条 user 消息（重试用）。null = 本会话还没发过。 */
     private var lastUserText: String? = null
 
@@ -124,9 +275,23 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             .flatMapLatest { day -> db.chatMessageDao().observeSession(day) }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** 有消息的会话日期（倒序，微扩展 B 的菜单数据源）。 */
+    /**
+     * 有消息的会话日期（倒序，微扩展 B 的菜单数据源）。
+     *
+     * ⚠️ **必须是 `Eagerly`，不能用 `WhileSubscribed`**（2026-10-09 真机修复）。
+     *    `WhileSubscribed` 的语义是「**有订阅者**才启动上游」；而本 Flow 的**唯一**
+     *    消费者是「点会话标签」这一瞬时动作（`showSessionMenu` 读 `.value`），
+     *    它**不是** `collect`。于是没有任何订阅者 → 上游永不启动 → `.value`
+     *    恒为初始 `emptyList()` → 菜单永远提前 return。
+     *    真机表现为「点右上角『今天』毫无反应」，且**无任何异常日志**（因为它走的是
+     *    一条合法的提前返回），最容易被误判成"这个功能没实现"。
+     *
+     *    同类判据：**凡「只在事件回调里读 `.value`、从不 collect」的 StateFlow，
+     *    都必须 Eagerly**（或改用 `suspend` 一次性查询）——`WhileSubscribed`
+     *    只适合「界面持续订阅」的流（如 [messages] / [isToday]）。
+     */
     val sessionDates: StateFlow<List<String>> = db.chatMessageDao().observeSessionDates()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     /** 预设快捷条（微扩展 C）：与记录页同一数据源。 */
     val presets: StateFlow<List<PresetEntity>> = db.presetDao()
@@ -202,6 +367,9 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         lastUserText = text
         _retryAvailable.value = false
         _uiState.value = ChatUiState.Thinking
+        // 新一轮流式开始：复位 sink（含 closed / discarded / 缓冲）。
+        // ⚠️ 这里**不**发布空串 —— 气泡只在真有第一个增量时出现（问题 2 缺陷 ①）。
+        streamSink.restart()
         viewModelScope.launch(Dispatchers.IO) {
             // 先落 user 行，再在同一条协程里跑管线 —— 顺序有保证，
             // recentForContext 一定能取到刚落的这句（F2 去重依赖它）
@@ -219,6 +387,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         val text = lastUserText ?: return
         _retryAvailable.value = false
         _uiState.value = ChatUiState.Thinking
+        streamSink.restart()
         viewModelScope.launch(Dispatchers.IO) {
             executeChat(text)
         }
@@ -234,8 +403,9 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
 
         val config = repo.loadProviderConfig()
         if (config == null) {
-            // 未配置：与网络无关，引导去设置页
-            persistAssistant(getApplication<Application>().getString(R.string.no_provider_config))
+            // 未配置：与网络无关。对话流是文本气泡（不可点）→ 写清完整路径引导；
+            // 可点的直达入口在设置页模型服务栏（记录页 offlineBar 也可点直达）。
+            persistAssistant(getApplication<Application>().getString(R.string.no_provider_config_chat))
             _uiState.value = ChatUiState.Degraded
             return
         }
@@ -294,6 +464,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
                 background = background,
                 knowledge = knowledge,
                 userRules = userRules,
+                sink = streamSink,
             )
             when (outcome) {
                 is AgentOutcome.Done ->
@@ -334,7 +505,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
         userRules: String,
         hits: List<KnowledgeHit>,
     ) {
-        val reply = ChatEngine.reply(
+        val reply = ChatEngine.replyStream(
             context = getApplication(),
             config = config,
             sessionDate = todayKey(),
@@ -343,6 +514,7 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
             background = background,
             knowledge = knowledge,
             userRules = userRules,
+            sink = streamSink,
         )
         // §4.1（2026-10-04 复核更正）：单轮回退路径此前不记 llm_calls，
         // 补一条 —— 否则配额计数与设置页「今日对话调用」会漏掉这一档。
@@ -741,6 +913,10 @@ class ChatViewModel(app: Application) : AndroidViewModel(app) {
     // 本地检查器抓不到这个形态，CI #31 实证 —— 别改回非 suspend 单行函数。
     private suspend fun persistAssistant(content: String) {
         persist("assistant", content)
+        // 收口（2026-10-08）：本轮所有终态都经此落一条 assistant 消息 → 流式临时气泡
+        // 在此交棒。**先落库、后清状态** —— UI 侧据此判断「落库消息是否已接住这段
+        // 正文」，接住才撤气泡，因而不会闪（见 ChatAdapter 的 streamDone 口径）。
+        streamSink.close()
     }
 
     private suspend fun persist(role: String, content: String) {
