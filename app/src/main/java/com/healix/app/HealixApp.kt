@@ -9,6 +9,9 @@ import com.healix.app.repo.EventRepository
 import com.healix.app.repo.KnowledgeRepository
 import com.healix.app.repo.QuotaGuard
 import com.healix.app.security.SecretStore
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 /**
  * Healix Application。
@@ -54,7 +57,7 @@ class HealixApp : Application() {
         // 主目标自愈（2026-10-09）：旧版本引导保存路径曾对空 goals 表静默 no-op，
         // 留下「goal_setup_done=true 但无 primary 行」的死锁 —— 首页永远「未设置主目标」
         // 且引导不再弹。启动时后台补一行（缺行才写，幂等）；失败静默，不拖垮启动。
-        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+        CoroutineScope(Dispatchers.IO).launch {
             com.healix.app.ui.SettingsViewModel.healPrimaryGoalIfMissingStatic(this@HealixApp)
         }
         // 帧率探针（清单3 R4）：链尾 init —— 默认关闭时只读一次标志文件、零采集零写盘；

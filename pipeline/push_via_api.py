@@ -36,8 +36,13 @@ API = f"https://api.github.com/repos/{OWNER}/{REPO}"
 
 
 def git(*args: str) -> str:
+    # 2026-10-09 编码修复：Windows 默认 GBK 解码 git 输出，提交信息含中文时
+    # readerthread 直接 UnicodeDecodeError → stdout=None → AttributeError。
+    # git 输出字节流是 UTF-8（.gitattributes 已固化 eol=lf + 中文 message），
+    # 显式按 UTF-8 解码并对控制台不可表示字符容错。
     return subprocess.run(
-        ["git", *args], cwd=ROOT, capture_output=True, text=True, check=True
+        ["git", *args], cwd=ROOT, capture_output=True,
+        encoding="utf-8", errors="replace", check=True,
     ).stdout.strip()
 
 

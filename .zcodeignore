@@ -1,0 +1,107 @@
+# Healix —— 敏感与构建产物忽略清单
+# 硬约束：绝不提交任何 key
+
+# 密钥与本机配置
+local.properties
+*.keystore
+*.jks
+keystore.properties
+secrets.properties
+
+# 环境变量文件
+.env
+.env.*
+!.env.example
+
+# 构建产物
+*.iml
+.gradle/
+build/
+captures/
+.externalNativeBuild/
+.cxx/
+*.apk
+*.aab
+*.ap_
+*.dex
+output.json
+
+# IDE
+.idea/
+*.hprof
+.DS_Store
+Thumbs.db
+
+# Python 竖切片产物
+pipeline/*.db
+pipeline/*.db-wal
+pipeline/*.db-shm
+pipeline/regression_report.json
+pipeline/__pycache__/
+**/__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# 回归测试运行日志：含 API 原始响应，不入库
+.regression*.log
+*.regression.log
+
+# CI 运行日志（排障时从 Actions 下载，属临时诊断产物）
+.ci*.log
+
+# 工作区本地数据（记忆/会话缓存），属本机状态而非项目源码
+.workbuddy/
+
+# 明确保留：Room schema 历史（迁移必须可追溯）
+!app/schemas/
+
+# CI 日志临时文件（排查用，不入库）
+.ci_log_*.txt
+
+# 开发文档不入库（用户 2026-10-03 指定：开发文档只在本机 docs/ 归档，不进 git）
+# ⚠️ 新增开发文档时在此补充；docs/ 下 contract / security / HANDOFF / prototypes 仍入库
+# 2026-10-05 整理：docs/ 内早期 PRD 已移入 archive/，路径同步更新
+docs/archive/总方案.md
+docs/archive/功能扩展设计方案.md
+docs/archive/功能补充与套壳选型.md
+docs/archive/参考产品研究与取舍.md
+docs/archive/UI设计方案.md
+docs/archive/功能清单2.md
+docs/Healix设计规范系统.md
+docs/下一轮优化提示词.md
+docs/下一轮-增量设计.md
+docs/功能落地文档-工具循环.md
+docs/时间轴计划-增量设计.md
+docs/审计缺陷提示词.md
+
+# ===== ↑ 以上同步自 .gitignore（「从 .gitignore 同步」只重写以上部分）=====
+.git/
+.hg/
+.svn/
+node_modules/
+bower_components/
+jspm_packages/
+__pycache__/
+site-packages/
+coverage/
+htmlcov/
+lcov-report/
+cmakefiles/
+cmake-build-*/
+bazel-*/
+pods/
+deriveddata/
+storybook-static/
+playwright-report/
+test-results/
+allure-results/
+allure-report/
+cdk.out/
+*.egg-info/
+*.dist-info/
+eggs/
+pip-wheel-metadata/
+wheels/
+# ----- ↑ 以上为 ZCode 默认排除规则（自定义规则请写在本行下方，不会被同步/恢复改动）-----
+# 自定义规则写在下方（本行提示可删除）

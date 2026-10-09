@@ -438,11 +438,14 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
      * 2026-10-09 自愈：goal_setup_done 已标记完成、goals 表却没有 primary 行 ——
      * 实测（MuMu v0.2.0 全新库）引导保存路径曾在旧版本静默 no-op，留下
      * 「首页永远未设置主目标、引导也不再弹」的死锁状态。App 启动时调用一次：
-     * 检测到该不一致就用「增重」兜底补一行 primary（用户可在设置页改），并把
-     * 这层兜底写回设置（幂等，只有缺行时才写）。
+     * 检测到该不一致就用「增重」兜底补一行 primary（用户可在设置页改）。
      *
      * 为什么不弹引导：老用户标记早已落库，再弹一次引导是骚扰；补默认行 +
      * 处处可改的「去调整」入口是更轻的恢复路径。
+     *
+     * ⚠️ 挂在 [com.healix.app.HealixApp.onCreate] 用的是 companion 里的静态版本
+     * [healPrimaryGoalIfMissingStatic]（进程启动期没有 Activity / ViewModel 实例）；
+     * 本实例版保留给持有 VM 的调用方，两者共用同一套判据。
      */
     fun healPrimaryGoalIfMissing() {
         viewModelScope.launch(Dispatchers.IO) {
@@ -453,26 +456,6 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
                 ensureActiveGoal(db, GoalMetrics.PRIMARY, now)
                 db.goalDao().setPrimary(GoalMetrics.PRIMARY, now)
                 db.goalDao().setTarget(GoalMetrics.PRIMARY, GOAL_MODE_GAIN.toDouble(), now)
-            }
-        }
-    }
-
-    companion object {
-        /**
-         * 2026-10-09 主目标自愈（数据修复，独立于 VM 实例）：
-         * [healPrimaryGoalIfMissing] 的静态版本，供 `HealixApp.onCreate` 在进程启动时
-         * 以任意 Context 调用（此时还没有 Activity / ViewModel）。
-         * 逻辑与实例版一致，判据与写入全部走 db 单例；失败静默（自愈不该拖垮启动）。
-         */
-        suspend fun healPrimaryGoalIfMissingStatic(context: android.content.Context) {
-            runCatching {
-                val db = com.healix.app.db.AppDatabase.get(context.applicationContext)
-                if (db.settingsDao().get(SettingsKeys.GOAL_SETUP_DONE) != "true") return
-                if (db.goalDao().countActiveByMetric(GoalMetrics.PRIMARY) > 0) return
-                val now = System.currentTimeMillis()
-                ensureActiveGoal(db, GoalMetrics.PRIMARY, now)
-                db.goalDao().setPrimary(GoalMetrics.PRIMARY, now)
-                db.goalDao().setTarget(GoalMetrics.PRIMARY, GoalTypes.MODE_GAIN.toDouble(), now)
             }
         }
     }
@@ -940,6 +923,25 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
          * 不新增第二个自由文本键。
          */
         const val GOAL_MODE_CUSTOM = GoalTypes.MODE_CUSTOM
+
+        /**
+         * 2026-10-09 主目标自愈（数据修复，静态版）：`goal_setup_done=true` 但
+         * `goals` 无 primary 行时，以「增重」兜底补一行（用户可在设置页改）。
+         * 挂在 [com.healix.app.HealixApp.onCreate] 进程启动期调用 —— 那时还没有
+         * Activity / ViewModel 实例，故为静态版本，判据与写入全走 db 单例；
+         * runCatching 包裹，自愈失败静默，不拖垮启动。幂等：缺行才写。
+         */
+        suspend fun healPrimaryGoalIfMissingStatic(context: android.content.Context) {
+            runCatching {
+                val db = com.healix.app.db.AppDatabase.get(context.applicationContext)
+                if (db.settingsDao().get(SettingsKeys.GOAL_SETUP_DONE) != "true") return
+                if (db.goalDao().countActiveByMetric(GoalMetrics.PRIMARY) > 0) return
+                val now = System.currentTimeMillis()
+                ensureActiveGoal(db, GoalMetrics.PRIMARY, now)
+                db.goalDao().setPrimary(GoalMetrics.PRIMARY, now)
+                db.goalDao().setTarget(GoalMetrics.PRIMARY, GOAL_MODE_GAIN.toDouble(), now)
+            }
+        }
 
         // ⚠️ 默认目标值（膳食指南推荐量）不在本文件定义 —— 唯一来源是
         //    `com.healix.app.db.GoalDefaults`。这里曾有一份私有副本
