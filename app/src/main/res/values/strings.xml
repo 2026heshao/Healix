@@ -627,6 +627,10 @@
     <string name="reminder_field_days">周期天数</string>
     <string name="reminder_field_last">上次日期</string>
     <string name="reminder_pick_days">周期</string>
+    <!-- 提醒编辑校验（2026-10-09）：FieldSheet 确认前拦截，不再静默丢弃 -->
+    <string name="reminder_error_name_required">请填写名称</string>
+    <string name="reminder_error_days_required">周期天数必填（正整数）</string>
+    <string name="reminder_error_date_invalid">上次日期格式应为 yyyy-MM-dd</string>
 
     <!-- ── PDF 知识库（F12，规范 10.6 新增资源清单：共 18 条，零新增 dimen/color/icon） ── -->
     <string name="group_knowledge">知识库</string>

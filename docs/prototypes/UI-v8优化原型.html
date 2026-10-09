@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Healix v8 优化原型 · Healix 原配色</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css" rel="stylesheet">
+<style>
+/* ============================================================
+   Healix Design Tokens —— 直接对齐 app/src/main/res/values/colors.xml
+   硬约束：全 App 只有 1 个强调色 / 无卡片无阴影无渐变 / 圆角全局唯一 8dp / 字重只用 400·500
+   ============================================================ */
+:root{
+  --bg:#FAFAF9; --surface:#FFFFFF; --text_1:#1A1918; --text_2:#6E6B66; --text_3:#9C9891;
+  --line:#EAE8E4; --line_strong:#DAD7D2; --press:#F2F1EE;
+  --accent:#B85028; --accent_press:#A3451F; --positive:#4A7C59; --negative:#A63D40;
+  --dot_meal:#B85028; --dot_exercise:#3D5A6C; --dot_body:#6B5B7B; --dot_sleep:#4A5568;
+  /* 以下两值仅用于画布外壳（原型背景/手机边框），非 App 令牌、不参与 App UI 渲染 */
+  --shell_bg:#EFEDEA; --shell_line:#DDD9D4;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;
+  background:var(--shell_bg); color:var(--text_1);
+  font-size:14px; font-weight:400; line-height:1.5;
+  padding:28px 24px 56px;
+}
+h1,h2,h3,p{margin:0}
+
+/* ---------- 画板外壳 ---------- */
+.board{display:flex;flex-direction:column;align-items:center;gap:10px}
+.phone{
+  width:375px;height:812px;flex-shrink:0;position:relative;overflow:hidden;
+  background:var(--bg);border:1px solid var(--shell_line);border-radius:36px;
+  display:flex;flex-direction:column;
+}
+.caption-note{width:375px;font-size:12px;line-height:19px;color:var(--text_2);text-align:center}
+
+/* ---------- 状态栏 ---------- */
+.statusbar{
+  height:44px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;
+  padding:0 20px;font-size:13px;font-weight:500;color:var(--text_1);
+}
+.statusbar .icons{display:flex;align-items:center;gap:5px;font-size:14px}
+
+/* ---------- 顶栏 56dp ---------- */
+.topbar{
+  height:56px;flex-shrink:0;display:flex;align-items:center;
+  padding:0 20px;gap:4px;
+}
+.topbar h1{font-size:17px;font-weight:500;color:var(--text_1)}
+.iconbtn{
+  width:48px;height:48px;flex-shrink:0;border:0;background:transparent;cursor:pointer;
+  color:var(--text_1);font-size:20px;display:flex;align-items:center;justify-content:center;
+  padding:0;transition:background 150ms;
+}
+.iconbtn:active{background:var(--press)}
+.iconbtn.back{margin-left:-12px}
+
+/* ---------- 1dp 分隔线 ---------- */
+.hz{height:1px;flex-shrink:0;background:var(--line)}
+.hz.inset{margin:0 20px}
+
+/* ---------- 内容区 ---------- */
+.body{flex:1;min-height:0;overflow-y:auto;scrollbar-width:none}
+.body::-webkit-scrollbar{width:0;height:0}
+.pad{padding-left:20px;padding-right:20px}
+
+/* ---------- 底部输入条 64dp ---------- */
+.inputbar{
+  height:64px;flex-shrink:0;display:flex;align-items:center;gap:8px;
+  padding:0 12px 0 20px;background:var(--surface);border-top:1px solid var(--line);
+}
+.inputbar .ph{flex:1;font-size:15px;color:var(--text_3)}
+
+/* ---------- 底部导航 64dp（view_tabbar.xml：选中 text_1 / 未选中 text_2） ---------- */
+.tabbar{
+  height:64px;flex-shrink:0;display:flex;background:var(--surface);border-top:1px solid var(--line);
+}
+.tab{
+  flex:1;display:flex;align-items:center;justify-content:center;cursor:pointer;
+  font-size:13px;font-weight:500;color:var(--text_2);transition:background 150ms;
+}
+.tab:active{background:var(--press)}
+.tab.on{color:var(--text_1)}
+
+/* ---------- 顶部文字 Tab（选中 text_1 + accent 下划线 / 未选中 text_2） ---------- */
+.tabs{display:flex;align-items:center;gap:0}
+.tabitem{
+  position:relative;min-width:64px;height:56px;display:flex;align-items:center;justify-content:center;
+  padding:0 12px;font-size:13px;font-weight:500;color:var(--text_2);cursor:pointer;
+  background:transparent;border:0;transition:background 150ms;
+}
+.tabitem:active{background:var(--press)}
+.tabitem.on{color:var(--text_1)}
+.tabitem.on::after{
+  content:"";position:absolute;left:12px;right:12px;bottom:0;height:2px;background:var(--accent);border-radius:1px;
+}
+
+/* ---------- 设置行 56dp ---------- */
+.row{
+  height:56px;display:flex;align-items:center;padding:0 20px;cursor:pointer;
+  transition:background 150ms;background:var(--surface);
+}
+.row:active{background:var(--press)}
+.row .lab{width:96px;flex-shrink:0;font-size:15px;color:var(--text_1)}
+.row .val{flex:1;text-align:right;font-size:15px;color:var(--text_2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row .val.t3{color:var(--text_3)}
+.row .chev{margin-left:6px;font-size:16px;color:var(--text_3);flex-shrink:0}
+
+/* ---------- 分组标题 ---------- */
+.grouptitle{font-size:12px;color:var(--text_2);padding:12px 20px 8px}
+.groupfoot{padding:8px 20px 0;font-size:12px;color:var(--text_3)}
+
+/* ---------- 半屏弹层 ---------- */
+.scrim{position:absolute;inset:0;background:rgba(26,25,24,0.32);z-index:40}
+.sheet{
+  position:absolute;left:0;right:0;bottom:0;z-index:50;max-height:66%;overflow-y:auto;
+  background:var(--surface);border-top:1px solid var(--line);border-radius:8px 8px 0 0;
+  padding:8px 20px 28px;scrollbar-width:none;
+}
+.sheet::-webkit-scrollbar{width:0}
+.grabber{width:36px;height:3px;border-radius:1.5px;background:var(--line_strong);margin:0 auto 14px}
+
+/* ---------- 通用零件 ---------- */
+.dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.pg{height:2px;border-radius:1px;background:var(--line);overflow:hidden}
+.pg i{display:block;height:100%;background:var(--accent)}
+.dimmed{position:absolute;inset:0;opacity:.35;pointer-events:none}
+.link{color:var(--accent);font-size:13px;font-weight:500}
+
+/* 时间轴：时间列 + 1dp 竖线 + 圆点 */
+.tl{position:relative;padding-left:20px;padding-right:20px} /* 左右同为 20dp，右侧动作「记一笔/已记录」不再贴边 */
+.tl .axis{position:absolute;left:72px;top:6px;bottom:6px;width:1px;background:var(--line)} /* 72 = 20(pad) + 44(tm) + 16/2，压在圆点中轴 */
+.tlrow{display:flex;align-items:flex-start;gap:0;padding:10px 0;position:relative}
+.tlrow .tm{width:44px;flex-shrink:0;font-size:13px;font-weight:500;color:var(--text_2);padding-top:1px}
+.tlrow .marker{width:16px;flex-shrink:0;display:flex;justify-content:center;padding-top:5px}
+.tlrow .cnt{flex:1;padding-left:12px;min-width:0}
+/* 行尾动作（记一笔 / 已记录）：负外边距抵消内边距 → 文字位置不变、热区四向各扩 8px */
+.tlrow .act{flex-shrink:0;display:inline-flex;align-items:center;margin:-8px 0 -8px 10px;padding:8px 0}
+</style>
+</head>
+<body>
+
+<div style="max-width:1400px;margin:0 auto 32px">
+  <h1 style="font-size:22px;font-weight:500">Healix v8 · 优化原型（Healix 原配色）</h1>
+  <p style="margin-top:6px;font-size:13px;color:var(--text_2);line-height:21px;max-width:820px">
+    配色已从旧稿的「深底 <code>#0C0D10</code> + 蓝色 <code>#5B8CFF</code> + 圆角卡片」全部改回 <b>Healix 真实设计令牌</b>：
+    暖白底 <code>#FAFAF9</code> / 唯一强调色 <code>#B85028</code>（赤陶）/ 圆角全局唯一 <b>8dp</b> / <b>无卡片无阴影</b>（分区靠留白 + 1dp 细线）/ 字重只用 <b>400·500</b>。
+    原型上的三卡横排、目标栏、时间轴一律不用卡片，改用留白 + 1dp 竖线/横线分区。
+  </p>
+</div>
+
+<div class="flex flex-wrap items-start justify-center" style="gap:40px 32px;max-width:1400px;margin:0 auto">
+
+  <!-- ══════════════ 画板 1 · 记录页（目标区 ≈138dp） ══════════════ -->
+  <div class="board">
+    <div class="phone">
+      <div class="statusbar"><span>9:41</span><span class="icons"><i class="ri-signal-wifi-fill"></i><i class="ri-battery-charge-fill"></i></span></div>
+
+      <div class="topbar">
+        <h1 style="flex:1">10月5日 周一</h1>
+        <button class="iconbtn" aria-label="设置"><i class="ri-settings-3-line"></i></button>
+      </div>
+      <div class="hz"></div>
+
+      <div class="body">
+        <!-- ══ 目标区：48 主目标行 + 1 线 + 56 三卡 + 1 线 + 32 盈余 = 138dp ══ -->
+        <div style="margin-top:8px">
+          <!-- 主目标行 48dp -->
+          <button class="row" style="height:48px;background:transparent">
+            <span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px">
+              <span style="font-size:15px;font-weight:500;color:var(--text_1)">增重 · 目标 70kg</span>
+              <span style="font-size:13px;color:var(--text_2)">现 65.4kg，还差 4.6kg</span>
+            </span>
+            <span class="link" style="display:flex;align-items:center;gap:2px;flex-shrink:0">去调整<i class="ri-arrow-right-s-line" style="font-size:16px"></i></span>
+          </button>
+
+          <div class="hz inset"></div>
+
+          <!-- 三卡横排 56dp：无卡片，用留白 + 1dp 竖线分区 -->
+          <!-- 三卡横排：无卡片，留白 + 1dp 竖线分区；迷你 sparkline 高 20dp，accent 单色不铺面 -->
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;height:56px">
+            <button style="border:0;background:transparent;cursor:pointer;padding:0 0 0 20px;text-align:left;display:flex;flex-direction:column;justify-content:center;gap:3px">
+              <span style="font-size:12px;line-height:1;color:var(--text_3)">本周训练</span>
+              <span style="font-size:15px;line-height:1;font-weight:500;color:var(--text_1)">2<span style="font-size:12px;font-weight:400;color:var(--text_2)">/3 次</span></span>
+              <svg viewBox="0 0 76 20" width="76" height="20" aria-hidden="true"><polyline points="0,16 15,16 30,10 45,10 60,5 76,5" fill="none" stroke="#B85028" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+            <button style="border:0;border-left:1px solid var(--line);background:transparent;cursor:pointer;padding:0 0 0 14px;text-align:left;display:flex;flex-direction:column;justify-content:center;gap:3px">
+              <span style="font-size:12px;line-height:1;color:var(--text_3)">近 7 日睡眠</span>
+              <span style="font-size:15px;line-height:1;font-weight:500;color:var(--text_1)">7.2<span style="font-size:12px;font-weight:400;color:var(--text_2)">h</span></span>
+              <svg viewBox="0 0 76 20" width="76" height="20" aria-hidden="true"><polyline points="0,7 13,9 26,5 38,12 51,9 63,11 76,8" fill="none" stroke="#B85028" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+            <button style="border:0;border-left:1px solid var(--line);background:transparent;cursor:pointer;padding:0 20px 0 14px;text-align:left;display:flex;flex-direction:column;justify-content:center;gap:3px">
+              <span style="font-size:12px;line-height:1;color:var(--text_3)">近 30 日体重</span>
+              <span style="font-size:15px;line-height:1;font-weight:500;color:var(--text_1)">65.4<span style="font-size:12px;font-weight:400;color:var(--text_2)">kg</span></span>
+              <svg viewBox="0 0 76 20" width="76" height="20" aria-hidden="true"><polyline points="0,14 15,12 30,13 45,8 60,7 76,5" fill="none" stroke="#B85028" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+          </div>
+
+          <div class="hz inset"></div>
+
+          <!-- 今日盈余：压扁为单行摘要 32dp，点击进详情（36sp 大数字下沉到详情） -->
+          <button style="width:100%;height:32px;border:0;background:transparent;cursor:pointer;display:flex;align-items:center;padding:0 20px;gap:8px;transition:background 150ms" onmouseover="this.style.background='var(--press)'" onmouseout="this.style.background='transparent'">
+            <span style="font-size:12px;color:var(--text_3)">今日盈余</span>
+            <span style="flex:1"></span>
+            <span class="dot" style="background:var(--positive)"></span>
+            <span style="font-size:15px;font-weight:500;color:var(--text_1)">+350</span>
+            <span style="font-size:12px;color:var(--text_2)">kcal</span>
+            <i class="ri-arrow-right-s-line" style="font-size:16px;color:var(--text_3)"></i>
+          </button>
+        </div>
+        <!-- ══ 目标区结束 ══ -->
+
+        <!-- 今日时间轴（今天：按 HH:mm 排吃/练/睡） -->
+        <div class="pad" style="margin-top:20px;display:flex;align-items:baseline;justify-content:space-between">
+          <span style="font-size:15px;font-weight:500">今天</span>
+          <span class="link" style="font-size:13px">查看计划<i class="ri-arrow-right-s-line" style="font-size:16px"></i></span>
+        </div>
+        <div class="tl" style="margin-top:6px"><span class="axis"></span>
+          <div class="tlrow">
+            <span class="tm">18:30</span>
+            <span class="marker"><span class="dot" style="background:var(--dot_exercise)"></span></span>
+            <span class="cnt">
+              <span style="display:block;font-size:15px">力量训练 · 推（胸/肩/三头）</span>
+              <span style="display:block;font-size:13px;color:var(--text_2);margin-top:2px">深蹲 4×8 / 卧推 4×8 · 约 30 分钟</span>
+            </span>
+            <span class="act link">记一笔</span>
+          </div>
+          <div class="tlrow">
+            <span class="tm">12:30</span>
+            <span class="marker"><span class="dot" style="background:var(--dot_meal)"></span></span>
+            <span class="cnt">
+              <span style="display:block;font-size:15px">午餐 · 米饭 200g + 鸡胸 150g</span>
+              <span style="display:block;font-size:13px;color:var(--text_2);margin-top:2px">约 650 kcal</span>
+            </span>
+            <span class="act" style="font-size:13px;color:var(--text_3)">已记录</span>
+          </div>
+        </div>
+        <div style="height:24px"></div>
+      </div>
+
+      <div class="inputbar"><i class="ri-mic-line" style="font-size:18px;color:var(--text_3)"></i><span class="ph">说一句就记好，如「中午吃了鸡胸肉」</span></div>
+      <div class="tabbar">
+        <div class="tab on">记录</div><div class="tab">助理</div><div class="tab">我的</div>
+      </div>
+    </div>
+    <p class="caption-note"><b>画板 1 · 记录页</b>：目标区 = 主目标行 48dp + 1dp 线 + 三卡 56dp + 1dp 线 + 盈余 32dp ≈ <b>138dp</b>（＜20% 屏高，原 ≈300–360dp）。三卡<b>不用卡片</b>，改成 1dp 竖线分区；35sp 大数字下沉到详情弹层。<br><b>三卡恒为「每周训练 / 睡眠 / 体重」三项，与目标总数无关</b>——其余次目标（热量 / 饮水）只在详情弹层的「其他目标」区出现，故 ① 目标区高度永远是 138dp，加多少目标都不会撑高或换行。</p>
+  </div>
+
+  <!-- ══════════════ 画板 2 · 次目标详情半屏弹层 ══════════════ -->
+  <div class="board">
+    <div class="phone">
+      <div class="statusbar"><span>9:41</span><span class="icons"><i class="ri-signal-wifi-fill"></i><i class="ri-battery-charge-fill"></i></span></div>
+      <div class="dimmed">
+        <div class="topbar"><h1 style="flex:1">10月5日 周一</h1><button class="iconbtn"><i class="ri-settings-3-line"></i></button></div>
+        <div class="hz"></div>
+        <div style="padding:8px 0">
+          <div class="row" style="height:48px;background:transparent"><span style="font-size:15px;font-weight:500">增重 · 目标 70kg</span></div>
+          <div class="hz inset"></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;height:56px">
+            <div style="padding:0 0 0 20px;display:flex;flex-direction:column;justify-content:center"><span style="font-size:12px;color:var(--text_3)">本周训练</span><span style="font-size:15px;font-weight:500">2/3 次</span></div>
+            <div style="padding:0 0 0 14px;border-left:1px solid var(--line);display:flex;flex-direction:column;justify-content:center"><span style="font-size:12px;color:var(--text_3)">近 7 日睡眠</span><span style="font-size:15px;font-weight:500">7.2h</span></div>
+            <div style="padding:0 20px 0 14px;border-left:1px solid var(--line);display:flex;flex-direction:column;justify-content:center"><span style="font-size:12px;color:var(--text_3)">近 30 日体重</span><span style="font-size:15px;font-weight:500">65.4kg</span></div>
+          </div>
+          <div class="hz inset"></div>
+        </div>
+      </div>
+      <div class="scrim"></div>
+
+      <div class="sheet">
+        <div class="grabber"></div>
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <h2 style="font-size:17px;font-weight:500">睡眠 · 近 7 天</h2>
+          <button style="border:0;background:transparent;cursor:pointer;font-size:13px;font-weight:500;color:var(--text_2);padding:8px 0 8px 12px">关闭</button>
+        </div>
+        <p style="font-size:13px;color:var(--text_2);margin-top:2px">日均 7.3h · 目标 7.5h · 达标 5 天</p>
+
+        <!-- 大折线 180dp：1dp 基线 + accent 折线 + 8px 端点圆 -->
+        <div style="margin-top:16px">
+          <svg viewBox="0 0 335 180" width="335" height="180" aria-hidden="true">
+            <line x1="0" y1="46" x2="335" y2="46" stroke="#EAE8E4" stroke-width="1" stroke-dasharray="4 4"/>
+            <text x="0" y="40" fill="#9C9891" font-size="11">目标 7.5h</text>
+            <polyline points="8,58 62,72 116,44 170,104 224,84 278,92 327,64" fill="none" stroke="#B85028" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <circle cx="327" cy="64" r="4" fill="#B85028"/>
+            <circle cx="8" cy="58" r="2.5" fill="#FFFFFF" stroke="#B85028" stroke-width="2"/>
+            <circle cx="62" cy="72" r="2.5" fill="#FFFFFF" stroke="#B85028" stroke-width="2"/>
+            <circle cx="116" cy="44" r="2.5" fill="#FFFFFF" stroke="#B85028" stroke-width="2"/>
+            <circle cx="170" cy="104" r="2.5" fill="#FFFFFF" stroke="#B85028" stroke-width="2"/>
+            <circle cx="224" cy="84" r="2.5" fill="#FFFFFF" stroke="#B85028" stroke-width="2"/>
+            <circle cx="278" cy="92" r="2.5" fill="#FFFFFF" stroke="#B85028" stroke-width="2"/>
+          </svg>
+          <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text_3);margin-top:6px">
+            <span>9/29</span><span>9/30</span><span>10/1</span><span>10/2</span><span>10/3</span><span>10/4</span><span>今天</span>
+          </div>
+        </div>
+
+        <button style="margin-top:14px;width:100%;height:48px;border:0;background:transparent;cursor:pointer;text-align:left;font-size:13px;font-weight:500;color:var(--accent)">改目标 ›</button>
+
+        <div class="hz"></div>
+        <button class="row" style="background:transparent;padding-left:0;padding-right:0"><span class="lab" style="width:auto;flex:1">本周训练 2/3 次</span><i class="ri-arrow-right-s-line" style="font-size:16px;color:var(--text_3)"></i></button>
+        <div class="hz"></div>
+        <button class="row" style="background:transparent;padding-left:0;padding-right:0"><span class="lab" style="width:auto;flex:1">近 30 日体重 65.4kg</span><i class="ri-arrow-right-s-line" style="font-size:16px;color:var(--text_3)"></i></button>
+        <div class="hz"></div>
+        <button style="margin-top:16px;width:100%;height:48px;border:0;background:transparent;cursor:pointer;text-align:left;font-size:13px;font-weight:500;color:var(--text_2)">＋ 添加其他目标（热量 / 饮水）</button>
+      </div>
+    </div>
+    <p class="caption-note"><b>画板 2 · 次目标详情弹层</b>：点任一迷你卡弹出，同一弹层用三选一 Tab 切换 metric；顶部圆角 8dp，<b>无阴影</b>，靠 1dp 顶线 + 遮罩分层。关闭方式 = 下滑 / 点遮罩 / 右上「关闭」文字按钮。</p>
+  </div>
+
+  <!-- ══════════════ 画板 3 · 设置页 · 目标栏（含热量槽位） ══════════════ -->
+  <div class="board">
+    <div class="phone">
+      <div class="statusbar"><span>9:41</span><span class="icons"><i class="ri-signal-wifi-fill"></i><i class="ri-battery-charge-fill"></i></span></div>
+      <div class="topbar"><button class="iconbtn back" aria-label="返回"><i class="ri-arrow-left-s-line"></i></button><h1>设置</h1></div>
+      <div class="hz"></div>
+
+      <div class="body">
+        <div class="grouptitle">目标</div>
+        <!-- 一次性迁移 hint -->
+        <div style="padding:0 20px 10px;font-size:13px;color:var(--text_2);display:flex;align-items:center;gap:8px">
+          <span style="flex:1">热量目标现已移至此栏</span>
+          <i class="ri-close-line" style="font-size:16px;color:var(--text_3)"></i>
+        </div>
+
+        <!-- 主目标：置顶、不可删（无左滑提示） -->
+        <div class="row"><span class="lab">主目标</span><span class="val" style="color:var(--text_1)">增重 · 目标 70kg</span><i class="ri-arrow-right-s-line chev"></i></div>
+        <div class="hz inset"></div>
+        <!-- 热量目标（新增槽位，紧邻主目标） -->
+        <div class="row"><span class="lab">热量目标</span><span class="val" style="color:var(--text_1)">2000 kcal</span><i class="ri-arrow-right-s-line chev"></i></div>
+        <div class="hz inset"></div>
+        <div class="row"><span class="lab">体重目标</span><span class="val" style="color:var(--text_1)">70 kg</span><i class="ri-arrow-right-s-line chev"></i></div>
+        <div class="hz inset"></div>
+        <div class="row"><span class="lab">每周训练</span><span class="val" style="color:var(--text_1)">3 次 · 150 分钟</span><i class="ri-arrow-right-s-line chev"></i></div>
+        <div class="hz inset"></div>
+        <div class="row"><span class="lab">睡眠目标</span><span class="val" style="color:var(--text_1)">7.5 小时</span><i class="ri-arrow-right-s-line chev"></i></div>
+        <div class="hz inset"></div>
+        <div class="row"><span class="lab">饮水目标</span><span class="val" style="color:var(--text_1)">2000 ml</span><i class="ri-arrow-right-s-line chev"></i></div>
+        <div class="hz inset"></div>
+        <!-- 添加目标：常驻栏底；6 个槽位全启用时 → 「已达上限」置灰态（原实现只弹 Toast「所有目标都已启用」，此处收敛为可见的禁用态） -->
+        <div class="row" style="cursor:default;background:transparent;pointer-events:none">
+          <span class="lab" style="width:auto;flex:1;color:var(--text_3)">＋ 添加目标</span>
+          <span style="font-size:12px;color:var(--text_3);flex-shrink:0">已达上限 6 项</span>
+        </div>
+        <div class="groupfoot">目标上限 6 项＝主目标 1 + 次目标 5（体重 / 热量 / 每周训练 / 睡眠 / 饮水）· 删除任一后可再加回</div>
+        <div class="hz" style="margin-top:28px"></div>
+
+        <div class="grouptitle">提醒</div>
+        <div class="row"><span class="lab" style="width:auto;flex:1;color:var(--accent);font-weight:500">＋ 添加提醒</span></div>
+        <div style="height:32px"></div>
+      </div>
+    </div>
+    <p class="caption-note"><b>画板 3 · 目标栏 · 满配状态（问题 2a + 数量上限）</b>：<b>与画板 4 是同一屏（设置 › 目标栏）的两个极端</b> —— 这里是 <b>6 项目标全在</b>的常态（老用户升级后的样子）。新增<b>热量目标</b>槽位并紧邻主目标（排序：主目标 / 热量 / 体重 / 每周训练 / 睡眠 / 饮水）；kcal 编辑入口从「个人信息页」迁到此处并给一次性 hint（栏顶那行可关的提示）；行高 56dp、1dp 分隔线。<b>目标上限 = 6 项</b>（主目标 1 + 次目标 5）：本板已全满 → <code>＋ 添加目标</code> 呈<b>置灰「已达上限 6 项」</b>态，不再是可点强调色。</p>
+  </div>
+
+  <!-- ══════════════ 画板 4 · 设置页 · 目标栏（空态：无默认种子） ══════════════ -->
+  <div class="board">
+    <div class="phone">
+      <div class="statusbar"><span>9:41</span><span class="icons"><i class="ri-signal-wifi-fill"></i><i class="ri-battery-charge-fill"></i></span></div>
+      <div class="topbar"><button class="iconbtn back" aria-label="返回"><i class="ri-arrow-left-s-line"></i></button><h1>设置</h1></div>
+      <div class="hz"></div>
+
+      <div class="body">
+        <div class="grouptitle">目标</div>
+        <!-- 完全空：主目标也未设（措辞对齐规格 §2b） -->
+        <div class="row"><span class="lab" style="width:auto;flex:1;color:var(--text_2)">未设置主目标</span><span class="link" style="flex-shrink:0">去设置 ›</span></div>
+        <div class="hz inset"></div>
+        <div class="groupfoot">还没有次目标 · 目标只在你添加后才出现</div>
+        <div class="row" style="margin-top:8px"><span class="lab" style="width:auto;flex:1;color:var(--accent);font-weight:500">＋ 添加目标</span></div>
+        <div class="hz" style="margin-top:28px"></div>
+
+        <div class="grouptitle">提醒</div>
+        <div class="row"><span class="lab" style="width:auto;flex:1;color:var(--accent);font-weight:500">＋ 添加提醒</span></div>
+
+        <div style="height:24px"></div>
+      </div>
+    </div>
+    <p class="caption-note"><b>画板 4 · 目标栏空态（问题 2b）</b>：<b>全新安装、且用户跳过了主目标引导</b>的形态 —— 目标栏里只有「未设置主目标 · 去设置 ›」+「＋ 添加目标」两行，没有任何预置数据。<br>原实现在这一步会静默种下 <b>6 行默认目标</b>（主目标=增重 / 体重 / 每周训练 / 睡眠 / 饮水…）；本板就是「删掉默认种子后」应有的样子：纯文本空态 + 文字入口，无插画、无容器、无强调色铺底（G8）。</p>
+  </div>
+
+  <!-- ══════════════ 画板 5 · 计划页 · 时间轴（今天 + 明天 + 后天起） ══════════════ -->
+  <div class="board">
+    <div class="phone">
+      <div class="statusbar"><span>9:41</span><span class="icons"><i class="ri-signal-wifi-fill"></i><i class="ri-battery-charge-fill"></i></span></div>
+      <div class="topbar">
+        <button class="iconbtn back" aria-label="返回"><i class="ri-arrow-left-s-line"></i></button>
+        <div class="tabs" style="flex:1;justify-content:center">
+          <button class="tabitem on">计划</button>
+          <button class="tabitem">回顾</button>
+        </div>
+        <span style="width:48px"></span>
+      </div>
+      <div class="hz"></div>
+
+      <!-- 缺口行：15sp text_1（原运行时用 accent，越出强调色边界「主按钮/进度线/可点文字/竖线/sparkline」，此处收敛） -->
+      <div class="pad" style="padding-top:16px;padding-bottom:16px;font-size:15px;color:var(--text_1)">还差 1280 kcal</div>
+      <div class="hz"></div>
+
+      <div class="body" style="padding-top:4px">
+        <!-- 今天：按 HH:mm -->
+        <div class="pad" style="padding-top:14px;font-size:15px;font-weight:500">今天</div>
+        <div class="tl" style="margin-top:4px"><span class="axis"></span>
+          <div class="tlrow">
+            <span class="tm">08:30</span><span class="marker"><span class="dot" style="background:var(--dot_meal)"></span></span>
+            <span class="cnt"><span style="display:block;font-size:15px">早餐 · 燕麦牛奶 + 鸡蛋 2 个</span><span style="display:block;font-size:13px;color:var(--text_2);margin-top:2px">约 480 kcal</span></span>
+          </div>
+          <div class="tlrow">
+            <span class="tm">12:30</span><span class="marker"><span class="dot" style="background:var(--dot_meal)"></span></span>
+            <span class="cnt"><span style="display:block;font-size:15px">午餐 · 米饭 200g + 鸡胸 150g + 绿叶菜</span><span style="display:block;font-size:13px;color:var(--text_2);margin-top:2px">约 650 kcal</span></span>
+            <span class="act link">记一笔</span>
+          </div>
+          <div class="tlrow">
+            <span class="tm">18:30</span><span class="marker"><span class="dot" style="background:var(--dot_exercise)"></span></span>
+            <span class="cnt"><span style="display:block;font-size:15px">力量训练 · 推（胸/肩/三头）</span><span style="display:block;font-size:13px;color:var(--text_2);margin-top:2px">深蹲 4×8 / 卧推 4×8 · 约 30 分钟</span></span>
+            <span class="act link">记一笔</span>
+          </div>
+          <div class="tlrow">
+            <span class="tm">23:00</span><span class="marker"><span class="dot" style="background:var(--dot_sleep)"></span></span>
+            <span class="cnt"><span style="display:block;font-size:15px">睡 · 23:00 前放下手机</span><span style="display:block;font-size:13px;color:var(--text_2);margin-top:2px">近 3 天平均只睡 6.0 小时，今晚补齐</span></span>
+          </div>
+        </div>
+
+        <!-- 明天：粗颗粒锚点（不显示 HH:mm） -->
+        <div class="pad" style="padding-top:20px;font-size:15px;font-weight:500">明天</div>
+        <div class="tl" style="margin-top:4px"><span class="axis"></span>
+          <div class="tlrow">
+            <span class="tm">早</span><span class="marker"><span class="dot" style="background:var(--dot_meal)"></span></span>
+            <span class="cnt"><span style="font-size:15px">燕麦牛奶 / 鸡蛋</span></span>
+          </div>
+          <div class="tlrow">
+            <span class="tm">午</span><span class="marker"><span class="dot" style="background:var(--dot_meal)"></span></span>
+            <span class="cnt"><span style="font-size:15px">鸡胸 + 糙米 + 时蔬</span></span>
+          </div>
+          <div class="tlrow">
+            <span class="tm">晚</span><span class="marker"><span class="dot" style="background:var(--dot_meal)"></span></span>
+            <span class="cnt"><span style="font-size:15px">三文鱼 + 沙拉</span></span>
+          </div>
+          <div class="tlrow">
+            <span class="tm">训练</span><span class="marker"><span class="dot" style="background:var(--dot_exercise)"></span></span>
+            <span class="cnt"><span style="font-size:15px">拉（背/二头）· 划船 4×10</span></span>
+          </div>
+        </div>
+
+        <!-- 后天起：单条无时间训练日行 -->
+        <div class="pad" style="padding-top:20px;font-size:15px;font-weight:500">10月7日 周三</div>
+        <div class="tl" style="margin-top:4px">
+          <div class="tlrow">
+            <span class="tm" style="color:var(--text_3)">—</span><span class="marker"><span class="dot" style="background:var(--dot_exercise)"></span></span>
+            <span class="cnt"><span style="font-size:15px">训练日</span></span>
+          </div>
+        </div>
+
+        <div class="pad" style="padding-top:20px;font-size:15px;font-weight:500">10月8日 周四</div>
+        <div class="tl" style="margin-top:4px">
+          <div class="tlrow">
+            <span class="tm" style="color:var(--text_3)">—</span><span class="marker"><span class="dot" style="background:var(--dot_exercise)"></span></span>
+            <span class="cnt"><span style="font-size:15px">训练日</span></span>
+          </div>
+        </div>
+        <div style="height:28px"></div>
+      </div>
+
+      <div class="pad" style="padding-top:8px;padding-bottom:12px"><span style="font-size:12px;color:var(--text_3)">估算值，非医疗建议</span></div>
+    </div>
+    <p class="caption-note"><b>画板 5 · 计划页时间轴（问题 3 方案 C）</b>：<b>今天</b>按 HH:mm 排吃/练/睡；<b>明天</b>给粗颗粒锚点（早/午/晚/训练，<b>不显示时刻</b>，时段名占时间列）；<b>后天起</b>维持单条无时间「训练日」行。排序键 = (date ↑, 全天项置顶, 时段序, HH:mm ↑)。</p>
+  </div>
+
+  <!-- ══════════════ 画板 6 · 我的页（去卡片，统一纯列表） ══════════════ -->
+  <div class="board">
+    <div class="phone">
+      <div class="statusbar"><span>9:41</span><span class="icons"><i class="ri-signal-wifi-fill"></i><i class="ri-battery-charge-fill"></i></span></div>
+      <div class="topbar"><h1>我的</h1></div>
+      <div class="hz"></div>
+
+      <div class="body">
+        <div class="grouptitle">概览</div>
+        <div class="row"><span class="lab" style="width:auto;flex:1">状态详情</span><i class="ri-arrow-right-s-line chev"></i></div>
+        <div class="hz"></div>
+
+        <div class="grouptitle">数据</div>
+        <div class="row"><span class="lab" style="width:auto;flex:1">资源</span><i class="ri-arrow-right-s-line chev"></i></div>
+        <div class="hz inset"></div>
+        <div class="row"><span class="lab" style="width:auto;flex:1">预设</span><i class="ri-arrow-right-s-line chev"></i></div>
+        <div class="hz inset"></div>
+        <div class="row"><span class="lab" style="width:auto;flex:1">知识库</span><i class="ri-arrow-right-s-line chev"></i></div>
+        <div class="hz inset"></div>
+        <div class="row"><span class="lab" style="width:auto;flex:1">个人信息</span><i class="ri-arrow-right-s-line chev"></i></div>
+        <div class="hz inset"></div>
+        <div class="row"><span class="lab" style="width:auto;flex:1">导出 / 备份</span><i class="ri-arrow-right-s-line chev"></i></div>
+        <div class="hz"></div>
+
+        <div class="grouptitle">应用</div>
+        <div class="row"><span class="lab" style="width:auto;flex:1">设置</span><i class="ri-arrow-right-s-line chev"></i></div>
+        <div class="hz inset"></div>
+        <div class="row"><span class="lab" style="width:auto;flex:1">调试</span><i class="ri-arrow-right-s-line chev"></i></div>
+        <div class="hz inset"></div>
+        <div class="row"><span class="lab" style="width:auto;flex:1">通知栏录入</span><i class="ri-arrow-right-s-line chev"></i></div>
+        <div class="hz"></div>
+        <div style="height:28px"></div>
+      </div>
+
+      <div class="tabbar"><div class="tab">记录</div><div class="tab">助理</div><div class="tab on">我的</div></div>
+    </div>
+    <p class="caption-note"><b>画板 6 · 我的页（巡检必改 A）</b>：移除 3 个 <code>bg_card</code> 卡片容器 → <b>纯列表 + 1dp 分隔线</b>，左右边距 20dp（原 16dp），与设置页/个人信息页/状态详情页完全一致。分区靠 12sp 组标题 + 留白（G1 / G5）。</p>
+  </div>
+
+  <!-- ══════════════ 画板 7 · 状态详情页（Tab 未选中态 = text_2） ══════════════ -->
+  <div class="board">
+    <div class="phone">
+      <div class="statusbar"><span>9:41</span><span class="icons"><i class="ri-signal-wifi-fill"></i><i class="ri-battery-charge-fill"></i></span></div>
+      <div class="topbar"><button class="iconbtn back" aria-label="返回"><i class="ri-arrow-left-s-line"></i></button><h1>状态</h1></div>
+      <div class="hz"></div>
+      <div class="tabs pad" style="padding-top:0;padding-bottom:0">
+        <button class="tabitem on" style="padding-left:0">运动</button>
+        <button class="tabitem">睡眠</button>
+        <button class="tabitem">体重</button>
+        <button class="tabitem">身体</button>
+      </div>
+      <div class="hz"></div>
+
+      <div class="body">
+        <div class="pad" style="padding-top:20px;font-size:15px">2 / 3 次 · 87 / 150 分钟</div>
+        <div style="margin-top:12px" class="pad"><div class="pg"><i style="width:66%"></i></div></div>
+        <div class="pad" style="padding-top:28px;padding-bottom:8px;font-size:12px;color:var(--text_2)">最近训练</div>
+        <div class="tl" style="margin-top:0">
+          <div class="tlrow">
+            <span class="tm">10/4</span><span class="marker"><span class="dot" style="background:var(--dot_exercise)"></span></span>
+            <span class="cnt"><span style="display:block;font-size:15px">推（胸/肩/三头）</span><span style="display:block;font-size:13px;color:var(--text_2);margin-top:2px">卧推 4×8 · 约 35 分钟</span></span>
+          </div>
+          <div class="tlrow">
+            <span class="tm">10/2</span><span class="marker"><span class="dot" style="background:var(--dot_exercise)"></span></span>
+            <span class="cnt"><span style="display:block;font-size:15px">腿（深蹲/硬拉）</span><span style="display:block;font-size:13px;color:var(--text_2);margin-top:2px">深蹲 4×8 · 约 40 分钟</span></span>
+          </div>
+        </div>
+        <button class="row" style="background:transparent"><span class="lab" style="width:auto;flex:1;color:var(--accent);font-weight:500">查看本周计划 ›</span></button>
+        <div style="height:28px"></div>
+      </div>
+
+      <div class="pad" style="padding-top:8px;padding-bottom:12px"><span style="font-size:12px;color:var(--text_3)">估算值，非医疗建议</span></div>
+    </div>
+    <p class="caption-note"><b>画板 7 · 状态详情页（巡检必改 B）</b>：顶部文字 Tab 未选中态改 <code>text_2</code>（原来与选中态同为 <code>text_1</code>，只靠下划线区分）。选中 = <code>text_1</code> + 2dp accent 下划线，字重均为 500 —— 层级由灰度决定（G3 / G6）。计划页顶 Tab 同规则。</p>
+  </div>
+
+  <!-- ══════════════ 画板 8 · 记录页 · 目标区空态 ══════════════ -->
+  <div class="board">
+    <div class="phone">
+      <div class="statusbar"><span>9:41</span><span class="icons"><i class="ri-signal-wifi-fill"></i><i class="ri-battery-charge-fill"></i></span></div>
+      <div class="topbar"><h1 style="flex:1">10月5日 周一</h1><button class="iconbtn" aria-label="设置"><i class="ri-settings-3-line"></i></button></div>
+      <div class="hz"></div>
+      <div class="body">
+        <!-- 空态：目标区塌缩为单行 48dp，三卡与盈余行隐藏 -->
+        <div style="margin-top:8px">
+          <div class="row" style="height:48px;background:transparent">
+            <span style="flex:1;font-size:15px;color:var(--text_2)">还没有目标</span>
+            <span class="link" style="display:flex;align-items:center;gap:2px;flex-shrink:0">添加目标<i class="ri-arrow-right-s-line" style="font-size:16px"></i></span>
+          </div>
+        </div>
+        <div class="pad" style="margin-top:20px;display:flex;align-items:baseline;justify-content:space-between">
+          <span style="font-size:15px;font-weight:500">今天</span>
+          <span class="link" style="font-size:13px">查看计划<i class="ri-arrow-right-s-line" style="font-size:16px"></i></span>
+        </div>
+        <div style="padding:14px 20px;font-size:15px;color:var(--text_2)">今天还没有记录 · 说一句就记好</div>
+        <div style="height:24px"></div>
+      </div>
+      <div class="inputbar"><i class="ri-mic-line" style="font-size:18px;color:var(--text_3)"></i><span class="ph">说一句就记好，如「中午吃了鸡胸肉」</span></div>
+      <div class="tabbar"><div class="tab on">记录</div><div class="tab">助理</div><div class="tab">我的</div></div>
+    </div>
+    <p class="caption-note"><b>画板 8 · 记录页目标区空态</b>：无主目标时目标区塌缩为<b>单行 48dp</b>「还没有目标 + 添加目标 ›」，三卡与盈余行隐藏。纯文本 + 文字入口，无插画无容器、不铺强调色（G8）。</p>
+  </div>
+
+  <!-- ══════════════ 画板 9 · 计划页 · 空态 ══════════════ -->
+  <div class="board">
+    <div class="phone">
+      <div class="statusbar"><span>9:41</span><span class="icons"><i class="ri-signal-wifi-fill"></i><i class="ri-battery-charge-fill"></i></span></div>
+      <div class="topbar">
+        <button class="iconbtn back" aria-label="返回"><i class="ri-arrow-left-s-line"></i></button>
+        <div class="tabs" style="flex:1;justify-content:center">
+          <button class="tabitem on">计划</button>
+          <button class="tabitem">回顾</button>
+        </div>
+        <span style="width:48px"></span>
+      </div>
+      <div class="hz"></div>
+      <div class="body" style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px">
+        <span style="font-size:13px;color:var(--text_2)">今天还没有计划</span>
+        <span class="link" style="font-size:15px">生成今日计划</span>
+        <span style="font-size:13px;color:var(--text_2)">手动添加</span>
+      </div>
+      <div class="pad" style="padding-top:8px;padding-bottom:12px"><span style="font-size:12px;color:var(--text_3)">估算值，非医疗建议</span></div>
+    </div>
+    <p class="caption-note"><b>画板 9 · 计划页空态</b>：无计划时居中纯文本「今天还没有计划」+ 主文字入口「生成今日计划」+ 次入口「手动添加」；不给插画/容器/强调色铺底（G8）。</p>
+  </div>
+
+</div>
+
+<!-- ══════════════ 尾注：本次替换的令牌对照 ══════════════ -->
+<div style="max-width:1000px;margin:44px auto 0;padding:20px;background:var(--surface);border:1px solid var(--line);border-radius:8px">
+  <h2 style="font-size:15px;font-weight:500">配色对照（旧稿 → Healix 原配色）</h2>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px 32px;margin-top:12px;font-size:13px;color:var(--text_2);line-height:22px">
+    <div>底 <code>#0C0D10</code>（深） → <code>#FAFAF9</code>（暖白 bg）</div>
+    <div>面 <code>rgba(255,255,255,.05)</code> → <code>#FFFFFF</code>（surface，无卡片）</div>
+    <div>强调 <code>#5B8CFF</code>（蓝） → <code>#B85028</code>（赤陶 accent）</div>
+    <div>正/负 <code>#5B8CFF</code> 混用 → <code>#4A7C59</code> / <code>#A63D40</code>（仅文字与 6px 圆点）</div>
+    <div>圆角 <code>rounded-xl / 12px</code> → <b>全局唯一 8dp</b></div>
+    <div>卡片 / backdrop-blur 玻璃 → <b>无卡片无阴影</b>，留白 + 1dp 线</div>
+    <div>文字 rgba 白系 → <code>text_1/2/3</code>（#1A1918 / #6E6B66 / #9C9891）</div>
+    <div>字重 600/700 → <b>只用 400 / 500</b></div>
+  </div>
+</div>
+
+</body>
+</html>

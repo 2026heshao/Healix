@@ -51,6 +51,12 @@ class HealixApp : Application() {
         database
         // 触发密钥存储初始化。失败时返回 null，不崩溃。
         secretStore
+        // 主目标自愈（2026-10-09）：旧版本引导保存路径曾对空 goals 表静默 no-op，
+        // 留下「goal_setup_done=true 但无 primary 行」的死锁 —— 首页永远「未设置主目标」
+        // 且引导不再弹。启动时后台补一行（缺行才写，幂等）；失败静默，不拖垮启动。
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            com.healix.app.ui.SettingsViewModel.healPrimaryGoalIfMissingStatic(this@HealixApp)
+        }
         // 帧率探针（清单3 R4）：链尾 init —— 默认关闭时只读一次标志文件、零采集零写盘；
         // 开启过则自启（开关重启保持）。独立诊断模块，零业务耦合（perf/PerfProbe.kt）。
         PerfProbe.init(this)

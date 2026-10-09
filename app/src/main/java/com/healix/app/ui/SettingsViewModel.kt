@@ -435,6 +435,49 @@ class SettingsViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
+     * 2026-10-09 自愈：goal_setup_done 已标记完成、goals 表却没有 primary 行 ——
+     * 实测（MuMu v0.2.0 全新库）引导保存路径曾在旧版本静默 no-op，留下
+     * 「首页永远未设置主目标、引导也不再弹」的死锁状态。App 启动时调用一次：
+     * 检测到该不一致就用「增重」兜底补一行 primary（用户可在设置页改），并把
+     * 这层兜底写回设置（幂等，只有缺行时才写）。
+     *
+     * 为什么不弹引导：老用户标记早已落库，再弹一次引导是骚扰；补默认行 +
+     * 处处可改的「去调整」入口是更轻的恢复路径。
+     */
+    fun healPrimaryGoalIfMissing() {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                if (db.settingsDao().get(SettingsKeys.GOAL_SETUP_DONE) != "true") return@runCatching
+                if (db.goalDao().countActiveByMetric(GoalMetrics.PRIMARY) > 0) return@runCatching
+                val now = System.currentTimeMillis()
+                ensureActiveGoal(db, GoalMetrics.PRIMARY, now)
+                db.goalDao().setPrimary(GoalMetrics.PRIMARY, now)
+                db.goalDao().setTarget(GoalMetrics.PRIMARY, GOAL_MODE_GAIN.toDouble(), now)
+            }
+        }
+    }
+
+    companion object {
+        /**
+         * 2026-10-09 主目标自愈（数据修复，独立于 VM 实例）：
+         * [healPrimaryGoalIfMissing] 的静态版本，供 `HealixApp.onCreate` 在进程启动时
+         * 以任意 Context 调用（此时还没有 Activity / ViewModel）。
+         * 逻辑与实例版一致，判据与写入全部走 db 单例；失败静默（自愈不该拖垮启动）。
+         */
+        suspend fun healPrimaryGoalIfMissingStatic(context: android.content.Context) {
+            runCatching {
+                val db = com.healix.app.db.AppDatabase.get(context.applicationContext)
+                if (db.settingsDao().get(SettingsKeys.GOAL_SETUP_DONE) != "true") return
+                if (db.goalDao().countActiveByMetric(GoalMetrics.PRIMARY) > 0) return
+                val now = System.currentTimeMillis()
+                ensureActiveGoal(db, GoalMetrics.PRIMARY, now)
+                db.goalDao().setPrimary(GoalMetrics.PRIMARY, now)
+                db.goalDao().setTarget(GoalMetrics.PRIMARY, GoalTypes.MODE_GAIN.toDouble(), now)
+            }
+        }
+    }
+
+    /**
      * 设置自定义主目标（`GOAL_MODE_CUSTOM`）：mode 落 `goals` 表，
      * 文本落 [SettingsKeys.GOAL_STATEMENT]（唯一自由文本目标键，AI prompt 同源读取）。
      * 空白文本拒写（无内容的自定义没有意义，调用端已先校验，这里兜底）。

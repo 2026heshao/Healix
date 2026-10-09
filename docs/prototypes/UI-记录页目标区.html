@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Healix 记录页 · 目标区压缩重设计（原配色）</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css" rel="stylesheet">
+<style>
+/* Healix 设计令牌 —— 对齐 app/src/main/res/values/colors.xml */
+:root{
+  --bg:#FAFAF9; --surface:#FFFFFF; --text_1:#1A1918; --text_2:#6E6B66; --text_3:#9C9891;
+  --line:#EAE8E4; --line_strong:#DAD7D2; --press:#F2F1EE;
+  --accent:#B85028; --accent_press:#A3451F; --positive:#4A7C59; --negative:#A63D40;
+  --dot_meal:#B85028; --dot_exercise:#3D5A6C; --dot_body:#6B5B7B; --dot_sleep:#4A5568;
+  /* 以下两值仅用于画布外壳（原型背景/手机边框），非 App 令牌、不参与 App UI 渲染 */
+  --shell_bg:#EFEDEA; --shell_line:#DDD9D4;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;background:var(--shell_bg);color:var(--text_1);font-size:14px;font-weight:400;line-height:1.5;padding:28px 24px 56px}
+h1,h2,p{margin:0}
+.board{display:flex;flex-direction:column;align-items:center;gap:10px}
+.phone{width:375px;height:812px;flex-shrink:0;position:relative;overflow:hidden;background:var(--bg);border:1px solid var(--shell_line);border-radius:36px;display:flex;flex-direction:column}
+.caption-note{width:375px;font-size:12px;line-height:19px;color:var(--text_2);text-align:center}
+.statusbar{height:44px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 20px;font-size:13px;font-weight:500}
+.statusbar .icons{display:flex;align-items:center;gap:5px;font-size:14px}
+.topbar{height:56px;flex-shrink:0;display:flex;align-items:center;padding:0 20px;gap:4px}
+.topbar h1{font-size:17px;font-weight:500}
+.iconbtn{width:48px;height:48px;border:0;background:transparent;cursor:pointer;color:var(--text_1);font-size:20px;display:flex;align-items:center;justify-content:center;padding:0}
+.hz{height:1px;flex-shrink:0;background:var(--line)}
+.hz.inset{margin:0 20px}
+.body{flex:1;min-height:0;overflow-y:auto;scrollbar-width:none}
+.body::-webkit-scrollbar{width:0;height:0}
+.pad{padding-left:20px;padding-right:20px}
+.inputbar{height:64px;flex-shrink:0;display:flex;align-items:center;gap:8px;padding:0 12px 0 20px;background:var(--surface);border-top:1px solid var(--line)}
+.inputbar .ph{flex:1;font-size:15px;color:var(--text_3)}
+.tabbar{height:64px;flex-shrink:0;display:flex;background:var(--surface);border-top:1px solid var(--line)}
+.tab{flex:1;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:500;color:var(--text_2)}
+.tab.on{color:var(--text_1)}
+.row{height:56px;display:flex;align-items:center;padding:0 20px;background:var(--surface)}
+.row:active{background:var(--press)}
+.dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.link{color:var(--accent);font-size:13px;font-weight:500}
+.scrim{position:absolute;inset:0;background:rgba(26,25,24,0.32);z-index:40}
+.sheet{position:absolute;left:0;right:0;bottom:0;z-index:50;max-height:66%;overflow-y:auto;background:var(--surface);border-top:1px solid var(--line);border-radius:8px 8px 0 0;padding:8px 20px 28px;scrollbar-width:none}
+.sheet::-webkit-scrollbar{width:0}
+.grabber{width:36px;height:3px;border-radius:1.5px;background:var(--line_strong);margin:0 auto 14px}
+.dimmed{position:absolute;inset:0;opacity:.35;pointer-events:none}
+</style>
+</head>
+<body>
+
+<div style="max-width:1400px;margin:0 auto 28px">
+  <h1 style="font-size:22px;font-weight:500">Healix 记录页 · 目标区压缩重设计（<span style="color:var(--accent)">Healix 原配色</span>）</h1>
+  <p style="margin-top:6px;font-size:13px;color:var(--text_2);line-height:21px;max-width:820px">
+    版式沿用上一稿（目标区压缩到 ≈138dp），<b>配色已全部改回 Healix 真实令牌</b>：暖白底 <code>#FAFAF9</code>、唯一强调色 <code>#B85028</code>（赤陶）、圆角全局唯一 <b>8dp</b>、<b>无卡片无阴影</b>、字重只用 400·500。三卡横排不用卡片，改 1dp 竖线分区。完整套件见 <code>UI-v8优化原型.html</code>。
+  </p>
+</div>
+
+<div class="flex flex-wrap items-start justify-center" style="gap:40px 32px;max-width:1400px;margin:0 auto">
+
+  <!-- ══════ 画板 1 · 记录页（目标区 ≈138dp） ══════ -->
+  <div class="board">
+    <div class="phone">
+      <div class="statusbar"><span>9:41</span><span class="icons"><i class="ri-signal-wifi-fill"></i><i class="ri-battery-charge-fill"></i></span></div>
+      <div class="topbar"><h1 style="flex:1">10月5日 周一</h1><button class="iconbtn" aria-label="设置"><i class="ri-settings-3-line"></i></button></div>
+      <div class="hz"></div>
+
+      <div class="body">
+        <!-- 目标区：48 + 1 + 56 + 1 + 32 = 138dp -->
+        <div style="margin-top:8px">
+          <div class="row" style="height:48px;background:transparent">
+            <span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px">
+              <span style="font-size:15px;font-weight:500">增重 · 目标 70kg</span>
+              <span style="font-size:13px;color:var(--text_2)">现 65.4kg，还差 4.6kg</span>
+            </span>
+            <span class="link" style="display:flex;align-items:center;gap:2px;flex-shrink:0">去调整<i class="ri-arrow-right-s-line" style="font-size:16px"></i></span>
+          </div>
+
+          <div class="hz inset"></div>
+
+          <!-- 三卡横排：无卡片，留白 + 1dp 竖线分区；迷你 sparkline 高 20dp，accent 单色不铺面 -->
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;height:56px">
+            <div style="padding:0 0 0 20px;display:flex;flex-direction:column;justify-content:center;gap:3px">
+              <span style="font-size:12px;line-height:1;color:var(--text_3)">本周训练</span>
+              <span style="font-size:15px;line-height:1;font-weight:500">2<span style="font-size:12px;font-weight:400;color:var(--text_2)">/3 次</span></span>
+              <svg viewBox="0 0 76 20" width="76" height="20" aria-hidden="true"><polyline points="0,16 15,16 30,10 45,10 60,5 76,5" fill="none" stroke="#B85028" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </div>
+            <div style="padding:0 0 0 14px;border-left:1px solid var(--line);display:flex;flex-direction:column;justify-content:center;gap:3px">
+              <span style="font-size:12px;line-height:1;color:var(--text_3)">近 7 日睡眠</span>
+              <span style="font-size:15px;line-height:1;font-weight:500">7.2<span style="font-size:12px;font-weight:400;color:var(--text_2)">h</span></span>
+              <svg viewBox="0 0 76 20" width="76" height="20" aria-hidden="true"><polyline points="0,7 13,9 26,5 38,12 51,9 63,11 76,8" fill="none" stroke="#B85028" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </div>
+            <div style="padding:0 20px 0 14px;border-left:1px solid var(--line);display:flex;flex-direction:column;justify-content:center;gap:3px">
+              <span style="font-size:12px;line-height:1;color:var(--text_3)">近 30 日体重</span>
+              <span style="font-size:15px;line-height:1;font-weight:500">65.4<span style="font-size:12px;font-weight:400;color:var(--text_2)">kg</span></span>
+              <svg viewBox="0 0 76 20" width="76" height="20" aria-hidden="true"><polyline points="0,14 15,12 30,13 45,8 60,7 76,5" fill="none" stroke="#B85028" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </div>
+          </div>
+
+          <div class="hz inset"></div>
+
+          <div style="height:32px;display:flex;align-items:center;padding:0 20px;gap:8px">
+            <span style="font-size:12px;color:var(--text_3)">今日盈余</span>
+            <span style="flex:1"></span>
+            <span class="dot" style="background:var(--positive)"></span>
+            <span style="font-size:15px;font-weight:500">+350</span>
+            <span style="font-size:12px;color:var(--text_2)">kcal</span>
+            <i class="ri-arrow-right-s-line" style="font-size:16px;color:var(--text_3)"></i>
+          </div>
+        </div>
+
+        <!-- 今日时间轴（节选） -->
+        <div class="pad" style="margin-top:20px;display:flex;align-items:baseline;justify-content:space-between">
+          <span style="font-size:15px;font-weight:500">今天</span>
+          <span class="link">查看计划<i class="ri-arrow-right-s-line" style="font-size:16px"></i></span>
+        </div>
+        <div style="margin-top:6px">
+          <div style="display:flex;align-items:center;gap:12px;padding:10px 20px">
+            <span style="width:40px;flex-shrink:0;font-size:13px;font-weight:500;color:var(--text_2)">18:30</span>
+            <span class="dot" style="background:var(--dot_exercise)"></span>
+            <span style="flex:1;min-width:0">
+              <span style="display:block;font-size:15px">力量训练 · 推（胸/肩/三头）</span>
+              <span style="display:block;font-size:13px;color:var(--text_2)">深蹲 4×8 / 卧推 4×8 · 约 30 分钟</span>
+            </span>
+            <span class="link">记一笔</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px;padding:10px 20px">
+            <span style="width:40px;flex-shrink:0;font-size:13px;font-weight:500;color:var(--text_2)">12:30</span>
+            <span class="dot" style="background:var(--dot_meal)"></span>
+            <span style="flex:1;min-width:0">
+              <span style="display:block;font-size:15px">午餐 · 米饭 200g + 鸡胸 150g</span>
+              <span style="display:block;font-size:13px;color:var(--text_2)">约 650 kcal</span>
+            </span>
+            <span style="font-size:13px;color:var(--text_3)">已记录</span>
+          </div>
+        </div>
+        <div style="height:24px"></div>
+      </div>
+
+      <div class="inputbar"><i class="ri-mic-line" style="font-size:18px;color:var(--text_3)"></i><span class="ph">说一句就记好，如「中午吃了鸡胸肉」</span></div>
+      <div class="tabbar"><div class="tab on">记录</div><div class="tab">助理</div><div class="tab">我的</div></div>
+    </div>
+    <p class="caption-note"><b>画板 1 · 记录页</b>：目标区 ≈<b>138dp</b>（主目标行 48 + 三卡 56 + 盈余 32 + 2×1dp 线），远优于原 ≈300–360dp（不到半屏）。</p>
+  </div>
+
+  <!-- ══════ 画板 2 · 次目标详情半屏弹层 ══════ -->
+  <div class="board">
+    <div class="phone">
+      <div class="statusbar"><span>9:41</span><span class="icons"><i class="ri-signal-wifi-fill"></i><i class="ri-battery-charge-fill"></i></span></div>
+      <div class="dimmed">
+        <div class="topbar"><h1 style="flex:1">10月5日 周一</h1><button class="iconbtn"><i class="ri-settings-3-line"></i></button></div>
+        <div class="hz"></div>
+        <div style="padding:8px 0">
+          <div class="row" style="height:48px;background:transparent"><span style="font-size:15px;font-weight:500">增重 · 目标 70kg</span></div>
+          <div class="hz inset"></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;height:56px">
+            <div style="padding:0 0 0 20px;display:flex;flex-direction:column;justify-content:center"><span style="font-size:12px;color:var(--text_3)">本周训练</span><span style="font-size:15px;font-weight:500">2/3 次</span></div>
+            <div style="padding:0 0 0 14px;border-left:1px solid var(--line);display:flex;flex-direction:column;justify-content:center"><span style="font-size:12px;color:var(--text_3)">近 7 日睡眠</span><span style="font-size:15px;font-weight:500">7.2h</span></div>
+            <div style="padding:0 20px 0 14px;border-left:1px solid var(--line);display:flex;flex-direction:column;justify-content:center"><span style="font-size:12px;color:var(--text_3)">近 30 日体重</span><span style="font-size:15px;font-weight:500">65.4kg</span></div>
+          </div>
+          <div class="hz inset"></div>
+        </div>
+      </div>
+      <div class="scrim"></div>
+
+      <div class="sheet">
+        <div class="grabber"></div>
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <h2 style="font-size:17px;font-weight:500">睡眠 · 近 7 天</h2>
+          <button style="border:0;background:transparent;cursor:pointer;font-size:13px;font-weight:500;color:var(--text_2);padding:8px 0 8px 12px">关闭</button>
+        </div>
+        <p style="font-size:13px;color:var(--text_2);margin-top:2px">日均 7.3h · 目标 7.5h · 达标 5 天</p>
+
+        <div style="margin-top:16px">
+          <svg viewBox="0 0 335 180" width="335" height="180" aria-hidden="true">
+            <line x1="0" y1="46" x2="335" y2="46" stroke="#EAE8E4" stroke-width="1" stroke-dasharray="4 4"/>
+            <text x="0" y="40" fill="#9C9891" font-size="11">目标 7.5h</text>
+            <polyline points="8,58 62,72 116,44 170,104 224,84 278,92 327,64" fill="none" stroke="#B85028" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <circle cx="327" cy="64" r="4" fill="#B85028"/>
+            <circle cx="8" cy="58" r="2.5" fill="#FFFFFF" stroke="#B85028" stroke-width="2"/>
+            <circle cx="62" cy="72" r="2.5" fill="#FFFFFF" stroke="#B85028" stroke-width="2"/>
+            <circle cx="116" cy="44" r="2.5" fill="#FFFFFF" stroke="#B85028" stroke-width="2"/>
+            <circle cx="170" cy="104" r="2.5" fill="#FFFFFF" stroke="#B85028" stroke-width="2"/>
+            <circle cx="224" cy="84" r="2.5" fill="#FFFFFF" stroke="#B85028" stroke-width="2"/>
+            <circle cx="278" cy="92" r="2.5" fill="#FFFFFF" stroke="#B85028" stroke-width="2"/>
+          </svg>
+          <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text_3);margin-top:6px">
+            <span>9/29</span><span>9/30</span><span>10/1</span><span>10/2</span><span>10/3</span><span>10/4</span><span>今天</span>
+          </div>
+        </div>
+
+        <button style="margin-top:14px;width:100%;height:48px;border:0;background:transparent;cursor:pointer;text-align:left;font-size:13px;font-weight:500;color:var(--accent)">改目标 ›</button>
+        <div class="hz"></div>
+        <div class="row" style="background:transparent;padding-left:0;padding-right:0"><span style="flex:1;font-size:15px">本周训练 2/3 次</span><i class="ri-arrow-right-s-line" style="font-size:16px;color:var(--text_3)"></i></div>
+        <div class="hz"></div>
+        <div class="row" style="background:transparent;padding-left:0;padding-right:0"><span style="flex:1;font-size:15px">近 30 日体重 65.4kg</span><i class="ri-arrow-right-s-line" style="font-size:16px;color:var(--text_3)"></i></div>
+        <div class="hz"></div>
+        <div style="margin-top:16px;font-size:13px;font-weight:500;color:var(--text_2)">＋ 添加其他目标（热量 / 饮水 / 体重…）</div>
+      </div>
+    </div>
+    <p class="caption-note"><b>画板 2 · 次目标详情弹层</b>：点任一迷你卡弹出，三选一 Tab 切换 metric；顶部圆角 8dp，无阴影，靠 1dp 顶线 + 遮罩分层。</p>
+  </div>
+
+</div>
+</body>
+</html>

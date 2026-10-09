@@ -392,12 +392,15 @@ class PersonalInfoFragment : PageFragment() {
                 kotlinx.coroutines.flow.combine(vm.goals, vm.values) { list, v ->
                     list to v
                 }.collect { (list, v) ->
-                    val mode = list.firstOrNull { it.metric == com.healix.app.db.GoalMetrics.PRIMARY }
-                        ?.targetValue?.toInt() ?: SettingsViewModel.GOAL_MODE_GAIN
-                    binding.rowGoalStatement.value.text = when (mode) {
-                        SettingsViewModel.GOAL_MODE_LOSS -> getString(R.string.goal_loss)
-                        SettingsViewModel.GOAL_MODE_KEEP -> getString(R.string.goal_keep)
-                        SettingsViewModel.GOAL_MODE_CUSTOM ->
+                    // 2026-10-09 口径统一：goals 无 primary 行 → 「未设置」，不再假显「增重」
+                    //（与首页主目标行同口径；旧兜底与本页「我的目标：增重」并存于未设主目标时）。
+                    val primaryRow = list.firstOrNull { it.metric == com.healix.app.db.GoalMetrics.PRIMARY }
+                    val mode = primaryRow?.targetValue?.toInt()
+                    binding.rowGoalStatement.value.text = when {
+                        primaryRow == null -> getString(R.string.value_not_set)
+                        mode == SettingsViewModel.GOAL_MODE_LOSS -> getString(R.string.goal_loss)
+                        mode == SettingsViewModel.GOAL_MODE_KEEP -> getString(R.string.goal_keep)
+                        mode == SettingsViewModel.GOAL_MODE_CUSTOM ->
                             v.goalStatement.ifBlank { getString(R.string.value_not_set) }
                         else -> getString(R.string.goal_gain)
                     }

@@ -855,7 +855,7 @@ class ChatAdapter : RecyclerView.Adapter<ChatAdapter.VH>() {
      */
     private fun bindStreaming(holder: VH) {
         val ctx = holder.text.context
-        holder.text.text = streamText.orEmpty()
+        holder.text.text = markdownBoldSpan(streamText.orEmpty())
         holder.text.setBackgroundResource(R.drawable.bg_bubble_assistant)
         holder.text.setTextColor(ContextCompat.getColor(ctx, R.color.text_1))
         holder.text.elevation = ctx.resources.getDimension(R.dimen.card_elev_1)
@@ -914,8 +914,13 @@ class ChatAdapter : RecyclerView.Adapter<ChatAdapter.VH>() {
         val body = if (hasMeta) lines.subList(0, bodyEnd).joinToString("\n") else m.content
         holder.text.text = if (hasMeta) {
             metaSpannable(ctx, holder.text, body, badgeLine, sourceLine)
-        } else {
+        } else if (isUser) {
             body
+        } else {
+            // 2026-10-09：助理正文含 `**粗体**` 时转 StyleSpan（模型普遍输出 Markdown
+            // 粗体；此前星号原样显示，`**700 / 2500 kcal**` 一类的原文直接糊在气泡里）。
+            // 只处理成对 `**`，不成对的保持原样；用户气泡不转（用户可能就在打星号）。
+            markdownBoldSpan(body)
         }
 
         // ── 气泡外观（v6）────────────────────────────────────────────
@@ -1017,6 +1022,35 @@ class ChatAdapter : RecyclerView.Adapter<ChatAdapter.VH>() {
         val row: View,
         val text: android.widget.TextView,
     ) : RecyclerView.ViewHolder(row)
+
+    /**
+     * 轻量 Markdown 粗体（2026-10-09）：成对 `**…**` → 去星号 + StyleSpan(BOLD)。
+     *
+     * 为什么只做粗体不做别的：实测模型输出里 99% 的标记就是 `**强调**`（数字 / 结论），
+     * 标题 / 列表 / 代码块极少且气泡排版对它们无增益 —— 一个正则就够，不引第三方库。
+     * 不成对（奇数个 `**`）整体保持原文：宁可显示星号也不吃掉用户的半个标记。
+     */
+    private fun markdownBoldSpan(body: String): CharSequence {
+        if (!body.contains("**")) return body
+        val sb = StringBuilder(body.length)
+        val spans = mutableListOf<Pair<IntRange, android.text.style.StyleSpan>>()
+        val regex = Regex("\\*\\*(.+?)\\*\\*", RegexOption.DOT_MATCHES_ALL)
+        var last = 0
+        for (m in regex.findAll(body)) {
+            sb.append(body, last, m.range.first)
+            val start = sb.length
+            sb.append(m.groupValues[1])
+            spans += start until sb.length to android.text.style.StyleSpan(android.graphics.Typeface.BOLD)
+            last = m.range.last + 1
+        }
+        if (spans.isEmpty()) return body
+        sb.append(body, last, body.length)
+        val out = android.text.SpannableString(sb.toString())
+        for ((range, span) in spans) {
+            out.setSpan(span, range.first, range.last + 1, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+        return out
+    }
 
     /**
      * 正文末行元数据 span（从末尾最多两行）：

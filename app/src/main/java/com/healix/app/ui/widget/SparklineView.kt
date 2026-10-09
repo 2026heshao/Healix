@@ -98,9 +98,23 @@ class SparklineView @JvmOverloads constructor(
         // ① 数据不足 3 点：不画线，居中占位文案
         if (values.size < 3) {
             if (emptyText.isEmpty()) return
+            // 2026-10-09 截断修复：MetricChip 里本控件只有 32dp 宽，四字文案
+            // 「暂无记录」实测宽约 48dp，超出部分被 chip 裁剪 → 残字叠到数值上
+            //（主页睡眠卡显示「无记—」叠字的根因）。超宽时按宽度逐字截断并加省略号，
+            // 1–2 点的「攒够 3 次」同理受益。
+            var text = emptyText
+            while (text.isNotEmpty() &&
+                emptyPaint.measureText(text) > w - dp(2f) &&
+                text.length > 1
+            ) {
+                text = text.dropLast(1)
+            }
+            if (text != emptyText && text.length <= emptyText.length - 1) {
+                text += "…"
+            }
             val centerY = (top + bottom) / 2f
             val baseline = centerY - (emptyPaint.descent() + emptyPaint.ascent()) / 2f
-            canvas.drawText(emptyText, (left + right) / 2f, baseline, emptyPaint)
+            canvas.drawText(text, (left + right) / 2f, baseline, emptyPaint)
             return
         }
 

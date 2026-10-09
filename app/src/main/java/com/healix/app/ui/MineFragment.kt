@@ -246,10 +246,14 @@ class MineFragment : Fragment() {
                 getString(R.string.unit_kg, trimWeight(state.goal.latestWeightKg))
             else -> getString(R.string.setting_weight_none)
         }
-        val goalName = when (state.goal.modeIndex) {
-            SettingsViewModel.GOAL_MODE_LOSS -> getString(R.string.goal_loss)
-            SettingsViewModel.GOAL_MODE_KEEP -> getString(R.string.goal_keep)
-            SettingsViewModel.GOAL_MODE_CUSTOM ->
+        val goalName = when {
+            // 2026-10-09 口径统一：goals 表无 primary 行（未设主目标）时显示「未设置」，
+            // 不再回落「增重」—— 与首页主目标行（goal_primary_none）同口径。
+            // 旧兜底曾让本页显示「增重」而首页显示「未设置主目标」，互相矛盾。
+            !state.goal.set -> getString(R.string.value_not_set)
+            state.goal.modeIndex == SettingsViewModel.GOAL_MODE_LOSS -> getString(R.string.goal_loss)
+            state.goal.modeIndex == SettingsViewModel.GOAL_MODE_KEEP -> getString(R.string.goal_keep)
+            state.goal.modeIndex == SettingsViewModel.GOAL_MODE_CUSTOM ->
                 state.goal.statement.ifBlank { getString(R.string.value_not_set) }
             else -> getString(R.string.goal_gain)
         }

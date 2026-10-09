@@ -36,6 +36,15 @@ class FieldSheet : BottomSheetDialogFragment() {
     /** 确认时回传各字段的最终文本（顺序与 specs 一致）；取消不回调。 */
     var onResult: ((List<String>) -> Unit)? = null
 
+    /**
+     * 确认时的**校验回调**（2026-10-09）：非 null = 校验未过，弹层**不关闭**并 Toast
+     * 该消息。背景是「添加提醒」实测 bug：名称已填、周期留空时点确认，[onResult] 里
+     * `intervalDays <= 0` 被 ViewModel 静默 return —— 弹层关闭、无任何反馈、库里无行，
+     * 用户完全不知道发生了什么。校验放弹层这一层，非法输入根本出不去；VM 侧的
+     * 防御性早退保留（直接调用方之外的路径仍不该写脏数据）。
+     */
+    var onValidate: ((List<String>) -> String?)? = null
+
     private val inputs = mutableListOf<EditText>()
 
     override fun onCreateView(
@@ -59,7 +68,15 @@ class FieldSheet : BottomSheetDialogFragment() {
         binding.root.onDragDismiss = { dismiss() }
         binding.btnCancel.setOnClickListener { dismiss() }
         binding.btnConfirm.setOnClickListener {
-            onResult?.invoke(inputs.map { it.text.toString().trim() })
+            val values = inputs.map { it.text.toString().trim() }
+            val error = onValidate?.invoke(values)
+            if (error != null) {
+                android.widget.Toast.makeText(
+                    requireContext(), error, android.widget.Toast.LENGTH_SHORT,
+                ).show()
+                return@setOnClickListener
+            }
+            onResult?.invoke(values)
             dismiss()
         }
         binding.btnConfirm.bindPressScale()

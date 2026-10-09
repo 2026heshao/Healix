@@ -39,6 +39,9 @@ interface GoalDao {
     @Query("UPDATE goals SET is_primary = CASE WHEN metric = :metric THEN 1 ELSE 0 END, updated_at = :now WHERE status = 'active'")
     suspend fun setPrimary(metric: String, now: Long)
     @Query("SELECT COUNT(*) FROM goals WHERE status = 'active'") suspend fun countActive(): Int
+    /** 单指标 active 计数（2026-10-09 主目标自愈判据用）。 */
+    @Query("SELECT COUNT(*) FROM goals WHERE metric = :metric AND status = 'active'")
+    suspend fun countActiveByMetric(metric: String): Int
 
     // ── 归档 / 恢复（v8 需求 4）：只改数据行 status，**不碰 schema、不升 version** ──
     //

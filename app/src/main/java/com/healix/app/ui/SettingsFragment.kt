@@ -799,11 +799,16 @@ class SettingsFragment : Fragment() {
         val m = active.associateBy { it.metric }
         return when (slot) {
             GoalSlots.PRIMARY -> {
-                val mode = m[GoalMetrics.PRIMARY]?.targetValue?.toInt() ?: SettingsViewModel.GOAL_MODE_GAIN
-                when (mode) {
-                    SettingsViewModel.GOAL_MODE_LOSS -> getString(R.string.goal_loss)
-                    SettingsViewModel.GOAL_MODE_KEEP -> getString(R.string.goal_keep)
-                    SettingsViewModel.GOAL_MODE_CUSTOM -> goalStatement.ifBlank { getString(R.string.value_not_set) }
+                // 2026-10-09 口径统一：goals 无 primary 行 → 「未设置」（与首页同口径），
+                // 不再回落「增重」。设置页是编辑入口，如实显示「未设置」才与
+                // 「添加目标」列表（主目标在未启用时出现）自洽。
+                val mode = m[GoalMetrics.PRIMARY]?.targetValue?.toInt()
+                when {
+                    mode == null -> getString(R.string.value_not_set)
+                    mode == SettingsViewModel.GOAL_MODE_LOSS -> getString(R.string.goal_loss)
+                    mode == SettingsViewModel.GOAL_MODE_KEEP -> getString(R.string.goal_keep)
+                    mode == SettingsViewModel.GOAL_MODE_CUSTOM ->
+                        goalStatement.ifBlank { getString(R.string.value_not_set) }
                     else -> getString(R.string.goal_gain)
                 }
             }
@@ -1140,14 +1145,29 @@ class SettingsFragment : Fragment() {
                 InputType.TYPE_CLASS_TEXT,
             ),
         )
-        showFieldDialog(
+        val sheet = showFieldDialog(
             if (existing == null) R.string.reminder_add else R.string.edit,
             specs,
-        ) { raw ->
-            val name = raw.getOrNull(0).orEmpty()
-            val days = raw.getOrNull(1)?.toIntOrNull() ?: 0
-            val last = parseDate(raw.getOrNull(2).orEmpty())
-            vm.saveReminder(existing, name, days, last)
+            onOk = { raw ->
+                val name = raw.getOrNull(0).orEmpty()
+                val days = raw.getOrNull(1)?.toIntOrNull() ?: 0
+                val last = parseDate(raw.getOrNull(2).orEmpty())
+                vm.saveReminder(existing, name, days, last)
+            },
+        )
+        sheet.onValidate = { raw ->
+            // 2026-10-09 校验前移：名称必填 / 周期必填正整数 / 日期格式合法。
+            // 之前这三类非法输入都在 saveReminder 里静默 return —— 弹层关了、
+            // 库里没行、没有任何提示（实测「添加提醒」点确认没反应的根因）。
+            when {
+                raw.getOrNull(0).orEmpty().isBlank() ->
+                    getString(R.string.reminder_error_name_required)
+                (raw.getOrNull(1)?.toIntOrNull() ?: 0) <= 0 ->
+                    getString(R.string.reminder_error_days_required)
+                raw.getOrNull(2).orEmpty().isNotBlank() && parseDate(raw.getOrNull(2).orEmpty()) == null ->
+                    getString(R.string.reminder_error_date_invalid)
+                else -> null
+            }
         }
     }
 
@@ -1167,10 +1187,11 @@ class SettingsFragment : Fragment() {
         titleRes: Int,
         specs: List<FieldSheet.FieldSpec>,
         onOk: (List<String>) -> Unit,
-    ) {
+    ): FieldSheet {
         val sheet = FieldSheet.newInstance(titleRes, specs)
         sheet.onResult = onOk
         sheet.show(childFragmentManager, FieldSheet.TAG)
+        return sheet
     }
 
     /** 毫秒时间戳 → `yyyy-MM-dd`（本地时区）。 */
