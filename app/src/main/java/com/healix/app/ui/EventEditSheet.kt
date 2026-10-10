@@ -54,6 +54,9 @@ class EventEditSheet : BottomSheetDialogFragment() {
     private var clientEventId: String? = null
     private var entityId: Long = 0
 
+    /** R2-1：类型选择行当前选中的枚举值（null = 用户没改过，沿用原类型）。 */
+    private var typeSelected: String? = null
+
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
@@ -116,7 +119,11 @@ class EventEditSheet : BottomSheetDialogFragment() {
         binding.fieldContainer.removeAllViews()
         fields.clear()
 
-        addField(KEY_TYPE, R.string.field_type, entity.type)
+        // R2-1（2026-10-10）：类型行不再是「让用户手输英文枚举」的文本框 ——
+        // 实测弹窗里裸显 `other`，用户根本不可能知道合法值是
+        // meal/exercise/body/sleep/illness。改为**只读行 + 点击弹选择表**：
+        // 展示中文标签（EventText.typeName），保存前把中文映射回枚举。
+        addTypeField(entity.type)
         addField(KEY_TIME, R.string.field_time, entity.timeHint)
 
         when (entity.type) {
@@ -194,6 +201,35 @@ class EventEditSheet : BottomSheetDialogFragment() {
     }
 
     /**
+     * R2-1：类型行 —— 只读展示中文类型名，点击弹选择表（含「未识别的其他」共 6 项）。
+     * 选中后把**枚举值**存回 [typeSelected]（不进 fields 输入框，避免用户看到/改坏英文值）；
+     * [save] 优先取它，没选过就沿用 entity 原类型。
+     */
+    private fun addTypeField(currentType: String) {
+        val b = RowSheetFieldBinding.inflate(layoutInflater, binding.fieldContainer, false)
+        b.fieldLabel.setText(R.string.field_type)
+        b.fieldValue.setText(com.healix.app.notify.EventText.typeName(requireContext(), currentType))
+        b.fieldValue.inputType = InputType.TYPE_NULL
+        b.fieldValue.keyListener = null
+        b.fieldValue.isFocusable = false
+        b.fieldValue.isClickable = true
+        typeSelected = currentType
+        b.fieldValue.setOnClickListener {
+            val types = listOf("meal", "exercise", "body", "sleep", "illness", "other")
+            val labels = types.map { com.healix.app.notify.EventText.typeName(requireContext(), it) }
+                .toTypedArray()
+            android.app.AlertDialog.Builder(requireContext())
+                .setTitle(R.string.field_type)
+                .setItems(labels) { _, which ->
+                    typeSelected = types[which]
+                    b.fieldValue.setText(labels[which])
+                }
+                .show()
+        }
+        binding.fieldContainer.addView(b.root)
+    }
+
+    /**
      * 把输入框标成「沿用上次」态：`text_3` 灰字；**用户一改动即恢复 `text_1`**。
      *
      * 监听器在 `setText` **之后**挂上，所以预填本身不会触发恢复（否则灰字永远看不到）。
@@ -227,7 +263,8 @@ class EventEditSheet : BottomSheetDialogFragment() {
             withContext(Dispatchers.IO) {
                 container.eventRepository.applyUserEdit(
                     clientEventId = cid,
-                    type = values[KEY_TYPE].orEmpty().ifBlank { "other" },
+                    // R2-1：类型来自选择行（枚举值），不再是用户手输的自由文本。
+                    type = typeSelected ?: "other",
                     timeHint = values[KEY_TIME].orEmpty(),
                     foods = values[KEY_FOODS].orEmpty(),
                     exercise = values[KEY_EXERCISE].orEmpty(),

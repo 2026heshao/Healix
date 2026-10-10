@@ -45,7 +45,7 @@ import java.util.TimeZone
 // ---------------------------------------------------------------------------
 
 /** ★ prompt 版本号。每次改 prompt 必须递增，并写入 llm_calls.prompt_ver。 */
-const val PROMPT_VER: String = "v2"
+const val PROMPT_VER: String = "v3"
 
 /** 合法事件类型。 */
 val VALID_TYPES: List<String> = listOf("meal", "exercise", "body", "sleep", "illness", "other")
@@ -609,6 +609,10 @@ const val PROMPT_EXTRACT: String = """你是一个健康记录助手。把用户
 
 字段规则：
 - type: meal=吃喝, exercise=运动训练, body=体重体脂等身体指标, sleep=睡眠, illness=生病不适, other=其他
+  英文/口语输入按同样语义归类：吃/喝/ate/had/lunch/dinner/breakfast/burger/rice/noodle 等
+  指饮食 → meal；ran/gym/workout/walk/went for a walk 等 → exercise；
+  weight/weighed/scale → body；slept/sleep → sleep；sick/fever/headache → illness。
+  foods/exercise/amount 字段值**保留用户原语言**（英文输入则 foods 填英文原文）。
 - time: 只填时间词本身（如 早上/中午/晚上/下午/睡前/昨天/三点）。没有就填 ""
 - foods: 只填食物和饮品名称，不填地点、不填数量。非饮食填 []
 - exercise: 运动项目名称（如 跑步/卧推/深蹲/羽毛球），非运动填 ""

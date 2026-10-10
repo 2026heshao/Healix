@@ -24,7 +24,10 @@ from typing import Any, Final
 # 常量
 # ---------------------------------------------------------------------------
 
-PROMPT_VER: Final[str] = "v2"  # ★ 每次改 prompt 必须递增，并写入 llm_calls.prompt_ver
+PROMPT_VER: Final[str] = "v3"  # ★ 每次改 prompt 必须递增，并写入 llm_calls.prompt_ver
+# v3（2026-10-10）：新增英文/口语输入的类型归类别名（R2-2 真机实测
+# "lunch rice 800kcal" 被归 other 且 kcal=0）。不改拆分/否定/兜底规则，
+# 回归基线 21/22 的用例全为中文，预期不受影响；上线后跑一次真机英文用例复核。
 # v1 → v2（2026-10-03，回归驱动）：
 #   补 6 类缺失规则，修复 8 条回归失败中的 6 条：
 #     ① 中文数字转阿拉伯（"五公里"→"5公里"）          修复 n02
@@ -428,6 +431,10 @@ PROMPT_EXTRACT: Final[str] = """你是一个健康记录助手。把用户的口
 
 字段规则：
 - type: meal=吃喝, exercise=运动训练, body=体重体脂等身体指标, sleep=睡眠, illness=生病不适, other=其他
+  英文/口语输入按同样语义归类：吃/喝/ate/had/lunch/dinner/breakfast/burger/rice/noodle 等
+  指饮食 → meal；ran/gym/workout/walk/went for a walk 等 → exercise；
+  weight/weighed/scale → body；slept/sleep → sleep；sick/fever/headache → illness。
+  foods/exercise/amount 字段值**保留用户原语言**（英文输入则 foods 填英文原文）。
 - time: 只填时间词本身（如 早上/中午/晚上/下午/睡前/昨天/三点）。没有就填 ""
 - foods: 只填食物和饮品名称，不填地点、不填数量。非饮食填 []
 - exercise: 运动项目名称（如 跑步/卧推/深蹲/羽毛球），非运动填 ""
