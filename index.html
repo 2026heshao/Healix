@@ -1,0 +1,985 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Healix · 记完这一笔，剩下的交给它</title>
+<meta name="description" content="Healix 是一个自用的安卓健康记录工具。打字、说话、下拉通知栏都能记，云端大模型把一句话变成带热量的结构化记录，再按今天的真实数据给出下一顿和下一练。数据只存手机本地。">
+<meta name="theme-color" content="#F4F2EF">
+<meta property="og:title" content="Healix · 记完这一笔，剩下的交给它">
+<meta property="og:description" content="自用安卓健康记录工具。记录只要动嘴，复盘要有依据。数据只存手机本地。">
+<meta property="og:type" content="website">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<!-- 字体异步加载：media="print" 让这张样式表不阻塞首屏渲染，
+     载入完成后由 onload 切回 all。
+     若网络不可达（例如国内直连 Google Fonts 不通），页面会立刻用下方
+     系统字体栈渲染，不会白屏或长时间空白。
+     系统字体栈取自产品自身（prototype.html 与 Android 侧一致）。 -->
+<link rel="stylesheet" media="print" onload="this.media='all'"
+      href="https://fonts.googleapis.com/css2?family=Inter+Tight:ital,wght@0,400;0,500;1,400&family=Noto+Sans+SC:wght@400;500&display=swap">
+<noscript>
+  <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500&family=Noto+Sans+SC:wght@400;500&display=swap">
+</noscript>
+<link rel="stylesheet" href="styles.css">
+<!-- 在样式生效前决定是否启用入场动效。
+     放在这里而不是 body 末尾：只有确认支持 IntersectionObserver
+     且用户未开启「降低动效」时才启用隐藏，避免 JS 失效导致整块内容不可见。 -->
+<script>
+(function () {
+  var ok = "IntersectionObserver" in window
+        && !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (ok) document.documentElement.classList.add("anim");
+})();
+</script>
+</head>
+<body>
+
+<div class="readline" id="readline" aria-hidden="true"></div>
+
+<!-- ══════════ 导航 ══════════ -->
+<header class="nav">
+  <div class="wrap nav-in">
+    <a class="brand" href="#top">
+      <span class="brand-mark">Healix</span>
+      <span class="brand-sub">自用健康记录</span>
+    </a>
+    <nav class="nav-links" aria-label="页面导航">
+      <a href="#record">记录</a>
+      <a href="#day">一天</a>
+      <a href="#scenes">界面</a>
+      <a href="#privacy">隐私</a>
+      <a href="#progress">进度</a>
+    </nav>
+    <div class="nav-tools">
+      <button class="btn btn-ghost btn-sm" id="themeBtn" type="button" aria-live="polite">深色</button>
+      <a class="btn btn-primary btn-sm" href="https://github.com/2026heshao/Healix" target="_blank" rel="noopener">克隆仓库</a>
+    </div>
+  </div>
+</header>
+
+<main id="top">
+
+  <!-- ══════════ Hero ══════════ -->
+  <section class="hero">
+    <div class="wrap hero-grid">
+      <div>
+        <p class="hero-eyebrow">自用 · 原生 Android · 数据只存手机</p>
+        <h1>记完这一笔，<br><span class="soft">剩下的交给它。</span></h1>
+        <p class="hero-lead">打字、说话、下拉通知栏都能记。云端大模型把一句话变成带热量的结构化记录，再按你今天的真实数据给出下一顿和下一练。</p>
+        <div class="hero-cta">
+          <a class="btn btn-primary" href="#scenes">看真实界面</a>
+          <a class="btn btn-ghost" href="#progress">项目进度</a>
+        </div>
+      </div>
+
+      <div class="stage-wrap">
+        <!-- 主界面：按产品令牌与 prototype.html 组件规格复刻 -->
+        <div class="phone">
+          <div class="phone-screen">
+            <div class="p-status">
+              <span>15:04</span>
+              <span class="sig" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+            </div>
+            <div class="p-appbar">10月4日 星期五</div>
+            <div class="p-presets" aria-hidden="true">
+              <span>牛肉面</span><span>鸡蛋灌饼</span><span>米饭 + 鸡腿</span><span>蛋白粉</span>
+            </div>
+            <div class="p-body">
+              <div class="p-summary">
+                <div class="label">今日盈余</div>
+                <div class="num">+320<span>kcal</span></div>
+                <div class="p-progress"><i style="width:72%"></i></div>
+                <div class="sub">摄入 2180 · 消耗 1860 · 目标 2500</div>
+              </div>
+              <div class="p-gap"></div>
+              <div class="p-statusrow">
+                <span>运动 2/3 · 睡眠 7.2h · 体重 58.2kg</span>
+                <svg class="cv" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+              </div>
+              <div class="p-planhint">
+                <span>还差 <b>320 kcal</b></span>
+                <em style="font-style:normal;color:var(--primary-text)">查看今日建议 ›</em>
+              </div>
+              <div class="p-items">
+                <div class="p-item">
+                  <span class="dot" style="background:var(--dot-meal)"></span>
+                  <div class="bodycol">
+                    <div class="meta"><span>12:30 · 午餐</span><span>约 620 kcal</span></div>
+                    <div class="main">牛肉面 · 卤蛋</div>
+                  </div>
+                </div>
+                <div class="p-item">
+                  <span class="dot" style="background:var(--dot-exercise)"></span>
+                  <div class="bodycol">
+                    <div class="meta"><span>15:04 · 训练</span><span>48 min</span></div>
+                    <div class="main">卧推 4×8 @40kg</div>
+                  </div>
+                </div>
+                <div class="p-item">
+                  <span class="dot" style="background:var(--dot-illness)"></span>
+                  <div class="bodycol">
+                    <div class="meta"><span>18:40 · 生病</span><span>咽痛</span></div>
+                    <div class="main">今天有点累，嗓子疼</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="p-inputbar">
+              <span class="ph" id="heroInput">记一笔</span>
+              <span class="send" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M7 17L17 7"/><path d="M8 7h9v9"/></svg>
+              </span>
+            </div>
+            <div class="p-tabbar">
+              <div class="on">记录</div>
+              <div>助理</div>
+              <div>我的</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════ 系统接入事实 ══════════ -->
+  <section class="strip">
+    <div class="wrap strip-in">
+      <div class="cell"><span class="k">架构</span><span class="v">Prompt Chaining 两级链路</span></div>
+      <div class="cell"><span class="k">数据</span><span class="v">本机 SQLite，无自建后端</span></div>
+      <div class="cell"><span class="k">接口</span><span class="v">baseUrl 与模型名全在设置页</span></div>
+      <div class="cell"><span class="k">日界线</span><span class="v">凌晨 4:00，夜宵归前一天</span></div>
+      <div class="cell"><span class="k">目标机</span><span class="v">Magic6 Pro · Android 14</span></div>
+    </div>
+  </section>
+
+  <!-- ══════════ 一、记录 ══════════ -->
+  <section class="section" id="record">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <div class="group-title">记录</div>
+        <h2>输入随便写，落库必须准。</h2>
+        <p class="lead">记录的门槛必须低到没有借口：三处入口，一句原话。但落库的那条数据必须是结构化的，否则复盘时你什么也算不出来。这两件事之间的落差，就是整条抽取链存在的理由。</p>
+      </div>
+
+      <div class="loop-grid">
+        <!-- 三阶段：单机演示，自动轮转 -->
+        <div class="loop-stages" id="loopStages" role="list">
+          <button class="stage is-on" type="button" role="listitem" data-stage="0">
+            <span class="stage-n">01</span>
+            <span>
+              <span class="stage-t">你只负责说</span>
+              <span class="stage-d">打字、语音、下拉通知栏，三处入口写的是同一句话。手机先把原话落库，不等网络。</span>
+              <span class="stage-bar" aria-hidden="true"></span>
+              <span class="stage-note">raw_text 必落库 · client_event_id 幂等</span>
+            </span>
+          </button>
+          <button class="stage" type="button" role="listitem" data-stage="1">
+            <span class="stage-n">02</span>
+            <span>
+              <span class="stage-t">抽取链跑一遍</span>
+              <span class="stage-d">一句话进 schema：类型、时间、条目、热量估算。字段校验不过就退回原文重来，不会硬塞一条脏数据。</span>
+              <span class="stage-bar" aria-hidden="true"></span>
+              <span class="stage-note">schema 校验 + 后处理层 · 契约的权威实现在 pipeline/contract.py</span>
+            </span>
+          </button>
+          <button class="stage" type="button" role="listitem" data-stage="2">
+            <span class="stage-n">03</span>
+            <span>
+              <span class="stage-t">错了也有后悔药</span>
+              <span class="stage-d">每条记录都留着那句原话。抽错的时候你改的是原话，不是模型的重试结果，所以改一次就稳。</span>
+              <span class="stage-bar" aria-hidden="true"></span>
+              <span class="stage-note">点任意一行 → 编辑弹窗（弹窗只是编辑入口，不是写入闸门）</span>
+            </span>
+          </button>
+        </div>
+
+        <div class="loop-phone">
+          <div class="phone">
+            <div class="phone-screen">
+              <div class="p-status">
+                <span>15:04</span>
+                <span class="sig" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+              </div>
+              <div class="p-appbar">10月4日 星期五</div>
+              <div class="p-presets" aria-hidden="true">
+                <span>牛肉面</span><span>鸡蛋灌饼</span><span>米饭 + 鸡腿</span>
+              </div>
+              <div class="p-body">
+                <div class="p-summary">
+                  <div class="label">今日盈余</div>
+                  <div class="num">+320<span>kcal</span></div>
+                  <div class="p-progress"><i style="width:72%"></i></div>
+                  <div class="sub">摄入 2180 · 消耗 1860 · 目标 2500</div>
+                </div>
+                <div class="p-gap"></div>
+                <div class="p-planhint">
+                  <span>还差 <b>320 kcal</b></span>
+                  <em style="font-style:normal;color:var(--primary-text)">查看今日建议 ›</em>
+                </div>
+                <div class="p-items">
+                  <!-- 同一行原地变形：raw → 识别中 → 结构化
+                       无 JS 时默认停在结构化那一层（最后一层），页面依然完整可读 -->
+                  <div class="morph" id="morph">
+                    <div class="layer" data-layer="0">
+                      <span class="dot" style="background:var(--outline)"></span>
+                      <div class="bodycol">
+                        <div class="meta"><span>15:04</span><span></span></div>
+                        <div class="main raw">中午牛肉面，加了个蛋<span class="caret" aria-hidden="true"></span></div>
+                      </div>
+                    </div>
+                    <div class="layer" data-layer="1">
+                      <span class="dot" style="background:var(--outline)"></span>
+                      <div class="bodycol">
+                        <div class="meta"><span>15:04</span><span></span></div>
+                        <div class="pending"><span class="spinner" aria-hidden="true"></span>识别中…</div>
+                      </div>
+                    </div>
+                    <div class="layer on" data-layer="2">
+                      <span class="dot" style="background:var(--dot-meal)"></span>
+                      <div class="bodycol">
+                        <div class="meta"><span>12:30 · 午餐</span><span>约 620 kcal</span></div>
+                        <div class="main">牛肉面 · 卤蛋</div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="p-item">
+                    <span class="dot" style="background:var(--dot-exercise)"></span>
+                    <div class="bodycol">
+                      <div class="meta"><span>15:04 · 训练</span><span>48 min</span></div>
+                      <div class="main">卧推 4×8 @40kg</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="p-inputbar">
+                <span class="ph typed" id="loopInput">中午牛肉面，加了个蛋</span>
+                <span class="send" aria-hidden="true">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M7 17L17 7"/><path d="M8 7h9v9"/></svg>
+                </span>
+              </div>
+              <div class="p-tabbar">
+                <div class="on">记录</div>
+                <div>助理</div>
+                <div>我的</div>
+              </div>
+            </div>
+          </div>
+          <p class="loop-cap">同一行原地变形，行高恒定 76dp。列表不跳，视线不用找。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════ 二、一天 ══════════ -->
+  <section class="section" id="day">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <div class="group-title">一天</div>
+        <h2>七次输入，没有一个字是白写的。</h2>
+        <p class="lead">这是十月四日的真实一天。左边是你实际敲进去的东西，右边是它变成了什么。两者之间的差距，就是复盘能给出的依据。</p>
+      </div>
+
+      <div class="timeline reveal">
+        <div class="tl-row">
+          <div class="tl-time">07:20</div>
+          <div class="tl-body">
+            <div class="tl-said">起床先站上秤，随手敲了两个字：<b>「58.2」</b></div>
+            <div class="tl-out">
+              <span class="tl-tag"><i style="background:var(--dot-body)"></i>体重</span>
+              <div style="margin-top:6px">58.2 kg</div>
+              <div class="sub">近 14 日 ↑0.6 kg · 目标 60.0</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="tl-row">
+          <div class="tl-time">08:10</div>
+          <div class="tl-body">
+            <div class="tl-said"><b>「两个鸡蛋一杯豆浆」</b></div>
+            <div class="tl-out">
+              <span class="tl-tag"><i style="background:var(--dot-meal)"></i>早餐</span>
+              <div style="margin-top:6px">鸡蛋 ×2 · 豆浆</div>
+              <div class="sub">约 260 kcal</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="tl-row">
+          <div class="tl-time">12:30</div>
+          <div class="tl-body">
+            <div class="tl-said"><b>「中午牛肉面，加了个蛋」</b></div>
+            <div class="tl-out">
+              <span class="tl-tag"><i style="background:var(--dot-meal)"></i>午餐</span>
+              <div style="margin-top:6px">牛肉面 · 卤蛋</div>
+              <div class="sub">约 620 kcal</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="tl-row">
+          <div class="tl-time">15:04</div>
+          <div class="tl-body">
+            <div class="tl-said"><b>「卧推 40 公斤 4 组 8 次」</b></div>
+            <div class="tl-out">
+              <span class="tl-tag"><i style="background:var(--dot-exercise)"></i>训练</span>
+              <div style="margin-top:6px">卧推 4×8 @40kg</div>
+              <div class="sub">本周 2/3 次 · 已完成 48 分钟</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="tl-row">
+          <div class="tl-time">18:40</div>
+          <div class="tl-body">
+            <div class="tl-said"><b>「今天有点累，嗓子疼」</b></div>
+            <div class="tl-out">
+              <span class="tl-tag"><i style="background:var(--dot-illness)"></i>生病</span>
+              <div style="margin-top:6px">咽痛 · 疲劳</div>
+              <div class="sub">主界面状态行转为提醒，计划页当天训练自动降档</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="tl-row">
+          <div class="tl-time">21:30</div>
+          <div class="tl-body">
+            <div class="tl-said"><b>「今天怎么样」</b></div>
+            <div class="tl-out">
+              <span class="tl-tag"><i style="background:var(--dot-other)"></i>复盘</span>
+              <div style="margin-top:6px">摄入 2180，目标 2500，还差 320 kcal</div>
+              <div class="sub">跟上一条训练和上一条生病记录都有关</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <p class="small reveal" style="margin-top:26px;max-width:70ch">热量数字全部是估算值，不是医疗建议。它的作用是把趋势画出来，不是给你一个可以较真的绝对值。</p>
+    </div>
+  </section>
+
+  <!-- ══════════ 三、四个场景 ══════════ -->
+  <section class="section" id="scenes">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <div class="group-title">界面</div>
+        <h2>四个场景，各管一件事。</h2>
+        <p class="lead">下面是应用里四个真实界面。点左边任意一项，右边就切过去。界面按产品令牌与高仿真原型一比一复刻，不是示意图。</p>
+      </div>
+
+      <div class="scenes-grid">
+        <div class="scene-tabs reveal" id="sceneTabs" role="tablist" aria-label="界面切换">
+          <button class="scene-tab is-on" type="button" role="tab" aria-selected="true" aria-controls="pane-0" data-pane="0" id="tab-0">
+            <span class="idx">01</span>
+            <span>
+              <span class="tt">主界面 · 记录</span>
+              <span class="dd">今日盈余是一个大数字，下面是今天记过的东西。底部输入框常驻，打开就能写。</span>
+              <span class="facts"><span>3 处入口</span><span>行高 76dp</span><span>左滑编辑/删除</span></span>
+            </span>
+          </button>
+
+          <button class="scene-tab" type="button" role="tab" aria-selected="false" aria-controls="pane-1" data-pane="1" id="tab-1">
+            <span class="idx">02</span>
+            <span>
+              <span class="tt">计划页 · 计划 / 训练 / 复盘</span>
+              <span class="dd">三段文字 Tab。计划说下一顿，训练说下一练，复盘说今天到底怎么样。</span>
+              <span class="facts"><span>按最新数据重排</span><span>失败降级本地估算</span><span>5 秒内可撤销</span></span>
+            </span>
+          </button>
+
+          <button class="scene-tab" type="button" role="tab" aria-selected="false" aria-controls="pane-2" data-pane="2" id="tab-2">
+            <span class="idx">03</span>
+            <span>
+              <span class="tt">助理 · 对话</span>
+              <span class="dd">直接打字也是一条记录。工具结果缩进显示在回复下面，它查了什么、等了多久，你看得见。</span>
+              <span class="facts"><span>工具调用可见</span><span>可引用本机知识库</span><span>429 有兜底</span></span>
+            </span>
+          </button>
+
+          <button class="scene-tab" type="button" role="tab" aria-selected="false" aria-controls="pane-3" data-pane="3" id="tab-3">
+            <span class="idx">04</span>
+            <span>
+              <span class="tt">我的 · 状态 / 数据</span>
+              <span class="dd">状态详情用 4 段 Tab 展开运动、睡眠、体重与身体，趋势图在数据不足时不出图并直说原因。</span>
+              <span class="facts"><span>两态状态行</span><span>4 段 Tab</span><span>导出 JSON 备份</span></span>
+            </span>
+          </button>
+        </div>
+
+        <div class="scene-stage">
+          <!-- 01 主界面 -->
+          <div class="pane on" id="pane-0" role="tabpanel" aria-labelledby="tab-0">
+            <div class="phone">
+              <div class="phone-screen">
+                <div class="p-status"><span>21:30</span><span class="sig" aria-hidden="true"><i></i><i></i><i></i><i></i></span></div>
+                <div class="p-appbar">10月4日 星期五</div>
+                <div class="p-presets" aria-hidden="true"><span>牛肉面</span><span>鸡蛋灌饼</span><span>蛋白粉</span></div>
+                <div class="p-body">
+                  <div class="p-summary">
+                    <div class="label">今日盈余</div>
+                    <div class="num">+320<span>kcal</span></div>
+                    <div class="p-progress"><i style="width:72%"></i></div>
+                    <div class="sub">摄入 2180 · 消耗 1860 · 目标 2500</div>
+                  </div>
+                  <div class="p-gap"></div>
+                  <div class="p-statusrow sig">
+                    <span>运动 2/3 · 睡眠 7.2h · 体重 58.2kg</span>
+                    <svg class="cv" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>
+                  </div>
+                  <div class="p-planhint"><span>还差 <b>320 kcal</b></span><em style="font-style:normal;color:var(--primary-text)">查看今日建议 ›</em></div>
+                  <div class="p-items">
+                    <div class="p-item">
+                      <span class="dot" style="background:var(--dot-illness)"></span>
+                      <div class="bodycol">
+                        <div class="meta"><span>18:40 · 生病</span><span>咽痛</span></div>
+                        <div class="main">今天有点累，嗓子疼</div>
+                      </div>
+                    </div>
+                    <div class="p-item">
+                      <span class="dot" style="background:var(--dot-exercise)"></span>
+                      <div class="bodycol">
+                        <div class="meta"><span>15:04 · 训练</span><span>48 min</span></div>
+                        <div class="main">卧推 4×8 @40kg</div>
+                      </div>
+                    </div>
+                    <div class="p-item">
+                      <span class="dot" style="background:var(--dot-meal)"></span>
+                      <div class="bodycol">
+                        <div class="meta"><span>12:30 · 午餐</span><span>约 620 kcal</span></div>
+                        <div class="main">牛肉面 · 卤蛋</div>
+                      </div>
+                    </div>
+                    <div class="p-item">
+                      <span class="dot" style="background:var(--dot-meal)"></span>
+                      <div class="bodycol">
+                        <div class="meta"><span>08:10 · 早餐</span><span>约 260 kcal</span></div>
+                        <div class="main">鸡蛋 ×2 · 豆浆</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div class="p-inputbar">
+                  <span class="ph">记一笔</span>
+                  <span class="send" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M7 17L17 7"/><path d="M8 7h9v9"/></svg></span>
+                </div>
+                <div class="p-tabbar"><div class="on">记录</div><div>助理</div><div>我的</div></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 02 计划页 -->
+          <div class="pane" id="pane-1" role="tabpanel" aria-labelledby="tab-1">
+            <div class="phone">
+              <div class="phone-screen">
+                <div class="p-status"><span>21:31</span><span class="sig" aria-hidden="true"><i></i><i></i><i></i><i></i></span></div>
+                <div class="p-appbar">
+                  <span class="back" aria-hidden="true">‹</span>
+                  <span class="center">今日</span>
+                  <span class="right">刷新</span>
+                </div>
+                <div class="p-seg"><div class="on">计划</div><div>训练</div><div>复盘</div></div>
+                <div class="p-body">
+                  <div class="p-gapline">
+                    <div class="n">320<span style="font-size:.8125rem;color:var(--text-2)"> kcal</span></div>
+                    <div class="l">今日还差</div>
+                  </div>
+                  <div class="p-planitem">
+                    <div class="t">晚餐 · 建议</div>
+                    <div class="h">米饭 200g · 鸡胸 150g · 西兰花</div>
+                    <div class="d">约 520 kcal · 蛋白 42g</div>
+                    <div class="src">AI 计划 · 21:31 生成</div>
+                  </div>
+                  <div class="p-planitem">
+                    <div class="t">睡前 · 可选</div>
+                    <div class="h">酸奶一杯</div>
+                    <div class="d">约 130 kcal</div>
+                  </div>
+                  <div class="p-planitem">
+                    <div class="t">身体信号</div>
+                    <div class="h">今天记了咽痛，训练已降档</div>
+                    <div class="d">卧推减至 3×8 @35kg</div>
+                    <div class="src">依据：18:40 生病记录</div>
+                  </div>
+                </div>
+                <div class="p-tabbar"><div>记录</div><div>助理</div><div class="on">我的</div></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 03 助理 -->
+          <div class="pane" id="pane-2" role="tabpanel" aria-labelledby="tab-2">
+            <div class="phone">
+              <div class="phone-screen">
+                <div class="p-status"><span>21:32</span><span class="sig" aria-hidden="true"><i></i><i></i><i></i><i></i></span></div>
+                <div class="p-appbar"><span style="position:absolute;left:16px">助理</span><span class="right">今天</span></div>
+                <div class="p-body">
+                  <div class="p-quick">
+                    <div>今天达标了吗</div>
+                    <div>推荐晚餐</div>
+                    <div>本周复盘</div>
+                  </div>
+                  <div class="p-msg user">
+                    <div class="who" style="text-align:right">21:30</div>
+                    <div class="text">本周复盘</div>
+                  </div>
+                  <div class="p-toolline">读了本周 12 条饮食记录、3 条训练、7 条体重</div>
+                  <div class="p-msg">
+                    <div class="who">Healix · 21:30</div>
+                    <div class="text">本周平均摄入 2260 kcal，比目标低 240。三次训练里有两次完成，周三那次因为加班没练。体重涨了 0.6 kg，方向对，但增重速度比计划慢，可以把晚餐主食加半碗。</div>
+                  </div>
+                </div>
+                <div class="p-inputbar">
+                  <span class="ph">问问助理</span>
+                  <span class="send" aria-hidden="true"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M7 17L17 7"/><path d="M8 7h9v9"/></svg></span>
+                </div>
+                <div class="p-tabbar"><div>记录</div><div class="on">助理</div><div>我的</div></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 04 我的 -->
+          <div class="pane" id="pane-3" role="tabpanel" aria-labelledby="tab-3">
+            <div class="phone">
+              <div class="phone-screen">
+                <div class="p-status"><span>21:33</span><span class="sig" aria-hidden="true"><i></i><i></i><i></i><i></i></span></div>
+                <div class="p-appbar"><span style="position:absolute;left:16px;font-size:1.25rem">我的</span></div>
+                <div class="p-body">
+                  <div class="p-grouptitle">概览</div>
+                  <div class="p-row" style="height:64px;align-items:flex-start;flex-direction:column;justify-content:center">
+                    <span style="display:flex;width:100%;justify-content:space-between"><span>状态详情</span><span class="val">›</span></span>
+                    <span style="display:block;font-size:.75rem;color:var(--text-3);margin-top:2px">运动 2/3 · 睡眠 7.2h · 体重 58.2kg</span>
+                  </div>
+                  <div class="p-grouptitle">数据</div>
+                  <div class="p-row"><span>知识库</span><span class="val">3 份文档 ›</span></div>
+                  <div class="p-row"><span>导出备份</span><span class="val">JSON ›</span></div>
+                  <div class="p-grouptitle">设置</div>
+                  <div class="p-row"><span>服务商</span><span class="val">已配置 ›</span></div>
+                  <div class="p-row"><span>连通性测试</span><span class="val">连通 · 1.2s</span></div>
+                  <div class="p-row"><span>热量目标</span><span class="val">2500 kcal ›</span></div>
+                </div>
+                <div class="p-tabbar"><div>记录</div><div>助理</div><div class="on">我的</div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════ 四、设计取舍 ══════════ -->
+  <section class="section" id="tradeoffs">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <div class="group-title">取舍</div>
+        <h2>决定不做什么，比决定做什么难。</h2>
+        <p class="lead">这个项目里每一行代码都对应一次拒绝。下面八条是拒绝得最狠的，也是它能用起来的原因。</p>
+      </div>
+
+      <div class="trade-head reveal">
+        <span>没有做</span>
+        <span>做成了这样 · 为什么</span>
+      </div>
+
+      <div class="reveal">
+        <div class="trade-row">
+          <div class="trade-no">拍照识别热量</div>
+          <div class="trade-yes">
+            <i aria-hidden="true"></i>
+            <span>先落库，再识别
+              <span class="why">拍照要先识别成功才能落库，识别失败时你什么都没留下。原话先存下来，抽错还能改。</span>
+            </span>
+          </div>
+        </div>
+
+        <div class="trade-row">
+          <div class="trade-no">Agent 自主决策</div>
+          <div class="trade-yes">
+            <i aria-hidden="true"></i>
+            <span>Prompt Chaining 两级链路
+              <span class="why">抽取链与计划链各有确定的输入输出，可以用 22 条用例离线回归。多步自主决策没法这样验收。</span>
+            </span>
+          </div>
+        </div>
+
+        <div class="trade-row">
+          <div class="trade-no">云端账号</div>
+          <div class="trade-yes">
+            <i aria-hidden="true"></i>
+            <span>只存本机 SQLite
+              <span class="why">没有账号，就不存在「谁看过你的数据」这个问题。代价是换机要手动导出 JSON。</span>
+            </span>
+          </div>
+        </div>
+
+        <div class="trade-row">
+          <div class="trade-no">后台定时复盘</div>
+          <div class="trade-yes">
+            <i aria-hidden="true"></i>
+            <span>打开应用时触发，加一个手动按钮
+              <span class="why">国行 ROM 会杀后台，定时任务在实际机型上不生效。与其做一个看起来有、实际不跑的开关，不如让你按一下。</span>
+            </span>
+          </div>
+        </div>
+
+        <div class="trade-row">
+          <div class="trade-no">圆角卡片与阴影</div>
+          <div class="trade-yes">
+            <i aria-hidden="true"></i>
+            <span>留白加 1dp 细线分区
+              <span class="why">层级只由字号、字重、灰度决定。圆角花样和阴影是廉价感的主要来源，去掉之后界面才安静。</span>
+            </span>
+          </div>
+        </div>
+
+        <div class="trade-row">
+          <div class="trade-no">多色强调</div>
+          <div class="trade-yes">
+            <i aria-hidden="true"></i>
+            <span>全局只有一个强调色
+              <span class="why">一屏里出现两个强调色，就等于没有东西是强调的。语义色只在真实状态和文字上出现，绝不铺面。</span>
+            </span>
+          </div>
+        </div>
+
+        <div class="trade-row">
+          <div class="trade-no">纯 AI 输出直接进库</div>
+          <div class="trade-yes">
+            <i aria-hidden="true"></i>
+            <span>raw_text 必落库
+              <span class="why">抽错时唯一的后悔药是那句原话，不是模型重试的结果。改原话，一次就稳。</span>
+            </span>
+          </div>
+        </div>
+
+        <div class="trade-row">
+          <div class="trade-no">二十个功能都做一半</div>
+          <div class="trade-yes">
+            <i aria-hidden="true"></i>
+            <span>饮食、运动、增重计划、生病记录四件事做到能用
+              <span class="why">四条线各自闭环，比二十条线各自半成品有价值。没做完的功能就写在进度里，不假装有。</span>
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════ 五、隐私 ══════════ -->
+  <section class="section privacy" id="privacy">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <div class="group-title">隐私</div>
+        <h2>你的数据不出手机，除了那一次请求。</h2>
+        <p class="lead">需要联网的只有一次模型调用，发出去的是你刚写的那句话。其余全部在本机完成。</p>
+      </div>
+
+      <div class="privacy-grid reveal">
+        <div class="pv">
+          <span class="tag">密钥</span>
+          <h3>API key 加密存本机</h3>
+          <p>走 EncryptedSharedPreferences，绝不进代码、仓库、日志与 SQLite 表。</p>
+        </div>
+        <div class="pv">
+          <span class="tag">原文</span>
+          <h3>原话必落库</h3>
+          <p>raw_text 是每条记录的一部分。抽错时改的是它，不是模型的重试。</p>
+        </div>
+        <div class="pv">
+          <span class="tag">接口</span>
+          <h3>服务商随时可换</h3>
+          <p>baseUrl 与模型名只存在设置页，代码里只有占位符。换一家不用改代码。</p>
+        </div>
+        <div class="pv">
+          <span class="tag">文档</span>
+          <h3>PDF 解析在本机</h3>
+          <p>知识库的解析在手机上完成，原文件不出设备。只有被引用的片段会进对话。</p>
+        </div>
+      </div>
+
+      <p class="small reveal" style="margin-top:24px;max-width:70ch">代价说清楚：数据只在这台手机上，卸载或清除应用数据就会丢。所以「导出备份」不是一个可选项，它是这件事的必要配套。</p>
+    </div>
+  </section>
+
+  <!-- ══════════ 六、进度与边界 ══════════ -->
+  <section class="section" id="progress">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <div class="group-title">进度</div>
+        <h2>做到哪一步，就说到哪一步。</h2>
+        <p class="lead">这是一个还在长的小项目。下面三列分别是已经跑通的、正在做的、以及明确知道不行的。</p>
+      </div>
+
+      <div class="prog-grid reveal">
+        <div class="prog-col">
+          <h3>已经跑通</h3>
+          <p class="small">离线可验证，不依赖 key。</p>
+          <div class="prog-list">
+            <div class="prog-item done"><i aria-hidden="true"></i><span class="t">契约层<span class="d">schema、后处理规则、22 条用例集</span></span><span class="s">67 项断言全绿</span></div>
+            <div class="prog-item done"><i aria-hidden="true"></i><span class="t">抽取链竖切片<span class="d">Python 实现即契约的权威版本</span></span><span class="s">通过率 ≥ 95%</span></div>
+            <div class="prog-item done"><i aria-hidden="true"></i><span class="t">设计规范 v6<span class="d">1 强调色、无卡片无阴影、圆角三档</span></span><span class="s">已进 XML 令牌</span></div>
+            <div class="prog-item done"><i aria-hidden="true"></i><span class="t">通知栏录入<span class="d">QuickInputService，重复投递幂等</span></span><span class="s">5 秒内可撤销</span></div>
+            <div class="prog-item done"><i aria-hidden="true"></i><span class="t">提示词守门<span class="d">systemPrompt 金样本机器守卫</span></span><span class="s">已接入</span></div>
+          </div>
+        </div>
+
+        <div class="prog-col">
+          <h3>正在做</h3>
+          <p class="small">有明确判据，但还没走完。</p>
+          <div class="prog-list">
+            <div class="prog-item wip"><i aria-hidden="true"></i><span class="t">真机验收<span class="d">荣耀 Magic6 Pro / MagicOS</span></span><span class="s">进行中</span></div>
+            <div class="prog-item wip"><i aria-hidden="true"></i><span class="t">每日复盘与计划<span class="d">输出必须带具体依据，不能是空话</span></span><span class="s">进行中</span></div>
+            <div class="prog-item wip"><i aria-hidden="true"></i><span class="t">前台服务后台存活<span class="d">specialUse 在部分 ROM 上可能被忽略</span></span><span class="s">待验证</span></div>
+            <div class="prog-item wip"><i aria-hidden="true"></i><span class="t">发布通道<span class="d">签名 APK 由 GitHub Actions 产出</span></span><span class="s">打 tag 触发</span></div>
+          </div>
+        </div>
+
+        <div class="prog-col">
+          <h3>已知边界</h3>
+          <p class="small">这些不打算藏起来。</p>
+          <div class="prog-list">
+            <div class="prog-item todo"><i aria-hidden="true"></i><span class="t">热量只是估算<span class="d">不构成医疗建议，别拿它当医嘱</span></span><span class="s">口径</span></div>
+            <div class="prog-item todo"><i aria-hidden="true"></i><span class="t">本机没有 Android 工具链<span class="d">编译验证依赖远端 CI 反馈</span></span><span class="s">环境</span></div>
+            <div class="prog-item todo"><i aria-hidden="true"></i><span class="t">扫描版 PDF 提取不了<span class="d">没有文字层，换文字版即可</span></span><span class="s">限制</span></div>
+            <div class="prog-item todo"><i aria-hidden="true"></i><span class="t">迁移失败宁可崩溃<span class="d">禁用破坏性迁移，不带病上线</span></span><span class="s">取舍</span></div>
+            <div class="prog-item todo"><i aria-hidden="true"></i><span class="t">换机要手动导出<span class="d">没有云端账号，这是没有账号的代价</span></span><span class="s">代价</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════ 收尾 ══════════ -->
+  <section class="section closing">
+    <div class="wrap">
+      <div class="reveal">
+        <h2>记录只要动嘴，复盘要有依据。</h2>
+        <p class="lead" style="font-size:1.0625rem">如果你也想把健康数据握在自己手里，欢迎看看代码，或者直接提一个你想记却记不住的东西。</p>
+        <div class="closing-cta">
+          <a class="btn btn-primary" href="https://github.com/2026heshao/Healix" target="_blank" rel="noopener">克隆仓库</a>
+          <a class="btn btn-ghost" href="#record">回看记录流程</a>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- ══════════ 页脚 ══════════ -->
+<footer class="footer">
+  <div class="wrap">
+    <div class="footer-in">
+      <div>
+        <div class="brand-mark">Healix</div>
+        <p class="tiny" style="margin-top:6px">自用安卓健康记录工具 · 数据只存手机本地</p>
+      </div>
+      <nav class="footer-links" aria-label="页脚导航">
+        <a href="#record">记录流程</a>
+        <a href="#scenes">界面</a>
+        <a href="#privacy">隐私</a>
+        <a href="#progress">进度</a>
+      </nav>
+    </div>
+    <p class="disclaimer">热量数字全部为估算值，本应用不提供医疗建议，也不能用于诊断或治疗任何疾病。身体状况请以医生意见为准。</p>
+  </div>
+</footer>
+
+<script>
+(function () {
+  "use strict";
+
+  var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  /* ---------- 主题切换（显式，整页锁定，不自动跟随） ---------- */
+  var root = document.documentElement;
+  var themeBtn = document.getElementById("themeBtn");
+  var meta = document.querySelector('meta[name="theme-color"]');
+
+  function paintTheme(t) {
+    root.setAttribute("data-theme", t);
+    if (themeBtn) themeBtn.textContent = t === "dark" ? "浅色" : "深色";
+    if (meta) meta.setAttribute("content", t === "dark" ? "#131211" : "#F4F2EF");
+  }
+  /* 尊重文档上已有的 data-theme，默认浅色 */
+  paintTheme(root.getAttribute("data-theme") === "dark" ? "dark" : "light");
+
+  if (themeBtn) {
+    themeBtn.addEventListener("click", function () {
+      paintTheme(root.getAttribute("data-theme") === "dark" ? "light" : "dark");
+    });
+  }
+
+  /* ---------- 阅读进度线 ----------
+     优先用 CSS 滚动驱动动画（零 JS、不占主线程）。
+     仅在浏览器不支持时才退回 rAF 节流的滚动监听。 */
+  var readline = document.getElementById("readline");
+  var cssTimeline = window.CSS && CSS.supports && CSS.supports("animation-timeline: scroll()");
+  if (readline && !cssTimeline) {
+    var paintProgress = function () {
+      var h = document.documentElement.scrollHeight - window.innerHeight;
+      var p = h > 0 ? Math.min(1, Math.max(0, window.scrollY / h)) : 0;
+      readline.style.transform = "scaleX(" + p + ")";
+    };
+    var raf = 0;
+    window.addEventListener("scroll", function () {
+      if (raf) return;
+      raf = window.requestAnimationFrame(function () { raf = 0; paintProgress(); });
+    }, { passive: true });
+    paintProgress();
+  }
+
+  /* ---------- 入场：只做 8px 上移 + 淡入 ---------- */
+  var reveals = document.querySelectorAll(".reveal");
+  var canAnim = document.documentElement.classList.contains("anim");
+  if (canAnim && "IntersectionObserver" in window) {
+    var revealed = 0;
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) {
+          e.target.classList.add("in");
+          revealed++;
+          io.unobserve(e.target);
+        }
+      });
+    }, { rootMargin: "0px 0px -12% 0px", threshold: 0.08 });
+    reveals.forEach(function (el) { io.observe(el); });
+    /* 兜底：只有在观察器一次都没回调（环境异常）时才全部显示。
+       正常情况下头部元素会被立刻观察到，计数大于 0，不会触发。 */
+    window.setTimeout(function () {
+      if (revealed === 0) reveals.forEach(function (el) { el.classList.add("in"); });
+    }, 2000);
+  } else {
+    reveals.forEach(function (el) { el.classList.add("in"); });
+  }
+
+  /* ---------- Hero 输入框：演示性输入 ---------- */
+  var heroInput = document.getElementById("heroInput");
+  if (heroInput && !reduced) {
+    var phrases = ["记一笔", "两个鸡蛋一杯豆浆", "卧推 40 公斤 4 组 8 次", "今天有点累，嗓子疼"];
+    var hi = 0, hc = 0, hdel = false;
+    function heroTick() {
+      var full = phrases[hi];
+      if (!hdel) {
+        hc++;
+        if (hc >= full.length) { hdel = true; setTimeout(heroTick, 1500); heroInput.textContent = full; return; }
+      } else {
+        hc--;
+        if (hc <= 0) { hdel = false; hi = (hi + 1) % phrases.length; }
+      }
+      heroInput.textContent = full.slice(0, hc);
+      heroInput.classList.toggle("typed", hc > 0);
+      setTimeout(heroTick, hdel ? 45 : 110);
+    }
+    setTimeout(heroTick, 900);
+  }
+
+  /* ---------- 记录流程：三阶段轮转 + 同一行原地变形 ---------- */
+  var stages = Array.prototype.slice.call(document.querySelectorAll("#loopStages .stage"));
+  var layers = Array.prototype.slice.call(document.querySelectorAll("#morph .layer"));
+  var loopInput = document.getElementById("loopInput");
+  var loopTimer = null;
+  var si = 0;
+  var STAGE_MS = 3400;
+
+  function paintStage(i) {
+    si = i;
+    stages.forEach(function (s, k) { s.classList.toggle("is-on", k === i); });
+    layers.forEach(function (l, k) { l.classList.toggle("on", k === i); });
+    if (loopInput) {
+      loopInput.textContent = i === 0 ? "中午牛肉面，加了个蛋" : "记一笔";
+      loopInput.classList.toggle("typed", i === 0);
+    }
+    /* 重启动画：把进度线重新推一遍 */
+    var bar = stages[i] && stages[i].querySelector(".stage-bar");
+    if (bar) {
+      bar.style.animation = "none";
+      void bar.offsetWidth;
+      bar.style.animation = "";
+    }
+  }
+
+  function nextStage() { paintStage((si + 1) % stages.length); }
+
+  function startLoop() {
+    if (reduced || stages.length === 0) return;
+    stopLoop();
+    loopTimer = window.setInterval(nextStage, STAGE_MS);
+  }
+  function stopLoop() {
+    if (loopTimer) { window.clearInterval(loopTimer); loopTimer = null; }
+  }
+
+  stages.forEach(function (s, i) {
+    s.addEventListener("click", function () {
+      paintStage(i);
+      startLoop();   /* 手动选择后重新计时 */
+    });
+  });
+
+  if (reduced) {
+    paintStage(2);   /* 降低动效：直接停在结构化结果 */
+  } else {
+    paintStage(0);
+    /* 进入视口才轮转，离开就停，不空转 */
+    if ("IntersectionObserver" in window) {
+      var loopIo = new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) { e.isIntersecting ? startLoop() : stopLoop(); });
+      }, { threshold: 0.25 });
+      var ls = document.getElementById("loopStages");
+      if (ls) loopIo.observe(ls);
+    } else {
+      startLoop();
+    }
+  }
+
+  /* ---------- 四个界面：Tab 切换 ---------- */
+  var tabs = Array.prototype.slice.call(document.querySelectorAll("#sceneTabs .scene-tab"));
+  var panes = Array.prototype.slice.call(document.querySelectorAll(".pane"));
+
+  function selectPane(i) {
+    tabs.forEach(function (t, k) {
+      var on = k === i;
+      t.classList.toggle("is-on", on);
+      t.setAttribute("aria-selected", on ? "true" : "false");
+    });
+    panes.forEach(function (p, k) { p.classList.toggle("on", k === i); });
+  }
+
+  tabs.forEach(function (t, i) {
+    t.addEventListener("click", function () { selectPane(i); });
+    t.addEventListener("keydown", function (e) {
+      var d = e.key === "ArrowDown" || e.key === "ArrowRight" ? 1
+            : e.key === "ArrowUp" || e.key === "ArrowLeft" ? -1 : 0;
+      if (!d) return;
+      e.preventDefault();
+      var n = (i + d + tabs.length) % tabs.length;
+      selectPane(n);
+      tabs[n].focus();
+    });
+  });
+
+  /* 视口内时轻量自动轮转，交互过一次就交还控制权 */
+  var userTook = false;
+  tabs.forEach(function (t) { t.addEventListener("click", function () { userTook = true; }); });
+  var sceneTimer = null;
+  function sceneNext() {
+    if (userTook) return;
+    var cur = tabs.findIndex(function (t) { return t.classList.contains("is-on"); });
+    selectPane((cur + 1) % tabs.length);
+  }
+  if (!reduced && "IntersectionObserver" in window) {
+    var sceneIo = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) {
+          if (!sceneTimer) sceneTimer = window.setInterval(sceneNext, 5200);
+        } else if (sceneTimer) {
+          window.clearInterval(sceneTimer); sceneTimer = null;
+        }
+      });
+    }, { threshold: 0.3 });
+    var st = document.getElementById("sceneTabs");
+    if (st) sceneIo.observe(st);
+  }
+})();
+</script>
+</body>
+</html>
